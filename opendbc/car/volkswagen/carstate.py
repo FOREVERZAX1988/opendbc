@@ -1,10 +1,10 @@
+import math
 from opendbc.can import CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.interfaces import CarStateBase
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.volkswagen.values import CAR, DBC, CanBus, NetworkLocation, TransmissionType, GearShifter, \
-#from opendbc.car.volkswagen.values import DBC, CanBus, NetworkLocation, TransmissionType, GearShifter, \
-#                                                      CarControllerParams, VolkswagenFlags
+                                                      CarControllerParams, VolkswagenFlags
 
 ButtonType = structs.CarState.ButtonEvent.Type
 
@@ -257,9 +257,9 @@ class CarState(CarStateBase):
       ret.cruiseState.available = pt_cp.vl["TSK_02"]["TSK_Status"] in (0, 1, 2)
       ret.cruiseState.enabled = pt_cp.vl["TSK_02"]["TSK_Status"] in (1, 2)
       ret.accFaulted = pt_cp.vl["TSK_02"]["TSK_Status"] in (3,)
-      
+
     ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
-    
+
     self.parse_mlb_mqb_steering_state(ret, pt_cp)
 
     ret.brake = pt_cp.vl["ESP_05"]["ESP_Bremsdruck"] / 250.0
@@ -281,7 +281,7 @@ class CarState(CarStateBase):
     else:
       ret.leftBlinker = bool(pt_cp.vl["Blinkmodi_01"]["BM_links"])
       ret.rightBlinker = bool(pt_cp.vl["Blinkmodi_01"]["BM_rechts"])
-      
+
       ret.seatbeltUnlatched = pt_cp.vl["Airbag_02"]["AB_Gurtschloss_FA"] != 3
       #ret.doorOpen = any([pt_cp.vl["Gateway_05"]["FT_Tuer_geoeffnet"],
       #                    pt_cp.vl["Gateway_05"]["BT_Tuer_geoeffnet"],

@@ -98,7 +98,7 @@ static void volkswagen_mlb_rx_hook(const CANPacket_t *msg) {
       }
     }
   }
-  
+
 }
 
 static bool volkswagen_mlb_tx_hook(const CANPacket_t *msg) {
