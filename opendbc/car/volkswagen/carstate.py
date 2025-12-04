@@ -233,7 +233,9 @@ class CarState(CarStateBase):
     self.frame += 1
     return ret, ret_sp
 
-  def update_mlb(self, pt_cp, cam_cp, ext_cp) -> structs.CarState:
+  #def update_mlb(self, pt_cp, cam_cp, ext_cp) -> structs.CarState:
+  #ADD structs.CarStateSP FOR MLB
+  def update_mlb(self, pt_cp, cam_cp, ext_cp) -> tuple[structs.CarState, structs.CarStateSP]:
     ret = structs.CarState()
     ret_sp = structs.CarStateSP()
 
@@ -245,7 +247,9 @@ class CarState(CarStateBase):
     )
 
     ret.gasPressed = pt_cp.vl["Motor_03"]["MO_Fahrpedalrohwert_01"] > 0
-    ret.gearShifter = GearShifter.drive
+    #ret.gearShifter = GearShifter.drive
+    #fix mlb gearShifter
+    ret.gearShifter = self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Getriebe_03"]["GE_Waehlhebel"], None))
 
     # ACC okay but disabled (1), ACC ready (2), a radar visibility or other fault/disruption (6 or 7)
     # currently regulating speed (3), driver accel override (4), brake only (5)
