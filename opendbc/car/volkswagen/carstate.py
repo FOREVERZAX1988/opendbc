@@ -253,16 +253,13 @@ class CarState(CarStateBase):
 
     # ACC okay but disabled (1), ACC ready (2), a radar visibility or other fault/disruption (6 or 7)
     # currently regulating speed (3), driver accel override (4), brake only (5)
-    if self.CP.carFingerprint == CAR.PORSCHE_MACAN_MK1:
+    if self.CP.pcmCruise:
       ret.cruiseState.available = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (2, 3, 4, 5)
       ret.cruiseState.enabled = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (3, 4, 5)
       ret.accFaulted = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (6, 7)
     else:
-      ret.cruiseState.available = pt_cp.vl["TSK_02"]["TSK_Status"] in (0, 1, 2)
-      ret.cruiseState.enabled = pt_cp.vl["TSK_02"]["TSK_Status"] in (1, 2)
-      ret.accFaulted = pt_cp.vl["TSK_02"]["TSK_Status"] in (3,)
-
-    ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
+      # When using openpilot longitudinal, read main switch from LS_01
+      ret.cruiseState.available = bool(pt_cp.vl["LS_01"]["LS_Hauptschalter"])
 
     self.parse_mlb_mqb_steering_state(ret, pt_cp)
 
