@@ -56,7 +56,7 @@ def get_radar_can_parser_mlb(CP):
 
 class RadarInterface(RadarInterfaceBase):
   def __init__(self, CP, CP_SP=None):
-    super().__init__(CP)
+    super().__init__(CP, CP_SP)
     self.updated_messages = set()
     self.track_id = 0
     self.v_ego = 0.0
