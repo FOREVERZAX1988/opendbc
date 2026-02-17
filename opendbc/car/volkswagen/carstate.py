@@ -251,7 +251,7 @@ class CarState(CarStateBase):
     self.frame += 1
     return ret, ret_sp
 
-  def update_mlb(self, pt_cp, cam_cp, ext_cp) -> structs.CarState:
+  def update_mlb(self, pt_cp, cam_cp, ext_cp) -> tuple[structs.CarState, structs.CarStateSP]:
     ret = structs.CarState()
     ret_sp = structs.CarStateSP()
 
