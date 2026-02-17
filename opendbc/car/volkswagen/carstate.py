@@ -7,10 +7,15 @@ from opendbc.car.volkswagen.values import DBC, CanBus, NetworkLocation, Transmis
 
 ButtonType = structs.CarState.ButtonEvent.Type
 
+# Stock radar's ACC_Gesetzte_Zeitluecke (ZL) is mirrored from ext bus to our ACC_02 on bus 0.
+# The stock radar handles DIST button cycling natively (ZL 1-4).
+# We derive follow_distance from stock ZL: ZL 1→FD 0, ZL 2→FD 1, ZL 3→FD 2, ZL 4→FD 3.
+MLB_DEFAULT_ZEITLUECKE = 3  # Stock Macan ACC starts at 3 bars (ZL 3)
+
 
 class CarState(CarStateBase):
-  def __init__(self, CP):
-    super().__init__(CP)
+  def __init__(self, CP, CP_SP):
+    super().__init__(CP, CP_SP)
     self.frame = 0
     self.eps_init_complete = False
     self.CCP = CarControllerParams(CP)
@@ -19,6 +24,20 @@ class CarState(CarStateBase):
     self.upscale_lead_car_signal = False
     self.eps_stock_values = False
     self.acc_type = 0
+    self.stock_lead_distance = 0
+    self.stock_lead_object = 0
+    self.stock_zeitluecke = MLB_DEFAULT_ZEITLUECKE
+    self.follow_distance = 2
+
+    # Follow distance derived from stock radar's ACC_Gesetzte_Zeitluecke (MLB only)
+    # Stored in Params so the planner can read it independently
+    if CP.flags & VolkswagenFlags.MLB and CP.openpilotLongitudinalControl:
+      from openpilot.common.params import Params
+      self._params = Params()
+      fd_val = self._params.get("FollowDistance", return_default=True)
+      self.follow_distance = int(fd_val) if fd_val is not None else 2
+    else:
+      self._params = None
 
   def update_button_enable(self, buttonEvents: list[structs.CarState.ButtonEvent]):
     if not self.CP.pcmCruise:
@@ -42,7 +61,7 @@ class CarState(CarStateBase):
 
     return button_events
 
-  def update(self, can_parsers) -> structs.CarState:
+  def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     pt_cp = can_parsers[Bus.pt]
     cam_cp = can_parsers[Bus.cam]
     ext_cp = pt_cp if self.CP.networkLocation == NetworkLocation.fwdCamera else cam_cp
@@ -53,6 +72,7 @@ class CarState(CarStateBase):
       return self.update_mlb(pt_cp, cam_cp, ext_cp)
 
     ret = structs.CarState()
+    ret_sp = structs.CarStateSP()
 
     if self.CP.transmissionType == TransmissionType.direct:
       ret.gearShifter = self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Motor_EV_01"]["MO_Waehlpos"], None))
@@ -137,10 +157,11 @@ class CarState(CarStateBase):
     ret.lowSpeedAlert = self.update_low_speed_alert(ret.vEgo)
 
     self.frame += 1
-    return ret
+    return ret, ret_sp
 
-  def update_pq(self, pt_cp, cam_cp, ext_cp) -> structs.CarState:
+  def update_pq(self, pt_cp, cam_cp, ext_cp) -> tuple[structs.CarState, structs.CarStateSP]:
     ret = structs.CarState()
+    ret_sp = structs.CarStateSP()
 
     # vEgo obtained from Bremse_1 vehicle speed rather than Bremse_3 wheel speeds because Bremse_3 isn't present on NSF
     ret.vEgoRaw = pt_cp.vl["Bremse_1"]["BR1_Rad_kmh"] * CV.KPH_TO_MS
@@ -228,10 +249,11 @@ class CarState(CarStateBase):
     ret.lowSpeedAlert = self.update_low_speed_alert(ret.vEgo)
 
     self.frame += 1
-    return ret
+    return ret, ret_sp
 
   def update_mlb(self, pt_cp, cam_cp, ext_cp) -> structs.CarState:
     ret = structs.CarState()
+    ret_sp = structs.CarStateSP()
 
     self.parse_wheel_speeds(ret,
       pt_cp.vl["ESP_03"]["ESP_VL_Radgeschw"],
@@ -277,13 +299,29 @@ class CarState(CarStateBase):
     self.ldw_stock_values = cam_cp.vl["LDW_02"] if self.CP.networkLocation == NetworkLocation.fwdCamera else {}
     self.gra_stock_values = pt_cp.vl["LS_01"]
 
+    # Pass through stock radar's data from ext bus (bus 2) for instrument cluster and ZL mirroring.
+    # The stock radar ECU continues sending ACC_02 on bus 2 even when openpilot controls ACC.
+    self.stock_lead_distance = int(ext_cp.vl["ACC_02"]["ACC_Abstandsindex"])
+    self.stock_lead_object = int(ext_cp.vl["ACC_02"]["ACC_Relevantes_Objekt"])
+    stock_zl = int(ext_cp.vl["ACC_02"]["ACC_Gesetzte_Zeitluecke"])
+    if 1 <= stock_zl <= 5:
+      self.stock_zeitluecke = stock_zl
+
+    # Derive follow distance from stock radar's Zeitluecke (ZL 1-4 → FD 0-3)
+    # This updates automatically when the DIST button cycles the stock radar's ZL
+    if self._params is not None:
+      new_fd = max(0, min(3, self.stock_zeitluecke - 1))
+      if new_fd != self.follow_distance:
+        self.follow_distance = new_fd
+        self._params.put_nonblocking('FollowDistance', self.follow_distance)
+
     ret.buttonEvents = self.create_button_events(pt_cp, self.CCP.BUTTONS)
 
     ret.cruiseState.standstill = self.CP.pcmCruise and self.esp_hold_confirmation
     ret.standstill = ret.vEgoRaw == 0
 
     self.frame += 1
-    return ret
+    return ret, ret_sp
 
   def update_low_speed_alert(self, v_ego: float) -> bool:
     # Low speed steer alert hysteresis logic
@@ -312,7 +350,7 @@ class CarState(CarStateBase):
     return temp_fault, perm_fault
 
   @staticmethod
-  def get_can_parsers(CP):
+  def get_can_parsers(CP, CP_SP):
     if CP.flags & VolkswagenFlags.PQ:
       return CarState.get_can_parsers_pq(CP)
 
