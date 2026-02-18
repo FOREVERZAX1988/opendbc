@@ -47,11 +47,12 @@ class CarState(CarStateBase):
     pt_cp = can_parsers[Bus.pt]
     cam_cp = can_parsers[Bus.cam]
     ext_cp = pt_cp if self.CP.networkLocation == NetworkLocation.fwdCamera else cam_cp
+    alt_cp = can_parsers[Bus.alt]
 
     if self.CP.flags & VolkswagenFlags.PQ:
       return self.update_pq(pt_cp, cam_cp, ext_cp)
     elif self.CP.flags & VolkswagenFlags.MLB:
-      return self.update_mlb(pt_cp, cam_cp, ext_cp)
+      return self.update_mlb(pt_cp, cam_cp, ext_cp, alt_cp)
 
     ret = structs.CarState()
     ret_sp = structs.CarStateSP()
@@ -233,9 +234,7 @@ class CarState(CarStateBase):
     self.frame += 1
     return ret, ret_sp
 
-  #def update_mlb(self, pt_cp, cam_cp, ext_cp) -> structs.CarState:
-  #ADD structs.CarStateSP FOR MLB
-  def update_mlb(self, pt_cp, cam_cp, ext_cp) -> tuple[structs.CarState, structs.CarStateSP]:
+  def update_mlb(self, pt_cp, cam_cp, ext_cp, alt_cp) -> structs.CarState:
     ret = structs.CarState()
     ret_sp = structs.CarStateSP()
 
@@ -247,22 +246,20 @@ class CarState(CarStateBase):
     )
 
     ret.gasPressed = pt_cp.vl["Motor_03"]["MO_Fahrpedalrohwert_01"] > 0
-    #ret.gearShifter = GearShifter.drive
-    #fix mlb gearShifter
-    ret.gearShifter = self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Getriebe_03"]["GE_Waehlhebel"], None))
+    ret.gearShifter = self.parse_gear_shifter(self.CCP.shifter_values.get(alt_cp.vl["Getriebe_03"]["GE_Waehlhebel"], None))
 
     # ACC okay but disabled (1), ACC ready (2), a radar visibility or other fault/disruption (6 or 7)
     # currently regulating speed (3), driver accel override (4), brake only (5)
     if self.CP.carFingerprint == CAR.PORSCHE_MACAN_MK1:
       ret.cruiseState.available = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (2, 3, 4, 5)
       ret.cruiseState.enabled = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (3, 4, 5)
+      ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
       ret.accFaulted = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (6, 7)
     else:
       ret.cruiseState.available = pt_cp.vl["TSK_02"]["TSK_Status"] in (0, 1, 2)
       ret.cruiseState.enabled = pt_cp.vl["TSK_02"]["TSK_Status"] in (1, 2)
+      ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
       ret.accFaulted = pt_cp.vl["TSK_02"]["TSK_Status"] in (3,)
-
-    ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
 
     self.parse_mlb_mqb_steering_state(ret, pt_cp)
 
@@ -274,23 +271,17 @@ class CarState(CarStateBase):
     ret.espDisabled = pt_cp.vl["ESP_01"]["ESP_Tastung_passiv"] != 0
 
     if self.CP.carFingerprint == CAR.PORSCHE_MACAN_MK1:
-      ret.leftBlinker = bool(pt_cp.vl["Gateway_11"]["BH_Blinker_li"])
-      ret.rightBlinker = bool(pt_cp.vl["Gateway_11"]["BH_Blinker_re"])
-
       ret.seatbeltUnlatched = pt_cp.vl["Gateway_06"]["AB_Gurtschloss_FA"] != 3
-      ret.doorOpen = any([pt_cp.vl["Gateway_05"]["FT_Tuer_geoeffnet"],
-                          pt_cp.vl["Gateway_05"]["BT_Tuer_geoeffnet"],
-                          pt_cp.vl["Gateway_05"]["HL_Tuer_geoeffnet"],
-                          pt_cp.vl["Gateway_05"]["HR_Tuer_geoeffnet"]])
     else:
-      ret.leftBlinker = bool(pt_cp.vl["Blinkmodi_01"]["BM_links"])
-      ret.rightBlinker = bool(pt_cp.vl["Blinkmodi_01"]["BM_rechts"])
-
       ret.seatbeltUnlatched = pt_cp.vl["Airbag_02"]["AB_Gurtschloss_FA"] != 3
-      #ret.doorOpen = any([pt_cp.vl["Gateway_05"]["FT_Tuer_geoeffnet"],
-      #                    pt_cp.vl["Gateway_05"]["BT_Tuer_geoeffnet"],
-      #                    pt_cp.vl["Gateway_05"]["HL_Tuer_geoeffnet"],
-      #                    pt_cp.vl["Gateway_05"]["HR_Tuer_geoeffnet"]])
+
+    ret.leftBlinker = bool(alt_cp.vl["Gateway_11"]["BH_Blinker_li"])
+    ret.rightBlinker = bool(alt_cp.vl["Gateway_11"]["BH_Blinker_re"])
+
+    ret.doorOpen = any([alt_cp.vl["Gateway_05"]["FT_Tuer_geoeffnet"],
+                        alt_cp.vl["Gateway_05"]["BT_Tuer_geoeffnet"],
+                        alt_cp.vl["Gateway_05"]["HL_Tuer_geoeffnet"],
+                        alt_cp.vl["Gateway_05"]["HR_Tuer_geoeffnet"]])
 
     # Consume blind-spot monitoring info/warning LED states, if available.
     # Infostufe: BSM LED on, Warnung: BSM LED flashing
@@ -341,16 +332,14 @@ class CarState(CarStateBase):
       return CarState.get_can_parsers_pq(CP)
 
     # manually configure some optional and variable-rate/edge-triggered messages
-    pt_messages, cam_messages = [], []
+    pt_messages, cam_messages, alt_messages = [], [], []
 
     if not CP.flags & VolkswagenFlags.MLB:
       pt_messages += [
         ("Blinkmodi_02", 1)  # From J519 BCM (sent at 1Hz when no lights active, 50Hz when active)
       ]
     if CP.flags & VolkswagenFlags.MLB:
-        pt_messages += [
-        ("Blinkmodi_01", math.nan)  # From J519 BCM (is inactive when no lights active, 50Hz when active)
-      ]
+        pt_messages += []
     if CP.flags & VolkswagenFlags.STOCK_HCA_PRESENT:
       cam_messages += [
         ("HCA_01", 1),  # From R242 Driver assistance camera, 50Hz if steering/1Hz if not
@@ -359,6 +348,7 @@ class CarState(CarStateBase):
     return {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], pt_messages, CanBus(CP).pt),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], cam_messages, CanBus(CP).cam),
+      Bus.alt: CANParser(DBC[CP.carFingerprint][Bus.pt], alt_messages, CanBus(CP).alt),
     }
 
   @staticmethod
