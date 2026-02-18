@@ -271,6 +271,10 @@ class CarState(CarStateBase):
       ret.cruiseState.available = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (2, 3, 4, 5)
       ret.cruiseState.enabled = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (3, 4, 5)
       ret.accFaulted = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (6, 7)
+      ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
+      if ret.cruiseState.speed > 90:
+        ret.cruiseState.speed = 0
+      ret.cruiseState.speedCluster = ret.cruiseState.speed
     else:
       # When using openpilot longitudinal, read main switch from LS_01
       ret.cruiseState.available = bool(pt_cp.vl["LS_01"]["LS_Hauptschalter"])
