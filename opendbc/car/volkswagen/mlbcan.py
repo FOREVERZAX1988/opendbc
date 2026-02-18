@@ -166,6 +166,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
                              ((0.8 if accel > 0.3 else 0.0) if accel > 0.0 else max(accel, -0.3))) if not braking else
                          max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))) if acc_enabled else 0,
     "ACC_Vorbefuellung_Bremsanlage": 1 if braking else 0,
+    "ACC_Beeinflussung_ESP": 1 if braking else 0,  # Force ESP to engage hydraulic brakes during ACC braking
     "ACC_StartStopp_Info": acc_enabled,
     "ACC_Anhalten": stopping,
     "ACC_Betaetigung_EPB": esp_hold,  # Echo ESP hold state -- DO NOT use stopping (causes brake release when ACC off)
