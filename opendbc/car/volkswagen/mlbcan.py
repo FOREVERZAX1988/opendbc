@@ -123,9 +123,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   if acc_enabled and not braking:
     drag_torque = 0.0564 * v_ego ** 2 + 2.671 * v_ego + 45.54
     accel_gain = max(min(1.1 * v_ego ** 2 - 6.5 * v_ego + 63, 300), 63)
-    # 1.3x torque boost on the accel component only (drag stays calibrated for cruise).
-    # Planner maxes at ~1.0 m/s² while stock requests 2.5 -- this partially compensates.
-    accel_torque = accel * accel_gain * 1.3
+    accel_torque = accel * accel_gain * 1.18
     acc_moment = int(max(0, min(500, drag_torque + accel_torque)))
     # Smooth taper: fade torque to 0 as accel approaches braking threshold (-0.18).
     # Only taper for meaningful decel requests (below -0.1), not mild ones.
@@ -154,16 +152,14 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # Tells the PDK what acceleration to expect, influencing gear selection.
     # DBC: 9-bit unsigned, range [-2.016, +10.248]. Values below -2.016 WRAP to ~+10
     # (unsigned overflow), sending a massive accel request to the PDK during braking!
-    #   Accel (positive): 2.5x multiplier. Floor is proportional to avoid gear hunting:
-    #     accel > 0.3: floor 0.8 (real acceleration, force PDK downshift)
-    #     accel 0-0.3: no floor, follows accel * 2.5 (cruise/mild, let PDK choose gear)
-    #     Previous flat 1.5 floor caused PDK to hold low gears at cruise (+0.05 → 1.5!)
-    #     creating gear oscillation: low gear → overshoot → decel → high gear → repeat.
+    #   Accel (positive): 1.5x multiplier gives the PDK a gentle lookahead hint without
+    #     triggering aggressive downshifts. Floor of 0.3 for accel > 0.3 prevents gear
+    #     hunting while avoiding the high-RPM launches that 0.8 caused.
     #   Mild decel (torque taper zone): allow gentle negative values (capped at -0.3)
-    #     to signal the PDK to downshift, preparing for re-acceleration.
+    #     to signal the PDK to upshift, preparing for re-acceleration.
     #   Braking: clamped to DBC min -2.016 (stock max observed: -2.015)
-    "ACC_ax_Getriebe": (max(min(accel * 2.5, min(1.8 + 0.015 * v_ego * 3.6, 2.5)),
-                             ((0.8 if accel > 0.3 else 0.0) if accel > 0.0 else max(accel, -0.3))) if not braking else
+    "ACC_ax_Getriebe": (max(min(accel * 1.8, min(1.8 + 0.015 * v_ego * 3.6, 2.5)),
+                             ((0.3 if accel > 0.3 else 0.0) if accel > 0.0 else max(accel, -0.3))) if not braking else
                          max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))) if acc_enabled else 0,
     "ACC_Vorbefuellung_Bremsanlage": 1 if braking else 0,
     "ACC_Beeinflussung_ESP": 1 if braking else 0,  # Force ESP to engage hydraulic brakes during ACC braking
