@@ -106,24 +106,27 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
 
   # Engine torque request (ACC_Momentenanforderung, 0-1021 Nm)
   #
-  # Drag torque (steady cruise): quadratic fit from 79k stock ACC samples
-  #   filtered at |ACC_ax_Getriebe| < 0.1 (pure cruise, no accel/decel intent).
-  #   Matches stock within ~12 Nm across 20-140 kph (RMSE 6.8 Nm).
-  #   Previous model overshot by 19-55 Nm at highway speeds, causing the e2e
-  #   planner to constantly request mild decel and oscillate near the brake threshold.
+  # Drag torque (steady cruise): quadratic fit from 91k stock ACC samples (R²=0.41)
+  #   drag_torque = 0.0884 * v² + 0.96 * v + 63.4
+  #   20 km/h: 71 Nm   60 km/h: 104 Nm   100 km/h: 158 Nm   140 km/h: 234 Nm
+  # Old (79k samples): drag_torque = 0.0564 * v_ego ** 2 + 2.671 * v_ego + 45.54
   #
-  # Accel gain (additional torque per m/s² of acceleration):
-  #   Quadratic fit from stock data, floored at 63 to prevent dip at ~10 km/h
-  #   gain = max(min(1.1 * v² - 6.5 * v + 63, 300), 63)
+  # Accel gain (additional torque per m/s² of acceleration, 5.3k points):
+  #   Linear fit from stock ACC data: accel_gain = 5.9 * v_ego + 80
+  #   20 km/h: gain=97   45 km/h: gain=154   80 km/h: gain=211   120 km/h: gain=277
+  # Old quadratic: accel_gain = max(min(1.1 * v_ego ** 2 - 6.5 * v_ego + 63, 300), 63)
+  # Old linear: accel_gain = 5 * v_ego + 63
   #
   # Torque taper: as accel approaches the braking threshold (-0.18), torque is
   # smoothly faded to 0. Taper starts at -0.1.
   # At -0.14: fade=0.5, ~65 Nm at highway (smooth engine braking).
   # At -0.18: fade=0, seamless handoff to braking mode.
   if acc_enabled and not braking:
-    drag_torque = 0.0564 * v_ego ** 2 + 2.671 * v_ego + 45.54
-    accel_gain = max(min(1.1 * v_ego ** 2 - 6.5 * v_ego + 63, 300), 63)
-    accel_torque = accel * accel_gain * 1.18
+    # Old: drag_torque = 0.0564 * v_ego ** 2 + 2.671 * v_ego + 45.54
+    drag_torque = 0.0884 * v_ego ** 2 + 0.96 * v_ego + 63.4
+    # Old: accel_gain = 5 * v_ego + 63 (with * 1.18 multiplier)
+    accel_gain = 5.9 * v_ego + 80
+    accel_torque = accel * accel_gain
     acc_moment = int(max(0, min(500, drag_torque + accel_torque)))
     # Smooth taper: fade torque to 0 as accel approaches braking threshold (-0.18).
     # Only taper for meaningful decel requests (below -0.1), not mild ones.
@@ -152,14 +155,14 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # Tells the PDK what acceleration to expect, influencing gear selection.
     # DBC: 9-bit unsigned, range [-2.016, +10.248]. Values below -2.016 WRAP to ~+10
     # (unsigned overflow), sending a massive accel request to the PDK during braking!
-    #   Accel (positive): 1.5x multiplier gives the PDK a gentle lookahead hint without
-    #     triggering aggressive downshifts. Floor of 0.3 for accel > 0.3 prevents gear
-    #     hunting while avoiding the high-RPM launches that 0.8 caused.
-    #   Mild decel (torque taper zone): allow gentle negative values (capped at -0.3)
-    #     to signal the PDK to upshift, preparing for re-acceleration.
+    #   Linear: 2.5x multiplier, floor 0. Scales naturally with planner accel --
+    #     no artificial floor that causes unnecessary downshifts at low accel.
+    #   Mild decel (torque taper zone): capped at -0.3 to signal gentle upshift.
     #   Braking: clamped to DBC min -2.016 (stock max observed: -2.015)
-    "ACC_ax_Getriebe": (max(min(accel * 1.8, min(1.8 + 0.015 * v_ego * 3.6, 2.5)),
-                             ((0.3 if accel > 0.3 else 0.0) if accel > 0.0 else max(accel, -0.3))) if not braking else
+    # Old: (max(min(accel * 1.8, min(1.8 + 0.015 * v_ego * 3.6, 2.5)),
+    #            ((0.3 if accel > 0.3 else 0.0) if accel > 0.0 else max(accel, -0.3))) if not braking else
+    #        max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))) if acc_enabled else 0,
+    "ACC_ax_Getriebe": (max(accel * 2.5, -0.3) if not braking else
                          max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))) if acc_enabled else 0,
     "ACC_Vorbefuellung_Bremsanlage": 1 if braking else 0,
     "ACC_Beeinflussung_ESP": 1 if braking else 0,  # Force ESP to engage hydraulic brakes during ACC braking
