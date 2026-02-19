@@ -1,0 +1,12 @@
+NOTES:
+merge from:
+https://github.com/shaiweinstein/opendbc
+
+branch:
+macan-long-dev
+
+hash:
+f3da5b828b12153a3f3b87e47c9302c23f91f60a
+
+othes:
+not merge "for better gear shift (maybe)"(reason:not good)
