@@ -59,9 +59,14 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active):
 # Braking mode state for hysteresis (prevents rapid mode switching that causes brake stabs)
 _braking_prev = False
 
+# Dynamic drag estimation: EMA-filtered engine output torque during cruise.
+# Adapts to road grade, wind, payload, engine variant -- no static formula can do this.
+_dynamic_drag = 0.0
+_dynamic_drag_samples = 0
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0):
-  global _braking_prev
+
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0):
+  global _braking_prev, _dynamic_drag, _dynamic_drag_samples
   commands = []
 
   # ACC_05: accel/decel request to gearbox, ESP, EPB, and motor
@@ -106,32 +111,54 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
 
   # Engine torque request (ACC_Momentenanforderung, 0-1021 Nm)
   #
-  # Drag torque (steady cruise): quadratic fit from 91k stock ACC samples (R²=0.41)
-  #   drag_torque = 0.0884 * v² + 0.96 * v + 63.4
-  #   20 km/h: 71 Nm   60 km/h: 104 Nm   100 km/h: 158 Nm   140 km/h: 234 Nm
-  # Old (79k samples): drag_torque = 0.0564 * v_ego ** 2 + 2.671 * v_ego + 45.54
+  # DRAG TORQUE:
+  #   Primary: dynamic drag from MO_Mom_o_ex (engine output torque) during cruise.
+  #   During cruise (accel ≈ 0), engine output = total drag (aero + rolling + grade).
+  #   EMA-filtered at 50Hz (alpha=0.04, ~0.5s time constant) for noise rejection.
+  #   Automatically adapts to road grade, wind, payload, engine variant.
   #
-  # Accel gain (additional torque per m/s² of acceleration, 5.3k points):
-  #   Linear fit from stock ACC data: accel_gain = 5.9 * v_ego + 80
-  #   20 km/h: gain=97   45 km/h: gain=154   80 km/h: gain=211   120 km/h: gain=277
-  # Old quadratic: accel_gain = max(min(1.1 * v_ego ** 2 - 6.5 * v_ego + 63, 300), 63)
-  # Old linear: accel_gain = 5 * v_ego + 63
+  #   Fallback (cold start, before enough cruise data): static formula from 60k
+  #   pure stock ACC samples (route 00000001--af206016dd, R²=0.45):
+  #     drag_torque = 0.062 * v² - 1.1 * v + 154
+  #     20 km/h: 150   40 km/h: 143   60 km/h: 150   80 km/h: 168   100 km/h: 198
   #
-  # Torque taper: as accel approaches the braking threshold (-0.18), torque is
-  # smoothly faded to 0. Taper starts at -0.1.
-  # At -0.14: fade=0.5, ~65 Nm at highway (smooth engine braking).
-  # At -0.18: fade=0, seamless handoff to braking mode.
+  #   Old formulas (under-estimated drag by 60-100 Nm at low/medium speeds):
+  #     drag_torque = 0.0884 * v² + 0.96 * v + 63.4   (91k samples, mixed OP/stock)
+  #     drag_torque = 0.0564 * v² + 2.671 * v + 45.54  (79k samples, original)
+  #
+  # ACCEL GAIN:
+  #   Flat gain of 80 Nm per m/s². The planner sends higher accel values (0.8-1.5)
+  #   than stock ACC's internal accel (~0.3-0.5) for the same gentle departure, so
+  #   the gain must be lower to produce stock-appropriate torque.
+  #   At gain=80: accel=1.0 → 234 Nm total (matches stock gentle launch 210-250).
+  #   Old gain=150 produced 304 Nm at accel=1.0, matching stock *aggressive* launches
+  #   and causing PDK to downshift + high RPMs for normal driving.
+  #   Old: accel_gain = 150 (too high, caused high RPMs during normal launches)
+  #   Old: accel_gain = 5.9 * v_ego + 80 (over-revved at highway)
+  #   Old: accel_gain = 5 * v_ego + 63 (with * 1.18 multiplier)
+  #
+  # TORQUE TAPER: as accel approaches braking threshold (-0.18), torque fades to 0.
+  #   -0.10: fade=1.0 (full torque)  -0.14: fade=0.5  -0.18: fade=0.0 (handoff to brakes)
   if acc_enabled and not braking:
-    # Old: drag_torque = 0.0564 * v_ego ** 2 + 2.671 * v_ego + 45.54
-    drag_torque = 0.0884 * v_ego ** 2 + 0.96 * v_ego + 63.4
-    # Old: accel_gain = 5 * v_ego + 63 (with * 1.18 multiplier)
-    accel_gain = 5.9 * v_ego + 80
+    # Dynamic drag: update EMA from engine torque during cruise-like conditions
+    if abs(accel) < 0.15 and v_ego > 0.5 and engine_torque > 20:
+      alpha = 0.04  # ~0.5s time constant at 50Hz
+      if _dynamic_drag_samples == 0:
+        _dynamic_drag = float(engine_torque)
+      else:
+        _dynamic_drag = alpha * engine_torque + (1.0 - alpha) * _dynamic_drag
+      _dynamic_drag_samples += 1
+
+    # Use dynamic drag if we have enough samples (~1 second of cruise data),
+    # otherwise fall back to the static formula
+    if _dynamic_drag_samples > 50 and _dynamic_drag > 50:
+      drag_torque = _dynamic_drag
+    else:
+      drag_torque = 0.062 * v_ego ** 2 - 1.1 * v_ego + 154
+
+    accel_gain = 77  # planner accel is ~2x stock internal accel, so gain is ~half of stock's 130-170
     accel_torque = accel * accel_gain
     acc_moment = int(max(0, min(500, drag_torque + accel_torque)))
-    # Smooth taper: fade torque to 0 as accel approaches braking threshold (-0.18).
-    # Only taper for meaningful decel requests (below -0.1), not mild ones.
-    # For mild decel (0 to -0.1), the accel_torque component naturally reduces
-    # torque by a few Nm, which is appropriate.
     if accel < -0.1:
       fade = max(0.0, (accel + 0.18) / 0.08)  # 1.0 at -0.1, 0.0 at -0.18
       acc_moment = int(acc_moment * fade)
@@ -161,8 +188,8 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     #     Accel to set speed: +0.3 to +2.0 (mode-dependent)
     #     Closing on lead: -0.2 to -1.5
     #     Strong braking: -1.5 to -2.016 (DBC min)
-    #   Current: dead zone below 0.3 (cruise = 0, no gear hunting), conservative
-    #   cap at 1.0 during accel (prevents high-RPM over-rev), braking unchanged.
+    #   Current: dead zone below 0.25 (cruise = 0, no gear hunting), conservative
+    #   cap at 1.3 during accel (prevents high-RPM over-rev), braking unchanged.
     #   Braking: clamped to DBC min -2.016 (stock max observed: -2.015)
     # Old zero-during-accel: (0 if not braking else ...) -- too simple, PDK had
     #   no lookahead for acceleration phases (gear prep, preselection).
@@ -175,7 +202,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     #   (max(min(accel * 1.8, min(1.8 + 0.015 * v_ego * 3.6, 2.5)),
     #        ((0.3 if accel > 0.3 else 0.0) if accel > 0.0 else max(accel, -0.3))) if not braking else
     #    max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))) if acc_enabled else 0,
-    "ACC_ax_Getriebe": ((min(accel, 1.0) if accel > 0.3 else 0) if not braking else
+    "ACC_ax_Getriebe": ((min(accel, 1.3) if accel > 0.25 else 0) if not braking else
                          max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))) if acc_enabled else 0,
     "ACC_Vorbefuellung_Bremsanlage": 1 if braking else 0,
     "ACC_Beeinflussung_ESP": 1 if braking else 0,  # Force ESP to engage hydraulic brakes during ACC braking

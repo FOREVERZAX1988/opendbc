@@ -265,6 +265,10 @@ class CarState(CarStateBase):
     ret.gasPressed = pt_cp.vl["Motor_03"]["MO_Fahrpedalrohwert_01"] > 0
     ret.gearShifter = self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Getriebe_03"]["GE_Waehlhebel"], None))
 
+    # Engine output torque for dynamic drag estimation (MO_Mom_o_ex from Motor_01).
+    # During cruise, this equals the total drag torque (aero + rolling + grade + drivetrain).
+    self.engine_torque_output = pt_cp.vl["Motor_01"]["MO_Mom_o_ex"]
+
     # ACC okay but disabled (1), ACC ready (2), a radar visibility or other fault/disruption (6 or 7)
     # currently regulating speed (3), driver accel override (4), brake only (5)
     if self.CP.pcmCruise:
