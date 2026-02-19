@@ -155,14 +155,20 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # Tells the PDK what acceleration to expect, influencing gear selection.
     # DBC: 9-bit unsigned, range [-2.016, +10.248]. Values below -2.016 WRAP to ~+10
     # (unsigned overflow), sending a massive accel request to the PDK during braking!
-    #   Linear: 2.5x multiplier, floor 0. Scales naturally with planner accel --
-    #     no artificial floor that causes unnecessary downshifts at low accel.
-    #   Mild decel (torque taper zone): capped at -0.3 to signal gentle upshift.
     #   Braking: clamped to DBC min -2.016 (stock max observed: -2.015)
-    # Old: (max(min(accel * 1.8, min(1.8 + 0.015 * v_ego * 3.6, 2.5)),
-    #            ((0.3 if accel > 0.3 else 0.0) if accel > 0.0 else max(accel, -0.3))) if not braking else
-    #        max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))) if acc_enabled else 0,
-    "ACC_ax_Getriebe": (max(accel * 2.5, -0.3) if not braking else
+    # Experiment: send 0 during accel/cruise (let PDK manage shifts on its own
+    # from ACC_Momentenanforderung and its internal shift maps), only send
+    # negative values during braking so PDK downshifts and prepares for re-accel.
+    # Old linear: 2.5x multiplier, floor 0. Scales naturally with planner accel --
+    #   no artificial floor that causes unnecessary downshifts at low accel.
+    #   Mild decel (torque taper zone): capped at -0.3 to signal gentle upshift.
+    #   (max(accel * 2.5, -0.3) if not braking else
+    #    max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))) if acc_enabled else 0,
+    # Old quadratic: 1.8x multiplier with speed-dependent cap and 0.3 floor.
+    #   (max(min(accel * 1.8, min(1.8 + 0.015 * v_ego * 3.6, 2.5)),
+    #        ((0.3 if accel > 0.3 else 0.0) if accel > 0.0 else max(accel, -0.3))) if not braking else
+    #    max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))) if acc_enabled else 0,
+    "ACC_ax_Getriebe": (0 if not braking else
                          max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))) if acc_enabled else 0,
     "ACC_Vorbefuellung_Bremsanlage": 1 if braking else 0,
     "ACC_Beeinflussung_ESP": 1 if braking else 0,  # Force ESP to engage hydraulic brakes during ACC braking
