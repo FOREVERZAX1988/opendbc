@@ -156,7 +156,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     else:
       drag_torque = 0.062 * v_ego ** 2 - 1.1 * v_ego + 154
 
-    accel_gain = 77  # planner accel is ~2x stock internal accel, so gain is ~half of stock's 130-170
+    accel_gain = 120  # 77 couldn't accelerate, 150 caused high RPMs, 120 is the middle ground
     accel_torque = accel * accel_gain
     acc_moment = int(max(0, min(500, drag_torque + accel_torque)))
     if accel < -0.1:
@@ -205,7 +205,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     "ACC_ax_Getriebe": ((min(accel, 1.3) if accel > 0.25 else 0) if not braking else
                          max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))) if acc_enabled else 0,
     "ACC_Vorbefuellung_Bremsanlage": 1 if braking else 0,
-    "ACC_Beeinflussung_ESP": 1 if braking else 0,  # Force ESP to engage hydraulic brakes during ACC braking
+    "ACC_Beeinflussung_ESP": 1 if (stopping or esp_hold) else 0,  # Only force ESP when stopping or held at standstill (too harsh for normal braking)
     "ACC_StartStopp_Info": acc_enabled,
     "ACC_Anhalten": stopping,
     "ACC_Betaetigung_EPB": esp_hold,  # Echo ESP hold state -- DO NOT use stopping (causes brake release when ACC off)
