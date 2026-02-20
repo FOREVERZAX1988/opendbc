@@ -73,9 +73,11 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # No hysteresis needed: torque is already ~0 at the hydraulic braking threshold, so there's
   # no cliff to cause brake stabs when switching modes.
   #
-  # Asymmetric k: planner sends 0.8-1.5 for gentle launches but only -0.05 to -0.1 for
-  # cruise corrections. k_accel=0.5 keeps launches stock-appropriate (accel=1.0 → 212 Nm),
-  # k_decel=2.0 gives effective engine braking (torque reaches 0 at accel=-0.5).
+  # Asymmetric k: planner sends 0.8-1.5 for launches but only -0.05 to -0.1 for
+  # cruise corrections. k_decel=2.0 gives effective engine braking (torque reaches 0 at -0.5).
+  # k_accel ramps quadratically from 0 at standstill to 0.5 at ~40 kph to prevent harsh
+  # stop-and-go launches (PDK gear 1 multiplies torque ~11x, so 230 Nm feels like a lunge).
+  # Cruise_torque alone (141 Nm) still gives ~1.9 m/s² in gear 1 -- brisk, not sluggish.
   #
   # Cruise torque baseline: linear fit to stock ACC (R²=0.96, max err 6 Nm)
   #   20 km/h: 155   40 km/h: 169   60 km/h: 183   80 km/h: 196   100 km/h: 210
@@ -90,7 +92,8 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   if acc_enabled and not braking:
     cruise_torque = 2.5 * v_ego + 141
     if accel >= 0:
-      scale = 1.0 + accel * 0.5
+      k_accel = 0.5 * min(1.0, (v_ego / 11.0) ** 2)
+      scale = 1.0 + accel * k_accel
     else:
       scale = max(0.0, 1.0 + accel * 2.0)
     acc_moment = int(min(500, cruise_torque * scale))
