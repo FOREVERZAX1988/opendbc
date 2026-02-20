@@ -92,10 +92,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   if acc_enabled and not braking:
     cruise_torque = 2.5 * v_ego + 136
     if accel >= 0:
-      k_accel = 0.5 * min(1.0, (v_ego / 11.0) ** 2)
+      k_accel = 0.7 * min(1.0, (v_ego / 11.0) ** 2)
       scale = 1.0 + accel * k_accel
     else:
-      scale = max(0.0, 1.0 + accel * 2.0)
+      scale = max(0.0, 1.0 + accel * 2.2)
     acc_moment = int(min(500, cruise_torque * scale))
   else:
     acc_moment = 0
