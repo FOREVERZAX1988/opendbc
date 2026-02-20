@@ -112,27 +112,17 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # Engine torque request (ACC_Momentenanforderung, 0-1021 Nm)
   #
   # DRAG TORQUE:
-  #   Primary: dynamic drag from MO_Mom_o_ex (engine output torque) during cruise.
-  #   During cruise (accel ≈ 0), engine output = total drag (aero + rolling + grade).
-  #   EMA-filtered at 50Hz (alpha=0.04, ~0.5s time constant) for noise rejection.
-  #   Automatically adapts to road grade, wind, payload, engine variant.
-  #
-  #   Fallback (cold start, before enough cruise data): fit to stock ACC median
-  #   cruise torque at each speed (route 00000001--af206016dd):
-  #     drag_torque = 0.2 * v² - 4.5 * v + 170
-  #     20 km/h: 151   40 km/h: 145   60 km/h: 151   80 km/h: 169   100 km/h: 199
-  #   Old formula (R²=0.45, underestimated at cruise speeds by 15-27 Nm):
-  #     drag_torque = 0.062 * v² - 1.1 * v + 154
-  #
-  #   Old formulas (under-estimated drag by 60-100 Nm at low/medium speeds):
-  #     drag_torque = 0.0884 * v² + 0.96 * v + 63.4   (91k samples, mixed OP/stock)
-  #     drag_torque = 0.0564 * v² + 2.671 * v + 45.54  (79k samples, original)
+  #   Linear fit to stock ACC median cruise torque (route 00000001--af206016dd).
+  #   R²=0.96, max error 6 Nm. Stock cruise torque rises nearly linearly with speed.
+  #     drag_torque = 2.5 * v_ego + 141
+  #     20 km/h: 155   40 km/h: 169   60 km/h: 183   80 km/h: 196   100 km/h: 210
+  #   Old: 0.2v²-4.5v+170 (R²=-1.6, 25-32 Nm short at 30-70 kph due to mid-range valley)
   #
   # ACCEL GAIN:
-  #   Flat gain of 80 Nm per m/s². The planner sends higher accel values (0.8-1.5)
+  #   Flat gain of 77 Nm per m/s². The planner sends higher accel values (0.8-1.5)
   #   than stock ACC's internal accel (~0.3-0.5) for the same gentle departure, so
   #   the gain must be lower to produce stock-appropriate torque.
-  #   At gain=80: accel=1.0 → 234 Nm total (matches stock gentle launch 210-250).
+  #   At gain=77: accel=1.0 → ~218 Nm at 0 kph (matches stock gentle launch 210-250).
   #   Old gain=150 produced 304 Nm at accel=1.0, matching stock *aggressive* launches
   #   and causing PDK to downshift + high RPMs for normal driving.
   #   Old: accel_gain = 150 (too high, caused high RPMs during normal launches)
@@ -142,12 +132,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # TORQUE TAPER: as accel approaches braking threshold (-0.18), torque fades to 0.
   #   -0.10: fade=1.0 (full torque)  -0.14: fade=0.5  -0.18: fade=0.0 (handoff to brakes)
   if acc_enabled and not braking:
-    # Dynamic drag disabled: creates circular feedback loop where EMA locks onto
-    # our own torque request (~100 Nm) instead of true drag (~170 Nm), causing
-    # severe underpowering. MO_Mom_o_ex ≈ ACC_Momentenanforderung (engine follows
-    # our request), so reading it back just reflects our own estimate, not road load.
-    # TODO: revisit with a signal that reflects actual road load independently.
-    drag_torque = 0.2 * v_ego ** 2 - 4.5 * v_ego + 170
+    drag_torque = 2.5 * v_ego + 141
 
     accel_gain = 77  # with corrected drag formula, lower gain should work (matches stock)
     accel_torque = accel * accel_gain
