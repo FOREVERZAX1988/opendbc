@@ -117,10 +117,12 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   #   EMA-filtered at 50Hz (alpha=0.04, ~0.5s time constant) for noise rejection.
   #   Automatically adapts to road grade, wind, payload, engine variant.
   #
-  #   Fallback (cold start, before enough cruise data): static formula from 60k
-  #   pure stock ACC samples (route 00000001--af206016dd, R²=0.45):
+  #   Fallback (cold start, before enough cruise data): fit to stock ACC median
+  #   cruise torque at each speed (route 00000001--af206016dd):
+  #     drag_torque = 0.2 * v² - 4.5 * v + 170
+  #     20 km/h: 151   40 km/h: 145   60 km/h: 151   80 km/h: 169   100 km/h: 199
+  #   Old formula (R²=0.45, underestimated at cruise speeds by 15-27 Nm):
   #     drag_torque = 0.062 * v² - 1.1 * v + 154
-  #     20 km/h: 150   40 km/h: 143   60 km/h: 150   80 km/h: 168   100 km/h: 198
   #
   #   Old formulas (under-estimated drag by 60-100 Nm at low/medium speeds):
   #     drag_torque = 0.0884 * v² + 0.96 * v + 63.4   (91k samples, mixed OP/stock)
@@ -140,23 +142,14 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # TORQUE TAPER: as accel approaches braking threshold (-0.18), torque fades to 0.
   #   -0.10: fade=1.0 (full torque)  -0.14: fade=0.5  -0.18: fade=0.0 (handoff to brakes)
   if acc_enabled and not braking:
-    # Dynamic drag: update EMA from engine torque during cruise-like conditions
-    if abs(accel) < 0.15 and v_ego > 0.5 and engine_torque > 20:
-      alpha = 0.04  # ~0.5s time constant at 50Hz
-      if _dynamic_drag_samples == 0:
-        _dynamic_drag = float(engine_torque)
-      else:
-        _dynamic_drag = alpha * engine_torque + (1.0 - alpha) * _dynamic_drag
-      _dynamic_drag_samples += 1
+    # Dynamic drag disabled: creates circular feedback loop where EMA locks onto
+    # our own torque request (~100 Nm) instead of true drag (~170 Nm), causing
+    # severe underpowering. MO_Mom_o_ex ≈ ACC_Momentenanforderung (engine follows
+    # our request), so reading it back just reflects our own estimate, not road load.
+    # TODO: revisit with a signal that reflects actual road load independently.
+    drag_torque = 0.2 * v_ego ** 2 - 4.5 * v_ego + 170
 
-    # Use dynamic drag if we have enough samples (~1 second of cruise data),
-    # otherwise fall back to the static formula
-    if _dynamic_drag_samples > 50 and _dynamic_drag > 50:
-      drag_torque = _dynamic_drag
-    else:
-      drag_torque = 0.062 * v_ego ** 2 - 1.1 * v_ego + 154
-
-    accel_gain = 120  # 77 couldn't accelerate, 150 caused high RPMs, 120 is the middle ground
+    accel_gain = 77  # with corrected drag formula, lower gain should work (matches stock)
     accel_torque = accel * accel_gain
     acc_moment = int(max(0, min(500, drag_torque + accel_torque)))
     if accel < -0.1:
