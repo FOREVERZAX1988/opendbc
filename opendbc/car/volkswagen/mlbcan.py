@@ -77,10 +77,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # cruise corrections. k_decel=2.0 gives effective engine braking (torque reaches 0 at -0.5).
   # k_accel ramps quadratically from 0 at standstill to 0.5 at ~40 kph to prevent harsh
   # stop-and-go launches (PDK gear 1 multiplies torque ~11x, so 230 Nm feels like a lunge).
-  # Cruise_torque alone (141 Nm) still gives ~1.9 m/s² in gear 1 -- brisk, not sluggish.
+  # Cruise_torque alone (136 Nm) still gives ~1.8 m/s² in gear 1 -- brisk, not sluggish.
   #
-  # Cruise torque baseline: linear fit to stock ACC (R²=0.96, max err 6 Nm)
-  #   20 km/h: 155   40 km/h: 169   60 km/h: 183   80 km/h: 196   100 km/h: 210
+  # Cruise torque baseline: slightly below stock ACC fit (-5 Nm) to improve lead following.
+  #   20 km/h: 150   40 km/h: 164   60 km/h: 178   80 km/h: 191   100 km/h: 205
 
   # Hydraulic braking: only for significant decel (beyond engine braking range),
   # stopping, or preventing standstill creep (no torque at low speed unless planner wants to go)
@@ -90,7 +90,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     braking = False
 
   if acc_enabled and not braking:
-    cruise_torque = 2.5 * v_ego + 141
+    cruise_torque = 2.5 * v_ego + 136
     if accel >= 0:
       k_accel = 0.5 * min(1.0, (v_ego / 11.0) ** 2)
       scale = 1.0 + accel * k_accel
