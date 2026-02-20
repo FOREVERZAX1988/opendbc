@@ -56,7 +56,7 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active):
   return acc_control_value(main_switch_on, acc_faulted, long_active)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, lead_object=0):
   commands = []
 
   # ACC_05: multiplicative torque control
@@ -80,10 +80,11 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # low-speed ramp (80 Nm at standstill) handles stop-and-go protection for 0-15 kph,
   # so k_accel can reach full earlier for responsive mid-speed acceleration.
   #
-  # Low-speed cruise_torque ramp: in gear 1, even cruise_torque alone (141 Nm) produces
-  # ~1.8 m/s² due to ~11x gear multiplication -- too aggressive for stop-and-go behind a
-  # lead. We ramp cruise_torque from 80 Nm at standstill to full at ~15 kph (~4 m/s).
-  # 80 Nm in gear 1 gives ~0.4 m/s² -- gentle enough for comfortable stop-and-go.
+  # Low-speed cruise_torque ramp (lead only): in gear 1, even cruise_torque alone (141 Nm)
+  # produces ~1.8 m/s² due to ~11x gear multiplication -- too aggressive behind a lead car.
+  # When a lead is detected, ramp cruise_torque from 80 Nm at standstill to full at ~15 kph.
+  # Without a lead (e.g. green light, no car ahead), use full cruise_torque immediately so the
+  # planner's accel request can produce a responsive launch.
   #
   # Full cruise torque baseline (at 15+ kph):
   #   20 km/h: 155   40 km/h: 169   60 km/h: 183   80 km/h: 196   100 km/h: 210
@@ -95,8 +96,11 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
 
   if acc_enabled and not braking:
     full_cruise = 2.5 * v_ego + 141
-    low_speed_ramp = min(1.0, v_ego / 4.0)
-    cruise_torque = 80 + (full_cruise - 80) * low_speed_ramp
+    if lead_object and v_ego < 4.0:
+      low_speed_ramp = min(1.0, v_ego / 4.0)
+      cruise_torque = 80 + (full_cruise - 80) * low_speed_ramp
+    else:
+      cruise_torque = full_cruise
     if accel >= 0:
       k_accel = 0.9 * min(1.0, (v_ego / 7.0) ** 2)
       scale = 1.0 + accel * k_accel
