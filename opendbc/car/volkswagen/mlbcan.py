@@ -56,7 +56,7 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active):
   return acc_control_value(main_switch_on, acc_faulted, long_active)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, lead_object=0):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0):
   commands = []
 
   # ACC_05: multiplicative torque control
@@ -76,15 +76,14 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # Asymmetric k: planner sends 0.8-1.5 for launches but only -0.05 to -0.1 for
   # cruise corrections. k_decel=2.2 gives effective engine braking (torque reaches 0 at -0.45).
   # Hydraulic brakes engage at accel < -0.4; ESP influence at accel < -1.0 for hard braking.
-  # k_accel ramps quadratically from 0 at standstill to 0.9 at ~25 kph. The cruise_torque
-  # low-speed ramp (80 Nm at standstill) handles stop-and-go protection for 0-15 kph,
-  # so k_accel can reach full earlier for responsive mid-speed acceleration.
+  # k_accel ramps quadratically from 0.2 at standstill to 0.9 at ~25 kph. The 0.2 floor
+  # lets the planner modulate launch torque: with a close lead the planner sends gentle
+  # accel (~0.3 m/s²) → 85 Nm, without a lead it sends ~1.5 m/s² → 104 Nm. This avoids
+  # needing the stock radar's flickery lead signal -- the planner already fuses radar+vision.
   #
-  # Low-speed cruise_torque ramp (lead only): in gear 1, even cruise_torque alone (141 Nm)
-  # produces ~1.8 m/s² due to ~11x gear multiplication -- too aggressive behind a lead car.
-  # When a lead is detected, ramp cruise_torque from 80 Nm at standstill to full at ~15 kph.
-  # Without a lead (e.g. green light, no car ahead), use full cruise_torque immediately so the
-  # planner's accel request can produce a responsive launch.
+  # Low-speed cruise_torque ramp: in gear 1, cruise_torque alone (141 Nm) produces ~1.8 m/s²
+  # due to ~11x gear multiplication -- too aggressive for stop-and-go. Ramp from 80 Nm at
+  # standstill to full at ~15 kph. 80 Nm in gear 1 ≈ 1.0 m/s², comfortable baseline.
   #
   # Full cruise torque baseline (at 15+ kph):
   #   20 km/h: 155   40 km/h: 169   60 km/h: 183   80 km/h: 196   100 km/h: 210
@@ -96,13 +95,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
 
   if acc_enabled and not braking:
     full_cruise = 2.5 * v_ego + 141
-    if lead_object and v_ego < 4.0:
-      low_speed_ramp = min(1.0, v_ego / 4.0)
-      cruise_torque = 80 + (full_cruise - 80) * low_speed_ramp
-    else:
-      cruise_torque = full_cruise
+    low_speed_ramp = min(1.0, v_ego / 4.0)
+    cruise_torque = 80 + (full_cruise - 80) * low_speed_ramp
     if accel >= 0:
-      k_accel = 0.9 * min(1.0, (v_ego / 7.0) ** 2)
+      k_accel = max(0.2, 0.9 * min(1.0, (v_ego / 7.0) ** 2))
       scale = 1.0 + accel * k_accel
     else:
       scale = max(0.0, 1.0 + accel * 2.2)
