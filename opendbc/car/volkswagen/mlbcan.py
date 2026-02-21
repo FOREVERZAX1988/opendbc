@@ -73,26 +73,35 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # No hysteresis needed: torque is already ~0 at the hydraulic braking threshold, so there's
   # no cliff to cause brake stabs when switching modes.
   #
-  # Asymmetric k: planner sends 0.8-1.5 for gentle launches but only -0.05 to -0.1 for
-  # cruise corrections. k_accel=0.5 keeps launches stock-appropriate (accel=1.0 → 212 Nm),
-  # k_decel=2.0 gives effective engine braking (torque reaches 0 at accel=-0.5).
+  # Asymmetric k: planner sends 0.8-1.5 for launches but only -0.05 to -0.1 for
+  # cruise corrections. k_decel=2.5 gives effective engine braking (torque reaches 0 at -0.40).
+  # Hydraulic brakes engage at accel < -0.4; ESP influence at accel < -1.0 for hard braking.
+  # k_accel ramps quadratically from 0.2 at standstill to 0.9 at ~25 kph. The 0.2 floor
+  # lets the planner modulate launch torque: with a close lead the planner sends gentle
+  # accel (~0.3 m/s²) → 85 Nm, without a lead it sends ~1.5 m/s² → 104 Nm. This avoids
+  # needing the stock radar's flickery lead signal -- the planner already fuses radar+vision.
   #
-  # Cruise torque baseline: linear fit to stock ACC (R²=0.96, max err 6 Nm)
+  # Low-speed cruise_torque ramp: in gear 1, cruise_torque alone (141 Nm) produces ~1.8 m/s²
+  # due to ~11x gear multiplication -- too aggressive for stop-and-go. Ramp from 80 Nm at
+  # standstill to full at ~18 kph. 80 Nm in gear 1 ≈ 1.0 m/s², comfortable baseline.
+  #
+  # Full cruise torque baseline (at 15+ kph):
   #   20 km/h: 155   40 km/h: 169   60 km/h: 183   80 km/h: 196   100 km/h: 210
 
-  # Hydraulic braking: only for significant decel (beyond engine braking range),
-  # stopping, or preventing standstill creep (no torque at low speed unless planner wants to go)
   if acc_enabled:
-    braking = accel < -0.5 or stopping or (v_ego < 2.0 and accel <= 0)
+    braking = accel < -0.4 or stopping or (v_ego < 2.0 and accel <= 0)
   else:
     braking = False
 
   if acc_enabled and not braking:
-    cruise_torque = 2.5 * v_ego + 141
+    full_cruise = 2.5 * v_ego + 141
+    low_speed_ramp = min(1.0, v_ego / 5.0)
+    cruise_torque = 80 + (full_cruise - 80) * low_speed_ramp
     if accel >= 0:
-      scale = 1.0 + accel * 0.5
+      k_accel = max(0.2, 0.9 * min(1.0, (v_ego / 7.0) ** 2))
+      scale = 1.0 + accel * k_accel
     else:
-      scale = max(0.0, 1.0 + accel * 2.0)
+      scale = max(0.0, 1.0 + accel * 2.5)
     acc_moment = int(min(500, cruise_torque * scale))
   else:
     acc_moment = 0
@@ -120,7 +129,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
                           (max(accel, -0.5) if accel < -0.25 else 0)) if not braking else
                          max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))) if acc_enabled else 0,
     "ACC_Vorbefuellung_Bremsanlage": 1 if braking else 0,
-    "ACC_Beeinflussung_ESP": 1 if (stopping or esp_hold) else 0,  # Only force ESP when stopping or held at standstill (too harsh for normal braking)
+    "ACC_Beeinflussung_ESP": 1 if (stopping or esp_hold or (braking and accel < -1.0)) else 0,  # ESP for stopping, hold, or hard braking (>1 m/s²)
     "ACC_StartStopp_Info": acc_enabled,
     "ACC_Anhalten": stopping,
     "ACC_Betaetigung_EPB": esp_hold,  # Echo ESP hold state -- DO NOT use stopping (causes brake release when ACC off)
