@@ -140,13 +140,17 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
 
 
 def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance, distance, lead_object=0, zeitluecke=4):
+  # Use openpilot's planner lead detection (radar+vision fusion) instead of stock radar's
+  # ACC_Relevantes_Objekt, which stops reporting when the radar enters irreversible fault (status 7)
+  # even though it still tracks the lead car. The planner has no fault mode and is more reliable.
+  lead_obj = 1 if distance > 0 else 0
   values = {
     "ACC_Status_Anzeige": acc_hud_status,
     "ACC_Wunschgeschw_02": set_speed if set_speed < 250 else 327.36,
     "ACC_Gesetzte_Zeitluecke": zeitluecke,  # Mirror stock radar's ZL from ext bus (responds to DIST button)
-    "ACC_Display_Prio": 2 if lead_object else 3,
+    "ACC_Display_Prio": 2 if lead_obj else 3,
     "ACC_Abstandsindex": lead_distance,
-    "ACC_Relevantes_Objekt": lead_object,
+    "ACC_Relevantes_Objekt": lead_obj,
   }
 
   return packer.make_can_msg("ACC_02", bus, values)

@@ -116,11 +116,14 @@ class RadarInterface(RadarInterfaceBase):
     acc04 = self.ext_parser.vl["ACC_04"]
 
     dist_index = acc02["ACC_Abstandsindex"]
-    obj_status = acc02["ACC_Relevantes_Objekt"]
     zeitluecke = int(acc02["ACC_Gesetzte_Zeitluecke"])
     lead_speed_kph = acc04["ACC_Geschw_Zielfahrzeug"]
 
-    has_lead = obj_status > 0 and dist_index > 0
+    # Trust distance over ACC_Relevantes_Objekt: the stock radar keeps tracking leads
+    # (valid ACC_Abstandsindex) even when it faults and sets Objekt=0. Ignoring Objekt
+    # prevents losing the lead when the radar enters irreversible fault (status 7).
+    # Exclude 1021 (max/invalid) which appears for phantom detections (e.g. junction crossings).
+    has_lead = 0 < dist_index < 1000
 
     if has_lead:
       if 0 not in self.pts:
