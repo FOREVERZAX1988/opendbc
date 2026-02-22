@@ -27,6 +27,7 @@ class CarState(CarStateBase):
     self.stock_lead_distance = 0
     self.stock_lead_object = 0
     self.stock_zeitluecke = MLB_DEFAULT_ZEITLUECKE
+    self.gear_ratio = 0.0
     self.follow_distance = 2
 
     # Follow distance derived from stock radar's ACC_Gesetzte_Zeitluecke (MLB only)
@@ -268,6 +269,12 @@ class CarState(CarStateBase):
     # Engine output torque for dynamic drag estimation (MO_Mom_o_ex from Motor_01).
     # During cruise, this equals the total drag torque (aero + rolling + grade + drivetrain).
     self.engine_torque_output = pt_cp.vl["Motor_01"]["MO_Mom_o_ex"]
+
+    # Effective gear ratio from Getriebe_03 for physics-based torque gain.
+    # GE_Uefkt includes final drive (e.g., gear 1 ≈ 17.1, gear 7 ≈ 2.4). 1023 raw = error.
+    raw_uefkt = pt_cp.vl["Getriebe_03"]["GE_Uefkt"]
+    if 0.1 < raw_uefkt < 100.0:
+      self.gear_ratio = raw_uefkt
 
     # ACC okay but disabled (1), ACC ready (2), a radar visibility or other fault/disruption (6 or 7)
     # currently regulating speed (3), driver accel override (4), brake only (5)

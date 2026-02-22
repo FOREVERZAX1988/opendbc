@@ -56,37 +56,29 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active):
   return acc_control_value(main_switch_on, acc_faulted, long_active)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, gear_ratio=0):
   commands = []
 
-  # ACC_05: multiplicative torque control
+  # ACC_05: additive torque control with physics-based gain
   #
-  # Cruise torque (2.5 * v_ego + 141) is the baseline needed to hold speed on flat ground.
-  # Instead of adding a small gain on top (additive, weak for decel), we SCALE the baseline:
-  #   accel > 0:  scale up   (more torque, car accelerates)
-  #   accel = 0:  scale = 1  (cruise torque, hold speed)
-  #   accel < 0:  scale down (less torque, engine braking)
-  #   accel = -0.5: scale = 0 (max engine braking, transition to hydraulic)
+  # acc_moment = cruise_torque(v) + accel * torque_gain(gear_ratio)
   #
-  # This eliminates the dead zone: at accel=-0.05, torque drops by ~18 Nm (vs 4 Nm additive).
-  # Self-correcting: if drag formula is 5 Nm too high, planner only needs accel=-0.02 to fix it.
-  # No hysteresis needed: torque is already ~0 at the hydraulic braking threshold, so there's
-  # no cliff to cause brake stabs when switching modes.
+  # cruise_torque: quadratic fit to real steady-state engine torque (MO_Mom_Ist)
+  #   from drive data. Matches the torque needed to maintain speed on flat ground.
+  #   Values: 46 Nm at standstill, ~68 at 30 kph, ~100 at 60 kph, ~189 at 120 kph.
+  #   Replaces the old linear (2.5*v+141) which was 40-100 Nm too high at mid-speeds.
   #
-  # Asymmetric k: planner sends 0.8-1.5 for launches but only -0.05 to -0.1 for
-  # cruise corrections. k_decel=2.5 gives effective engine braking (torque reaches 0 at -0.40).
-  # Hydraulic brakes engage at accel < -0.4; ESP influence at accel < -1.0 for hard braking.
-  # k_accel ramps quadratically from 0.2 at standstill to 0.9 at ~25 kph. The 0.2 floor
-  # lets the planner modulate launch torque: with a close lead the planner sends gentle
-  # accel (~0.3 m/s²) → 85 Nm, without a lead it sends ~1.5 m/s² → 104 Nm. This avoids
-  # needing the stock radar's flickery lead signal -- the planner already fuses radar+vision.
+  # torque_gain: converts planner acceleration (m/s²) to engine torque (Nm) using
+  #   real-time effective gear ratio from Getriebe_03 GE_Uefkt:
+  #     torque_gain = mass * wheel_radius / gear_ratio
+  #   In low gears (ratio ~17), small engine torque → big wheel force, so gain is low (~43 Nm/m/s²).
+  #   In high gears (ratio ~2.4), gain is high (~306 Nm/m/s²). This makes the planner's accel
+  #   request map ~1:1 to actual acceleration regardless of gear.
   #
-  # Low-speed cruise_torque ramp: in gear 1, cruise_torque alone (141 Nm) produces ~1.8 m/s²
-  # due to ~11x gear multiplication -- too aggressive for stop-and-go. Ramp from 80 Nm at
-  # standstill to full at ~18 kph. 80 Nm in gear 1 ≈ 1.0 m/s², comfortable baseline.
-  #
-  # Full cruise torque baseline (at 15+ kph):
-  #   20 km/h: 155   40 km/h: 169   60 km/h: 183   80 km/h: 196   100 km/h: 210
+  # Max engine-braking decel (acc_moment=0) is cruise_torque/torque_gain:
+  #   ~0.4 m/s² at mid-speeds, ~0.6 m/s² at highway. Beyond that, hydraulic brakes take over.
+  MASS = 2000.0   # 2023 Macan S ~1955 kg curb + driver
+  WHEEL_R = 0.36  # 255/55R18 effective rolling radius
 
   if acc_enabled:
     braking = accel < -0.4 or stopping or (v_ego < 2.0 and accel <= 0)
@@ -94,15 +86,14 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     braking = False
 
   if acc_enabled and not braking:
-    full_cruise = 2.5 * v_ego + 141
-    low_speed_ramp = min(1.0, v_ego / 5.0)
-    cruise_torque = 80 + (full_cruise - 80) * low_speed_ramp
-    if accel >= 0:
-      k_accel = max(0.2, 0.9 * min(1.0, (v_ego / 7.0) ** 2))
-      scale = 1.0 + accel * k_accel
+    cruise_torque = 0.064 * v_ego * v_ego + 2.16 * v_ego + 46.0
+
+    if gear_ratio > 1.0:
+      torque_gain = MASS * WHEEL_R / gear_ratio
     else:
-      scale = max(0.0, 1.0 + accel * 2.5)
-    acc_moment = int(min(500, cruise_torque * scale))
+      torque_gain = 80.0
+
+    acc_moment = int(max(0, min(500, cruise_torque + accel * torque_gain)))
   else:
     acc_moment = 0
 
