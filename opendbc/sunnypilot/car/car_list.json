@@ -127,6 +127,37 @@
     ],
     "package": "Adaptive Cruise Control (ACC) & Lane Assist"
   },
+    "Audi Q5 2013-2017": {
+    "platform": "AUDI_Q5_MK1",
+    "make": "Audi",
+    "brand": "volkswagen",
+    "model": "Q5",
+    "year": [
+      "2013",
+      "2014",
+      "2015",
+      "2016",
+      "2017"
+    ],
+    "package": "Adaptive Cruise Control (ACC) & Lane Assist"
+  },
+    "Porsche Macan B95": {
+    "platform": "PORSCHE_MACAN_MK1",
+    "make": "Porsche",
+    "brand": "volkswagen",
+    "model": "Macan",
+    "year": [
+      "2017",
+      "2018",
+      "2019",
+      "2020",
+      "2021",
+      "2022",
+      "2023",
+      "2024"
+    ],
+    "package": "Adaptive Cruise Control (ACC) & Lane Assist"
+  },
   "Audi RS3 2018": {
     "platform": "AUDI_A3_MK3",
     "make": "Audi",
@@ -212,6 +243,17 @@
     ],
     "package": "Premier or Premier Redline Trim, without Super Cruise Package"
   },
+  "Chevrolet Bolt EUV LT Non-ACC 2022-23": {
+    "platform": "CHEVROLET_BOLT_NON_ACC_2ND_GEN",
+    "make": "Chevrolet",
+    "brand": "gm",
+    "model": "Bolt EUV LT Non-ACC",
+    "year": [
+      "2022",
+      "2023"
+    ],
+    "package": "No Adaptive Cruise Control (Non-ACC)"
+  },
   "Chevrolet Bolt EV 2022-23": {
     "platform": "CHEVROLET_BOLT_EUV",
     "make": "Chevrolet",
@@ -222,6 +264,17 @@
       "2023"
     ],
     "package": "2LT Trim with Adaptive Cruise Control Package"
+  },
+  "Chevrolet Bolt EV LT Non-ACC 2022-23": {
+    "platform": "CHEVROLET_BOLT_NON_ACC_2ND_GEN",
+    "make": "Chevrolet",
+    "brand": "gm",
+    "model": "Bolt EV LT Non-ACC",
+    "year": [
+      "2022",
+      "2023"
+    ],
+    "package": "No Adaptive Cruise Control (Non-ACC)"
   },
   "Chevrolet Bolt EV Non-ACC 2017": {
     "platform": "CHEVROLET_BOLT_NON_ACC",
@@ -2754,23 +2807,6 @@
       "2017"
     ],
     "package": "ProPILOT Assist"
-  },
-  "Porsche Macan 2017-24": {
-    "platform": "PORSCHE_MACAN_MK1",
-    "make": "Porsche",
-    "brand": "volkswagen",
-    "model": "Macan",
-    "year": [
-      "2017",
-      "2018",
-      "2019",
-      "2020",
-      "2021",
-      "2022",
-      "2023",
-      "2024"
-    ],
-    "package": "Adaptive Cruise Control (ACC) & Lane Assist"
   },
   "Ram 1500 2019-24": {
     "platform": "RAM_1500_5TH_GEN",
