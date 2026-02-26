@@ -8,6 +8,11 @@ from opendbc.car.volkswagen.values import CAR, DBC, CanBus, NetworkLocation, Tra
 
 ButtonType = structs.CarState.ButtonEvent.Type
 
+# Stock radar's ACC_Gesetzte_Zeitluecke (ZL) is mirrored from ext bus to our ACC_02 on bus 0.
+# The stock radar handles DIST button cycling natively (ZL 1-4).
+# We derive follow_distance from stock ZL: ZL 1→FD 0, ZL 2→FD 1, ZL 3→FD 2, ZL 4→FD 3.
+MLB_DEFAULT_ZEITLUECKE = 3  # Stock Macan ACC starts at 3 bars (ZL 3)
+
 
 class CarState(CarStateBase):
   def __init__(self, CP, CP_SP):
@@ -20,6 +25,20 @@ class CarState(CarStateBase):
     self.upscale_lead_car_signal = False
     self.eps_stock_values = False
     self.acc_type = 0
+    self.stock_lead_distance = 0
+    self.stock_lead_object = 0
+    self.stock_zeitluecke = MLB_DEFAULT_ZEITLUECKE
+    self.follow_distance = 2
+
+    # Follow distance derived from stock radar's ACC_Gesetzte_Zeitluecke (MLB only)
+    # Stored in Params so the planner can read it independently
+    if CP.flags & VolkswagenFlags.MLB and CP.openpilotLongitudinalControl:
+      from openpilot.common.params import Params
+      self._params = Params()
+      fd_val = self._params.get("FollowDistance", return_default=True)
+      self.follow_distance = int(fd_val) if fd_val is not None else 2
+    else:
+      self._params = None
 
   def update_button_enable(self, buttonEvents: list[structs.CarState.ButtonEvent]):
     if not self.CP.pcmCruise:
@@ -233,8 +252,6 @@ class CarState(CarStateBase):
     self.frame += 1
     return ret, ret_sp
 
-  #def update_mlb(self, pt_cp, cam_cp, ext_cp) -> structs.CarState:
-  #ADD structs.CarStateSP FOR MLB
   def update_mlb(self, pt_cp, cam_cp, ext_cp) -> tuple[structs.CarState, structs.CarStateSP]:
     ret = structs.CarState()
     ret_sp = structs.CarStateSP()
@@ -251,18 +268,23 @@ class CarState(CarStateBase):
     #fix mlb gearShifter
     ret.gearShifter = self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Getriebe_03"]["GE_Waehlhebel"], None))
 
+    # Engine output torque for dynamic drag estimation (MO_Mom_o_ex from Motor_01).
+    # During cruise, this equals the total drag torque (aero + rolling + grade + drivetrain).
+    self.engine_torque_output = pt_cp.vl["Motor_01"]["MO_Mom_o_ex"]
+
     # ACC okay but disabled (1), ACC ready (2), a radar visibility or other fault/disruption (6 or 7)
     # currently regulating speed (3), driver accel override (4), brake only (5)
-    if self.CP.carFingerprint == CAR.PORSCHE_MACAN_MK1:
+    if self.CP.pcmCruise:
       ret.cruiseState.available = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (2, 3, 4, 5)
       ret.cruiseState.enabled = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (3, 4, 5)
       ret.accFaulted = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (6, 7)
+      ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
+      if ret.cruiseState.speed > 90:
+        ret.cruiseState.speed = 0
+      ret.cruiseState.speedCluster = ret.cruiseState.speed
     else:
-      ret.cruiseState.available = pt_cp.vl["TSK_02"]["TSK_Status"] in (0, 1, 2)
-      ret.cruiseState.enabled = pt_cp.vl["TSK_02"]["TSK_Status"] in (1, 2)
-      ret.accFaulted = pt_cp.vl["TSK_02"]["TSK_Status"] in (3,)
-
-    ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
+      # When using openpilot longitudinal, read main switch from LS_01
+      ret.cruiseState.available = bool(pt_cp.vl["LS_01"]["LS_Hauptschalter"])
 
     self.parse_mlb_mqb_steering_state(ret, pt_cp)
 
@@ -300,6 +322,22 @@ class CarState(CarStateBase):
 
     self.ldw_stock_values = cam_cp.vl["LDW_02"] if self.CP.networkLocation == NetworkLocation.fwdCamera else {}
     self.gra_stock_values = pt_cp.vl["LS_01"]
+
+    # Pass through stock radar's data from ext bus (bus 2) for instrument cluster and ZL mirroring.
+    # The stock radar ECU continues sending ACC_02 on bus 2 even when openpilot controls ACC.
+    self.stock_lead_distance = int(ext_cp.vl["ACC_02"]["ACC_Abstandsindex"])
+    self.stock_lead_object = int(ext_cp.vl["ACC_02"]["ACC_Relevantes_Objekt"])
+    stock_zl = int(ext_cp.vl["ACC_02"]["ACC_Gesetzte_Zeitluecke"])
+    if 1 <= stock_zl <= 5:
+      self.stock_zeitluecke = stock_zl
+
+    # Derive follow distance from stock radar's Zeitluecke (ZL 1-4 → FD 0-3)
+    # This updates automatically when the DIST button cycles the stock radar's ZL
+    if self._params is not None:
+      new_fd = max(0, min(3, self.stock_zeitluecke - 1))
+      if new_fd != self.follow_distance:
+        self.follow_distance = new_fd
+        self._params.put_nonblocking('FollowDistance', self.follow_distance)
 
     ret.buttonEvents = self.create_button_events(pt_cp, self.CCP.BUTTONS)
 

@@ -15,9 +15,15 @@ class CarTuningConfig:
   v_ego_stopping: float = 0.25
   v_ego_starting: float = 0.10
   stopping_decel_rate: float = 0.40
+<<<<<<< HEAD
   lookahead_jerk_bp: list[float] = field(default_factory=lambda: [2., 5., 20.])
   lookahead_jerk_upper_v: list[float] = field(default_factory=lambda: [0.3, 0.45, 0.6])
   lookahead_jerk_lower_v: list[float] = field(default_factory=lambda: [0.3, 0.45, 0.6])
+=======
+  lookahead_jerk_bp: list[float] = field(default_factory=lambda: [5., 20.])
+  lookahead_jerk_upper_v: list[float] = field(default_factory=lambda: [0.25, 0.5])
+  lookahead_jerk_lower_v: list[float] = field(default_factory=lambda: [0.15, 0.3])
+>>>>>>> dfd73c6b0dac9227dc294b5e796a7edccf35d75d
   longitudinal_actuator_delay: float = 0.50
   jerk_limits: float = 4.0
 
@@ -25,11 +31,25 @@ class CarTuningConfig:
 # Default configurations for different car types
 TUNING_CONFIGS = {
   "CANFD": CarTuningConfig(
+<<<<<<< HEAD
     v_ego_stopping=0.30,
+=======
+    v_ego_stopping=0.365,
+    lookahead_jerk_bp=[2., 5., 20.],
+    lookahead_jerk_upper_v=[0.25, 0.5, 1.0],
+    lookahead_jerk_lower_v=[0.05, 0.10, 0.325],
+>>>>>>> dfd73c6b0dac9227dc294b5e796a7edccf35d75d
   ),
   "EV": CarTuningConfig(
     stopping_decel_rate=0.45,
     v_ego_stopping=0.35,
+<<<<<<< HEAD
+=======
+    lookahead_jerk_bp=[2., 5., 20.],
+    lookahead_jerk_upper_v=[0.25, 0.5, 1.0],
+    lookahead_jerk_lower_v=[0.05, 0.10, 0.3],
+    longitudinal_actuator_delay=0.25
+>>>>>>> dfd73c6b0dac9227dc294b5e796a7edccf35d75d
   ),
   "HYBRID": CarTuningConfig(
     v_ego_starting=0.15,
@@ -38,6 +58,12 @@ TUNING_CONFIGS = {
   ),
   "DEFAULT": CarTuningConfig(
     v_ego_stopping=0.3,
+<<<<<<< HEAD
+=======
+    lookahead_jerk_bp=[2., 5., 20.],
+    lookahead_jerk_upper_v=[0.25, 0.5, 1.0],
+    lookahead_jerk_lower_v=[0.05, 0.10, 0.3],
+>>>>>>> dfd73c6b0dac9227dc294b5e796a7edccf35d75d
   )
 }
 
@@ -45,6 +71,7 @@ TUNING_CONFIGS = {
 CAR_SPECIFIC_CONFIGS = {
   CAR.KIA_NIRO_EV: CarTuningConfig(
     v_ego_stopping=0.1,
+<<<<<<< HEAD
     stopping_decel_rate=0.3,
     jerk_limits=3.3,
   ),
@@ -52,4 +79,22 @@ CAR_SPECIFIC_CONFIGS = {
     stopping_decel_rate=0.8,
     jerk_limits=5.0,
   ),
+=======
+    stopping_decel_rate=0.1,
+    lookahead_jerk_bp=[2., 5., 20.],
+    lookahead_jerk_upper_v=[0.25, 0.5, 1.0],
+    lookahead_jerk_lower_v=[0.1, 0.15, 0.3],
+    longitudinal_actuator_delay=0.25,
+    jerk_limits=2.5,
+  ),
+  CAR.KIA_NIRO_PHEV_2022: CarTuningConfig(
+    stopping_decel_rate=0.3,
+    lookahead_jerk_upper_v=[0.3, 1.0],
+    lookahead_jerk_lower_v=[0.15, 0.3],
+    jerk_limits=5.0,
+  ),
+  CAR.HYUNDAI_IONIQ: CarTuningConfig(
+    jerk_limits=5.0,
+  )
+>>>>>>> dfd73c6b0dac9227dc294b5e796a7edccf35d75d
 }

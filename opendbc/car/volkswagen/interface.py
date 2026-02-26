@@ -2,11 +2,13 @@ from opendbc.car import get_safety_config, structs
 from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.car.volkswagen.carcontroller import CarController
 from opendbc.car.volkswagen.carstate import CarState
+from opendbc.car.volkswagen.radar_interface import RadarInterface
 from opendbc.car.volkswagen.values import CanBus, CAR, NetworkLocation, TransmissionType, VolkswagenFlags, VolkswagenSafetyFlags
 
 class CarInterface(CarInterfaceBase):
   CarState = CarState
   CarController = CarController
+  RadarInterface = RadarInterface
 
   DRIVABLE_GEARS = (structs.CarState.GearShifter.eco, structs.CarState.GearShifter.sport,
                     structs.CarState.GearShifter.manumatic)
@@ -14,7 +16,7 @@ class CarInterface(CarInterfaceBase):
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate: CAR, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
     ret.brand = "volkswagen"
-    ret.radarUnavailable = True
+    ret.radarUnavailable = not (ret.flags & VolkswagenFlags.MLB)  # MLB has processed radar via ACC_02/ACC_04
 
     if ret.flags & VolkswagenFlags.PQ:
       # Set global PQ35/PQ46/NMS parameters
@@ -101,5 +103,14 @@ class CarInterface(CarInterfaceBase):
     if CAN.pt >= 4:
       safety_configs.insert(0, get_safety_config(structs.CarParams.SafetyModel.noOutput))
     ret.safetyConfigs = safety_configs
+
+    return ret
+
+  @staticmethod
+  def _get_params_sp(stock_cp: structs.CarParams, ret: structs.CarParamsSP, candidate, fingerprint: dict[int, dict[int, int]],
+                     car_fw: list[structs.CarParams.CarFw], alpha_long: bool, is_release_sp: bool, docs: bool) -> structs.CarParamsSP:
+    # ICBM available on MLB platforms (stock ACC manages speed, openpilot sends stalk buttons via LS_01)
+    if stock_cp.flags & VolkswagenFlags.MLB:
+      ret.intelligentCruiseButtonManagementAvailable = True
 
     return ret
