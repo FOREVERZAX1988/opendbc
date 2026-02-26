@@ -178,6 +178,16 @@ BO_ 1633 Anhaenger_01: 3 Gateway_D4C7
  SG_ AAG_AVS_Fehler : 18|2@1+ (1.0,0.0) [0.0|3] ""  Vector__XXX
  SG_ AAG_AVS_Stati : 20|4@1+ (1.0,0.0) [0.0|15] ""  Vector__XXX
 
+BO_ 777 BEM_01: 4 Gateway_D4C7
+ SG_ BEM_01_CHK : 0|8@1+ (1,0) [0|255] ""  Motor_EDC17_D4,Motor_ME17_BY,Motor_MED17_SIMOS8_D4
+ SG_ BEM_01_BZ : 8|4@1+ (1,0) [0|15] ""  Motor_EDC17_D4,Motor_ME17_BY,Motor_MED17_SIMOS8_D4
+ SG_ BEM_Segel_Info : 12|2@1+ (1.0,0.0) [0.0|3] ""  Vector__XXX
+ SG_ BEM_P_Generator : 16|8@1+ (50,0) [0|12700] "Unit_Watt"  Motor_EDC17_D4,Motor_ME17_BY,Motor_MED17_SIMOS8_D4
+ SG_ BEM_n_LLA : 24|2@1+ (1.0,0.0) [0.0|3] ""  Motor_EDC17_D4,Motor_ME17_BY,Motor_MED17_SIMOS8_D4
+ SG_ BEM_01_Abschaltstufen : 26|3@1+ (1.0,0.0) [0.0|7] ""  Vector__XXX
+ SG_ BEM_Anf_KL : 29|1@1+ (1.0,0.0) [0.0|1] ""  Motor_EDC17_D4,Motor_ME17_BY,Motor_MED17_SIMOS8_D4
+ SG_ BEM_StartStopp_Info : 30|2@1+ (1.0,0.0) [0.0|3] ""  Motor_EDC17_D4,Motor_ME17_BY,Motor_MED17_SIMOS8_D4
+ 
 BO_ 867 Blinkmodi_01: 4 Gateway_D4C7
  SG_ BM_ZV_auf : 0|1@1+ (1.0,0.0) [0.0|1] ""  Vector__XXX
  SG_ BM_ZV_zu : 1|1@1+ (1.0,0.0) [0.0|1] ""  Vector__XXX
