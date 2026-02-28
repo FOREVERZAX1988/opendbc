@@ -272,9 +272,14 @@ class CarState(CarStateBase):
 
     # Effective gear ratio from Getriebe_03 for physics-based torque gain.
     # GE_Uefkt includes final drive (e.g., gear 1 ≈ 17.1, gear 7 ≈ 2.4). 1023 raw = error.
+    # At standstill the PDK reports 0 (neutral). Reset to 0 so the torque model
+    # uses a safe fallback instead of a stale high-gear value that would cause
+    # an aggressive launch (e.g., ratio 2.4 from 7th → torque_gain 300 Nm/m/s²).
     raw_uefkt = pt_cp.vl["Getriebe_03"]["GE_Uefkt"]
     if 0.1 < raw_uefkt < 100.0:
       self.gear_ratio = raw_uefkt
+    elif raw_uefkt < 0.1:
+      self.gear_ratio = 0.0
 
     # ACC okay but disabled (1), ACC ready (2), a radar visibility or other fault/disruption (6 or 7)
     # currently regulating speed (3), driver accel override (4), brake only (5)

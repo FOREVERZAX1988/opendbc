@@ -91,7 +91,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     if gear_ratio > 1.0:
       torque_gain = MASS * WHEEL_R / gear_ratio
     else:
-      torque_gain = 80.0
+      # No valid gear ratio (standstill/neutral or startup). Use a conservative
+      # gain matching ~1st gear (ratio ~17) so launches are gentle. As soon as
+      # the PDK engages a gear, real gear_ratio takes over.
+      torque_gain = MASS * WHEEL_R / 17.0
 
     acc_moment = int(max(0, min(500, cruise_torque + accel * torque_gain)))
   else:
