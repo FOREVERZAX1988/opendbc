@@ -30,7 +30,7 @@ class CanBus(CanBusBase):
     return self.offset
 
   @property
-  def aux(self) -> int:
+  def alt(self) -> int:
     # NetworkLocation.fwdCamera: radar-camera object fusion CAN
     # NetworkLocation.gateway: powertrain CAN
     return self.offset + 1
@@ -60,18 +60,20 @@ class CarControllerParams:
   STEER_DRIVER_MULTIPLIER = 3              # weight driver torque heavily
   STEER_DRIVER_FACTOR = 1                  # from dbc
 
-  STEER_TIME_MAX = 360                     # Max time that EPS allows uninterrupted HCA steering control
-  STEER_TIME_BM = STEER_TIME_MAX - 120     # Attempts to mitigate the EPS max steer timer begin
-  STEER_TIME_ALERT = STEER_TIME_MAX - 10   # If mitigation fails, time to soft disengage before EPS timer expires
-  STEER_LOW_TORQUE = int(STEER_MAX * 0.20) # Steer timer mitigation performed when torque output under 20%
-  STEER_TIME_LOW_TORQUE = 0.5              # Wait for this duration of STEER_LOW_TORQUE to begin mitigation
-  STEER_TIME_STUCK_TORQUE = 1.9            # EPS limits same torque to 6 seconds, reset timer 3x within that period
-  STEER_TIME_RESET = 1.1                   # Duration of HCA disable needed for effective EPS timer reset
+  #  macan纵向新增部分
+  STEER_TIME_MAX = 360                     # EPS 允许的 HCA 不间断转向控制的最长时间 Max time that EPS allows uninterrupted HCA steering control
+  STEER_TIME_BM = STEER_TIME_MAX - 120     # 尝试缓解EPS最大转向计时器开始 Attempts to mitigate the EPS max steer timer begin
+  STEER_TIME_ALERT = STEER_TIME_MAX - 10   # 如果缓解失败，软脱离时间 If mitigation fails, time to soft disengage before EPS timer expires
+  STEER_LOW_TORQUE = int(STEER_MAX * 0.20) # 当扭矩输出低于20%时进行转向计时器缓解 Steer timer mitigation performed when torque output under 20%
+  STEER_TIME_LOW_TORQUE = 0.5              # 等待此持续时间的STEER_LOW_TORQUE以开始缓解 Wait for this duration of STEER_LOW_TORQUE to begin mitigation
 
-  DEFAULT_MIN_STEER_SPEED = 0.4            # m/s, newer EPS racks fault below this speed, don't show a low speed alert
+  STEER_TIME_STUCK_TORQUE = 1.9            # EPS限制相同扭矩为6秒，在此期间重置计时器3次 EPS limits same torque to 6 seconds, reset timer 3x within that period
+  STEER_TIME_RESET = 1.1                   # 有效EPS计时器重置所需的HCA禁用持续时间 Duration of HCA disable needed for effective EPS timer reset
 
-  ACCEL_MAX = 2.0                          # 2.0 m/s max acceleration
-  ACCEL_MIN = -3.5                         # 3.5 m/s max deceleration
+  DEFAULT_MIN_STEER_SPEED = 0.4            # m/s, 新的EPS齿条在此速度以下故障，不显示低速警报 m/s, newer EPS racks fault below this speed, don't show a low speed alert
+
+  ACCEL_MAX = 2.0                          # 2.0 m/s 最大加速度 2.0 m/s max acceleration
+  ACCEL_MIN = -3.5                         # 3.5 m/s 最大减速度 3.5 m/s max deceleration
 
   def __init__(self, CP):
     can_define = CANDefine(DBC[CP.carFingerprint][Bus.pt])

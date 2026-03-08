@@ -212,6 +212,17 @@
     ],
     "package": "Premier or Premier Redline Trim, without Super Cruise Package"
   },
+  "Chevrolet Bolt EUV LT Non-ACC 2022-23": {
+    "platform": "CHEVROLET_BOLT_NON_ACC_2ND_GEN",
+    "make": "Chevrolet",
+    "brand": "gm",
+    "model": "Bolt EUV LT Non-ACC",
+    "year": [
+      "2022",
+      "2023"
+    ],
+    "package": "No Adaptive Cruise Control (Non-ACC)"
+  },
   "Chevrolet Bolt EV 2022-23": {
     "platform": "CHEVROLET_BOLT_EUV",
     "make": "Chevrolet",
@@ -222,6 +233,17 @@
       "2023"
     ],
     "package": "2LT Trim with Adaptive Cruise Control Package"
+  },
+  "Chevrolet Bolt EV LT Non-ACC 2022-23": {
+    "platform": "CHEVROLET_BOLT_NON_ACC_2ND_GEN",
+    "make": "Chevrolet",
+    "brand": "gm",
+    "model": "Bolt EV LT Non-ACC",
+    "year": [
+      "2022",
+      "2023"
+    ],
+    "package": "No Adaptive Cruise Control (Non-ACC)"
   },
   "Chevrolet Bolt EV Non-ACC 2017": {
     "platform": "CHEVROLET_BOLT_NON_ACC",
@@ -2048,6 +2070,16 @@
     ],
     "package": "Smart Cruise Control (SCC)"
   },
+  "Kia K7 2017": {
+    "platform": "KIA_K7_2017",
+    "make": "Kia",
+    "brand": "hyundai",
+    "model": "K7",
+    "year": [
+      "2017"
+    ],
+    "package": "Smart Cruise Control (SCC)"
+  },
   "Kia K8 Hybrid (with HDA II) 2023": {
     "platform": "KIA_K8_HEV_1ST_GEN",
     "make": "Kia",
@@ -2755,12 +2787,15 @@
     ],
     "package": "ProPILOT Assist"
   },
-  "Porsche Macan 2017-24": {
+  "Porsche Macan 2014-24": {
     "platform": "PORSCHE_MACAN_MK1",
     "make": "Porsche",
     "brand": "volkswagen",
     "model": "Macan",
     "year": [
+      "2014",
+      "2015",
+      "2016",
       "2017",
       "2018",
       "2019",
