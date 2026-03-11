@@ -30,7 +30,7 @@ class CanBus(CanBusBase):
     return self.offset
 
   @property
-  def alt(self) -> int:
+  def aux(self) -> int: #def alt(self) -> int:上游的这个pr还没合并，先保留这个名字，等上游合并后再改成alt
     # NetworkLocation.fwdCamera: radar-camera object fusion CAN
     # NetworkLocation.gateway: powertrain CAN
     return self.offset + 1
