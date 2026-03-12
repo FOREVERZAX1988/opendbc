@@ -33,10 +33,8 @@ class HCAMitigation:
     return apply_torque
 
 
-# 1. 恢复多继承 (从代码1恢复)
 class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterface):
   def __init__(self, dbc_names, CP, CP_SP):
-    # 2. 显式调用父类初始化 (从代码1恢复)
     CarControllerBase.__init__(self, dbc_names, CP, CP_SP)
     IntelligentCruiseButtonManagementInterface.__init__(self, CP, CP_SP)
     
@@ -44,6 +42,11 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     self.CAN = CanBus(CP)
     self.packer_pt = CANPacker(dbc_names[Bus.pt])
     self.aeb_available = not CP.flags & VolkswagenFlags.PQ
+
+    # ✅ 【修复1】补充初始化，消除转向控制的 AttributeError（缩进正确，在__init__内）
+    self.eps_timer_soft_disable_alert = False
+    # ✅ 【修复2】补充初始化，消除智能巡航按钮管理的 AttributeError（缩进正确，在__init__内）
+    self.last_button_frame = 0
 
     if CP.flags & VolkswagenFlags.PQ:
       self.CCS = pqcan
@@ -56,12 +59,10 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     self.gra_acc_counter_last = None
     self.hca_mitigation = HCAMitigation(self.CCP)
 
-    # 3. 恢复 EPS Timer Workaround 变量初始化 (从代码1恢复)
     self.eps_timer_workaround = bool(CP.flags & VolkswagenFlags.MLB)
     self.hca_frame_timer_resetting = 0
     self.hca_frame_low_torque = 0
     self.hca_frame_timer_running = 0
-    # 注意：hca_frame_same_torque 不再需要，因为逻辑已封装进 HCAMitigation 类
 
   def update(self, CC, CC_SP, CS, now_nanos):
     actuators = CC.actuators
@@ -77,15 +78,12 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
         new_torque = int(round(actuators.torque * self.CCP.STEER_MAX))
         apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last, CS.out.steeringTorque, self.CCP)
         
-        # 4. 运行计时器 (从代码1恢复)
         self.hca_frame_timer_running += self.CCP.STEER_STEP
 
-        # 5. 使用上游新的 HCAMitigation 类 (保留代码2的优化)
         apply_torque = self.hca_mitigation.update(apply_torque, self.apply_torque_last)
         
         hca_enabled = abs(apply_torque) > 0
 
-        # 6. 恢复 MLB EPS Timer Reset Workaround 核心逻辑 (从代码1恢复)
         if self.eps_timer_workaround and self.hca_frame_timer_running >= self.CCP.STEER_TIME_BM / DT_CTRL:
           if abs(apply_torque) <= self.CCP.STEER_LOW_TORQUE:
             self.hca_frame_low_torque += self.CCP.STEER_STEP
@@ -100,7 +98,6 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
         hca_enabled = False
         apply_torque = 0
 
-      # 7. 恢复 output_torque 赋值逻辑 (修复代码2的Bug，从代码1恢复)
       if hca_enabled:
         output_torque = apply_torque
         self.hca_frame_timer_resetting = 0
@@ -111,21 +108,18 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
           self.hca_frame_timer_running = 0
           apply_torque = 0
 
-      # 8. 恢复软禁用警报 (从代码1恢复)
       self.eps_timer_soft_disable_alert = self.hca_frame_timer_running > self.CCP.STEER_TIME_ALERT / DT_CTRL
       
       self.apply_torque_last = apply_torque
       can_sends.append(self.CCS.create_steering_control(self.packer_pt, self.CAN.pt, output_torque, hca_enabled))
 
       if self.CP.flags & VolkswagenFlags.STOCK_HCA_PRESENT:
-        # Pacify VW Emergency Assist driver inactivity detection
         ea_simulated_torque = float(np.clip(apply_torque * 2, -self.CCP.STEER_MAX, self.CCP.STEER_MAX))
         if abs(CS.out.steeringTorque) > abs(ea_simulated_torque):
           ea_simulated_torque = CS.out.steeringTorque
         can_sends.append(self.CCS.create_eps_update(self.packer_pt, self.CAN.cam, CS.eps_stock_values, ea_simulated_torque))
 
     # **** Acceleration Controls ******************************************** #
-    # (修正为 gear_ratio，与 mlbcan.py 匹配)
 
     if self.CP.openpilotLongitudinalControl:
       if self.frame % self.CCP.ACC_CONTROL_STEP == 0:
@@ -163,7 +157,6 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
                                                            cancel=CC.cruiseControl.cancel, resume=CC.cruiseControl.resume))
 
     # **** Intelligent Cruise Button Management ******************************** #
-    # (保持不变，依赖于 __init__ 中正确初始化了接口)
 
     if self.CP.flags & VolkswagenFlags.MLB:
       can_sends.extend(IntelligentCruiseButtonManagementInterface.update(self, CC_SP, CS, self.packer_pt, self.CAN.ext,
