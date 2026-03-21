@@ -170,12 +170,38 @@ static bool volkswagen_mlb_tx_hook(const CANPacket_t *msg) {
 
   return tx;
 }
+// 新增：精准拦截 bus2→0 的 ACC_05，其他所有报文正常转发
+static int volkswagen_mlb_fwd_hook(int bus_num, int addr) {
+  int bus_fwd = -1;
+
+  switch (bus_num) {
+    case 0:
+      // bus0（网关侧）的所有消息，正常转发到bus2（雷达侧）
+      bus_fwd = 2;
+      break;
+    case 2:
+      // bus2（雷达侧）的所有消息，默认正常转发到bus0（网关侧）
+      bus_fwd = 0;
+      // 仅拦截 ACC_05，不让网关收到雷达的故障信号
+      if (addr == MSG_ACC_05) {
+        bus_fwd = -1; // -1 = 禁止转发
+      }
+      break;
+    default:
+      // 其他总线禁止转发
+      bus_fwd = -1;
+      break;
+  }
+
+  return bus_fwd;
+}
 
 // TODO: rename these functions to MXB or something
 const safety_hooks volkswagen_mlb_hooks = {
   .init = volkswagen_mlb_init,
   .rx = volkswagen_mlb_rx_hook,
   .tx = volkswagen_mlb_tx_hook,
+  .fwd = volkswagen_mlb_fwd_hook, // 新增这一行
   .get_counter = volkswagen_mqb_meb_get_counter,
   .get_checksum = volkswagen_mqb_meb_get_checksum,
   .compute_checksum = volkswagen_mqb_meb_compute_crc,
