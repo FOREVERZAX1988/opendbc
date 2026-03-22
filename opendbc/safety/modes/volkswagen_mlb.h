@@ -3,6 +3,7 @@
 #include "opendbc/safety/declarations.h"
 #include "opendbc/safety/modes/volkswagen_common.h"
 
+
 static safety_config volkswagen_mlb_init(uint16_t param) {
   // Transmit of LS_01 is allowed on bus 0 and 2 to keep compatibility with gateway and camera integration
   static const CanMsg VOLKSWAGEN_MLB_STOCK_TX_MSGS[] = {{MSG_HCA_01, 0, 8, .check_relay = true}, {MSG_LDW_02, 0, 8, .check_relay = true},
@@ -34,28 +35,6 @@ static safety_config volkswagen_mlb_init(uint16_t param) {
 }
 
 static void volkswagen_mlb_rx_hook(const CANPacket_t *msg) {
-  // ✅ 核心修改：在 rx_hook 中直接修改 bus2 的 ACC_05
-  if (msg->bus == 2U && msg->addr == MSG_ACC_05) {
-    // 1. 取出当前 ACC_Status_ACC
-    uint8_t acc_status = (msg->data[7] & 0xEU) >> 1;
-
-    // 2. 如果是故障状态 6 → 强制改为 2
-    if (acc_status == 6) {
-      // 强制修改报文数据（去掉 const，因为我们要修改内部缓存）
-      uint8_t *data = (uint8_t *)msg->data;
-      data[7] &= ~0xEU;       // 清空原状态位 (bit1-3)
-      data[7] |= (2 << 1);    // 写入状态 2
-
-      // 3. 重新计算 VW 标准 Checksum
-      uint32_t new_checksum_full = volkswagen_mqb_meb_compute_crc(msg);
-      uint8_t new_checksum = (uint8_t)(new_checksum_full & 0xFU);
-
-      // 4. 把新校验和写回报文
-      data[7] &= 0x0F;
-      data[7] |= (new_checksum << 4);
-    }
-  }
-
   if (msg->bus == 0U) {
     // Check all wheel speeds for any movement
     // Signals: ESP_03.ESP_[VL|VR|HL|HR]_Radgeschw
@@ -161,7 +140,7 @@ static bool volkswagen_mlb_tx_hook(const CANPacket_t *msg) {
 
   // Safety check for HCA_01 Heading Control Assist torque
   if (msg->addr == MSG_HCA_01) {
-    int desired_torque = volkswagen_mlb_mqb_driver_input_torque(msg);
+    int desired_torque = volkswagen_mlb_mqb_steering_control_torque(msg);
 
     int steer_status = msg->data[4] & 0xFU;
     bool steer_req = (steer_status == 5) || (steer_status == 7);
@@ -192,10 +171,13 @@ static bool volkswagen_mlb_tx_hook(const CANPacket_t *msg) {
   return tx;
 }
 
+// 新增：完全符合新版 safety.h 规则的 fwd_hook
 static bool volkswagen_mlb_fwd_hook(int bus_num, int addr) {
-  SAFETY_UNUSED(bus_num);
-  SAFETY_UNUSED(addr);
-  // 允许所有报文正常转发（我们在 rx_hook 中已经修改了 ACC_05）
+  // 核心：如果是 bus2 上的 ACC_05，返回 true（禁止转发）
+  if (bus_num == 2 && addr == MSG_ACC_05) {
+    return true;
+  }
+  // 其他所有报文，正常转发
   return false;
 }
 
@@ -204,7 +186,7 @@ const safety_hooks volkswagen_mlb_hooks = {
   .init = volkswagen_mlb_init,
   .rx = volkswagen_mlb_rx_hook,
   .tx = volkswagen_mlb_tx_hook,
-  .fwd = volkswagen_mlb_fwd_hook, // 旧版签名，完全兼容
+  .fwd = volkswagen_mlb_fwd_hook, // 新版适配，完全符合规则
   .get_counter = volkswagen_mqb_meb_get_counter,
   .get_checksum = volkswagen_mqb_meb_get_checksum,
   .compute_checksum = volkswagen_mqb_meb_compute_crc,
