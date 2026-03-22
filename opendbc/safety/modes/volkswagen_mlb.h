@@ -171,13 +171,30 @@ static bool volkswagen_mlb_tx_hook(const CANPacket_t *msg) {
   return tx;
 }
 
-// 新增：完全符合新版 safety.h 规则的 fwd_hook
-static bool volkswagen_mlb_fwd_hook(int bus_num, int addr) {
-  // 核心：如果是 bus2 上的 ACC_05，返回 true（禁止转发）
+static bool volkswagen_mlb_fwd_hook(int bus_num, int addr, CANPacket_t *msg) {
+  // 只处理 bus2 → ACC_05
   if (bus_num == 2 && addr == MSG_ACC_05) {
-    return true;
+    // 1. 取出当前 ACC_Status_ACC
+    uint8_t acc_status = (msg->data[7] & 0xEU) >> 1;
+    uint8_t target_status = acc_status;
+
+    // 2. 故障状态6 → 按OP是否激活，改成2或3
+    if (acc_status == 6) {
+      // OP纵向激活时→3（激活），未激活时→2（待命），完美对齐原厂
+      target_status = controls_allowed ? 3 : 2;
+      msg->data[7] &= ~0xEU;
+      msg->data[7] |= (target_status << 1);
+    }
+
+    // 3. 重新计算Checksum
+    uint8_t new_checksum = volkswagen_mqb_meb_compute_crc(msg, 8);
+    msg->data[7] &= 0x0F;
+    msg->data[7] |= (new_checksum << 4);
+
+    // 允许转发
+    return false;
   }
-  // 其他所有报文，正常转发
+
   return false;
 }
 
