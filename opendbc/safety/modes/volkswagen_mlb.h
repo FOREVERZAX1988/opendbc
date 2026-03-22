@@ -192,8 +192,9 @@ static bool volkswagen_mlb_tx_hook(const CANPacket_t *msg) {
   return tx;
 }
 
-// ✅ 恢复旧版 fwd_hook 签名（不带 msg 参数）
 static bool volkswagen_mlb_fwd_hook(int bus_num, int addr) {
+  SAFETY_UNUSED(bus_num);
+  SAFETY_UNUSED(addr);
   // 允许所有报文正常转发（我们在 rx_hook 中已经修改了 ACC_05）
   return false;
 }
