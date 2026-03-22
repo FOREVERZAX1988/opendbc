@@ -1,3 +1,5 @@
+# 新增：导入time模块（必须）
+import time
 from opendbc.car.volkswagen.mqbcan import (volkswagen_mqb_meb_checksum, xor_checksum,
                                            create_lka_hud_control as mqb_create_lka_hud_control)
 
@@ -55,9 +57,38 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active):
   # TODO: happens to resemble the ACC control value for now, but extend this for init/gas override later
   return acc_control_value(main_switch_on, acc_faulted, long_active)
 
+# 新增：全局counter，保证ACC_05报文合法性
+_last_acc05_counter = 0
+# 新增：可配置的停车就绪期（适配不同年款，2014-2017款改2，2018-2022改3/5）
+ACC_STOP_READY_TIMEOUT = 5.0
+# 新增全局变量：记录停车超时状态
+park_timeout = False
+park_start_time = None
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, gear_ratio=0):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, gear_ratio=0, resume=False, set_increase=False):
+  global _last_acc05_counter, park_timeout, park_start_time
   commands = []
+
+  # 1. 停车计时（对应第二句的“不能超过几秒”）
+  static_timeout = (v_ego < 0.5) and acc_enabled
+  if static_timeout:
+    if park_start_time is None:
+      park_start_time = time.time()
+    # 停车超过设定阈值 → 标记超时，禁止自动起步
+    if time.time() - park_start_time > ACC_STOP_READY_TIMEOUT:
+      park_timeout = True
+      starting = False  # 停止自动起步请求
+    else:
+      starting = True   # 阈值内持续发starting=True
+  else:
+    park_start_time = None
+    park_timeout = False
+
+  # 2. 只有检测到Resume/Set键输入，才重置超时、恢复ACC
+  if resume or set_increase:
+    park_timeout = False  # 重置超时状态
+    park_start_time = None
+    starting = True  # 允许起步
 
   # ACC_05: additive torque control with physics-based gain
   #
@@ -108,7 +139,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     "ACC_Status_ACC": acc_control,
     # Stock ACC_Verz_anf range during braking: -2.015 to 0
     # Panda safety allows -3.5; DBC allows -7.22. Use panda limit for max braking.
-    "ACC_Verz_anf": max(accel, -3.5) if braking else (0 if acc_enabled else 3.01),
+    "ACC_Verz_anf": max(accel, -3.5) if braking else (0 if acc_enabled else 0),
     "ACC_Freigabe_Verzanf": 1 if braking else 0,
     "ACC_Freigabe_Momentenanf": 1 if (acc_enabled and not braking) else 0,
     "ACC_Momentenanforderung": acc_moment,
@@ -124,11 +155,22 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
                          max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))) if acc_enabled else 0,
     "ACC_Vorbefuellung_Bremsanlage": 1 if braking else 0,
     "ACC_Beeinflussung_ESP": 1 if (stopping or esp_hold or (braking and accel < -1.0)) else 0,  # ESP for stopping, hold, or hard braking (>1 m/s²)
-    "ACC_StartStopp_Info": acc_enabled,
+    "ACC_StartStopp_Info": 1 if (acc_enabled and starting) else 0,
     "ACC_Anhalten": stopping,
     "ACC_Betaetigung_EPB": esp_hold,  # Echo ESP hold state -- DO NOT use stopping (causes brake release when ACC off)
+    # 添加合法counter
+    "COUNTER": _last_acc05_counter % 16,
   }
-  commands.append(packer.make_can_msg("ACC_05", bus, acc_05_values))
+
+  _last_acc05_counter += 1
+
+  # 生成报文并计算MLB原厂checksum
+  acc05_msg = packer.make_can_msg("ACC_05", bus, acc_05_values)
+  acc05_data = bytearray(acc05_msg[2])
+  acc05_data[7] = volkswagen_mlb_checksum(0x10D, None, acc05_data)
+  acc05_msg = (acc05_msg[0], acc05_msg[1], bytes(acc05_data))
+
+  commands.append(acc05_msg)
 
   return commands
 
@@ -137,10 +179,12 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
   # Stock radar's lead_object is accurate when working, but gets suppressed to 0 during
   # irreversible fault (status 7) even though ACC_Abstandsindex still tracks distance.
   # Fallback: if lead_object=0 but valid distance exists, the radar is faulted -- use distance.
+  # 核心：不管传入的set_speed是多少，强制给雷达发≥30km/h
+  radar_set_speed = max(set_speed, 30.0) if set_speed > 0 else 30.0
   lead_obj = lead_object if lead_object else (1 if 0 < lead_distance < 1000 else 0)
   values = {
     "ACC_Status_Anzeige": acc_hud_status,
-    "ACC_Wunschgeschw_02": set_speed if set_speed < 250 else 327.36,
+    "ACC_Wunschgeschw_02": radar_set_speed if radar_set_speed < 250 else 327.36,  # 雷达只认这个值，但ACC_Abstandsindex仍然跟随set_speed
     "ACC_Gesetzte_Zeitluecke": zeitluecke,  # Mirror stock radar's ZL from ext bus (responds to DIST button)
     "ACC_Display_Prio": 2 if lead_obj else 3,
     "ACC_Abstandsindex": lead_distance,

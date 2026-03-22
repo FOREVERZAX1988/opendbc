@@ -9,8 +9,10 @@ static safety_config volkswagen_mlb_init(uint16_t param) {
   static const CanMsg VOLKSWAGEN_MLB_STOCK_TX_MSGS[] = {{MSG_HCA_01, 0, 8, .check_relay = true}, {MSG_LDW_02, 0, 8, .check_relay = true},
                                                         {MSG_LS_01, 0, 4, .check_relay = false}, {MSG_LS_01, 2, 4, .check_relay = false}};
 
+  // 核心修改1：新增 MSG_ACC_05, 2, 8 → 往 Bus2 发 ACC_05（回馈给雷达）
   static const CanMsg VOLKSWAGEN_MLB_LONG_TX_MSGS[] = {{MSG_HCA_01, 0, 8, .check_relay = true}, {MSG_LDW_02, 0, 8, .check_relay = true},
-                                                       {MSG_ACC_02, 0, 8, .check_relay = true}, {MSG_ACC_05, 0, 8, .check_relay = true}};
+                                                       {MSG_ACC_02, 0, 8, .check_relay = true}, {MSG_ACC_02, 2, 8, .check_relay = false},
+                                                       {MSG_ACC_05, 0, 8, .check_relay = true}, {MSG_ACC_05, 2, 8, .check_relay = false}};
 
   static RxCheck volkswagen_mlb_rx_checks[] = {
     // TODO: implement checksum validation
@@ -35,34 +37,6 @@ static safety_config volkswagen_mlb_init(uint16_t param) {
 }
 
 static void volkswagen_mlb_rx_hook(const CANPacket_t *msg) {
-  // ==================== 【核心修改：ACC_05故障位修正+合规Checksum重算】 ====================
-  // 仅处理bus2上原厂雷达发来的ACC_05，完全不影响OP自己在bus0上发的报文
-  if (msg->bus == 2U && msg->addr == MSG_ACC_05) {
-    // 去掉const，修改转发前的报文缓存（修改后会自动广播到bus2）
-    CANPacket_t *pkt = (CANPacket_t *)msg;
-    uint8_t *data = pkt->data;
-
-    // 1. 读取原厂ACC状态
-    uint8_t acc_status = (data[7] & 0x0EU) >> 1;
-
-    // 2. 仅当状态为故障6时，修改为就绪状态2，其他状态完全不动
-    if (acc_status == 6U) {
-      data[7] &= ~0x0EU;       // 清空原状态位（bit1-3）
-      data[7] |= (2U << 1);    // 写入就绪状态2
-    }
-
-    // 3. 【原厂规则强制要求】先清零Checksum位（data[7]高4位）
-    data[7] &= 0x0FU;
-
-    // 4. 用官方原厂函数计算正确的CRC校验和
-    uint32_t new_crc = volkswagen_mqb_meb_compute_crc(pkt);
-    uint8_t new_checksum = (uint8_t)(new_crc & 0x0FU);
-
-    // 5. 把正确的Checksum写回报文
-    data[7] |= (new_checksum << 4);
-  }
-  // ================================================================================================
-
   if (msg->bus == 0U) {
     // Check all wheel speeds for any movement
     // Signals: ESP_03.ESP_[VL|VR|HL|HR]_Radgeschw
@@ -199,11 +173,19 @@ static bool volkswagen_mlb_tx_hook(const CANPacket_t *msg) {
   return tx;
 }
 
+// 核心修改2：简化 fwd_hook 逻辑，只拦截原厂 Bus2 ACC_05 到 Bus0，不影响 OP 往 Bus2 发 ACC_05
+static bool volkswagen_mlb_fwd_hook(int bus_num, int addr) {
+  // 仅当 OP 纵向开启时，拦截「Bus2 接收的原厂 ACC_05」转发到 Bus0
+  // OP 主动往 Bus2 发的 ACC_05（回馈）不受此限制
+  return (bus_num == 2 && addr == MSG_ACC_05 && volkswagen_longitudinal);
+}
+
 // TODO: rename these functions to MXB or something
 const safety_hooks volkswagen_mlb_hooks = {
   .init = volkswagen_mlb_init,
   .rx = volkswagen_mlb_rx_hook,
   .tx = volkswagen_mlb_tx_hook,
+  .fwd = volkswagen_mlb_fwd_hook,
   .get_counter = volkswagen_mqb_meb_get_counter,
   .get_checksum = volkswagen_mqb_meb_get_checksum,
   .compute_checksum = volkswagen_mqb_meb_compute_crc,
