@@ -176,25 +176,27 @@ static bool volkswagen_mlb_fwd_hook(int bus_num, int addr, CANPacket_t *msg) {
   if (bus_num == 2 && addr == MSG_ACC_05) {
     // 1. 取出当前 ACC_Status_ACC
     uint8_t acc_status = (msg->data[7] & 0xEU) >> 1;
-    uint8_t target_status = acc_status;
 
-    // 2. 故障状态6 → 按OP是否激活，改成2或3
+    // 2. 如果是故障状态 6 → 强制改为 2
     if (acc_status == 6) {
-      // OP纵向激活时→3（激活），未激活时→2（待命），完美对齐原厂
-      target_status = controls_allowed ? 3 : 2;
-      msg->data[7] &= ~0xEU;
-      msg->data[7] |= (target_status << 1);
+      msg->data[7] &= ~0xEU;       // 清空原状态位 (bit1-3)
+      msg->data[7] |= (2 << 1);    // 写入状态 2
     }
 
-    // 3. 重新计算Checksum
-    uint8_t new_checksum = volkswagen_mqb_meb_compute_crc(msg, 8);
+    // 3. ✅ 修正：重新计算 VW 标准 Checksum
+    // 函数只接受一个参数 msg，返回 uint32_t，取低4位
+    uint32_t new_checksum_full = volkswagen_mqb_meb_compute_crc(msg);
+    uint8_t new_checksum = (uint8_t)(new_checksum_full & 0xFU);
+
+    // 4. 把新校验和写回报文最后一个字节 (data[7] 高4位)
     msg->data[7] &= 0x0F;
     msg->data[7] |= (new_checksum << 4);
 
-    // 允许转发
+    // 允许转发到 bus0
     return false;
   }
 
+  // 其他所有报文正常转发
   return false;
 }
 
