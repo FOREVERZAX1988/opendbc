@@ -3,7 +3,6 @@
 #include "opendbc/safety/declarations.h"
 #include "opendbc/safety/modes/volkswagen_common.h"
 
-
 static safety_config volkswagen_mlb_init(uint16_t param) {
   // Transmit of LS_01 is allowed on bus 0 and 2 to keep compatibility with gateway and camera integration
   static const CanMsg VOLKSWAGEN_MLB_STOCK_TX_MSGS[] = {{MSG_HCA_01, 0, 8, .check_relay = true}, {MSG_LDW_02, 0, 8, .check_relay = true},
@@ -35,6 +34,28 @@ static safety_config volkswagen_mlb_init(uint16_t param) {
 }
 
 static void volkswagen_mlb_rx_hook(const CANPacket_t *msg) {
+  // ✅ 核心修改：在 rx_hook 中直接修改 bus2 的 ACC_05
+  if (msg->bus == 2U && msg->addr == MSG_ACC_05) {
+    // 1. 取出当前 ACC_Status_ACC
+    uint8_t acc_status = (msg->data[7] & 0xEU) >> 1;
+
+    // 2. 如果是故障状态 6 → 强制改为 2
+    if (acc_status == 6) {
+      // 强制修改报文数据（去掉 const，因为我们要修改内部缓存）
+      uint8_t *data = (uint8_t *)msg->data;
+      data[7] &= ~0xEU;       // 清空原状态位 (bit1-3)
+      data[7] |= (2 << 1);    // 写入状态 2
+
+      // 3. 重新计算 VW 标准 Checksum
+      uint32_t new_checksum_full = volkswagen_mqb_meb_compute_crc(msg);
+      uint8_t new_checksum = (uint8_t)(new_checksum_full & 0xFU);
+
+      // 4. 把新校验和写回报文
+      data[7] &= 0x0F;
+      data[7] |= (new_checksum << 4);
+    }
+  }
+
   if (msg->bus == 0U) {
     // Check all wheel speeds for any movement
     // Signals: ESP_03.ESP_[VL|VR|HL|HR]_Radgeschw
@@ -171,32 +192,9 @@ static bool volkswagen_mlb_tx_hook(const CANPacket_t *msg) {
   return tx;
 }
 
-static bool volkswagen_mlb_fwd_hook(int bus_num, int addr, CANPacket_t *msg) {
-  // 只处理 bus2 → ACC_05
-  if (bus_num == 2 && addr == MSG_ACC_05) {
-    // 1. 取出当前 ACC_Status_ACC
-    uint8_t acc_status = (msg->data[7] & 0xEU) >> 1;
-
-    // 2. 如果是故障状态 6 → 强制改为 2
-    if (acc_status == 6) {
-      msg->data[7] &= ~0xEU;       // 清空原状态位 (bit1-3)
-      msg->data[7] |= (2 << 1);    // 写入状态 2
-    }
-
-    // 3. ✅ 修正：重新计算 VW 标准 Checksum
-    // 函数只接受一个参数 msg，返回 uint32_t，取低4位
-    uint32_t new_checksum_full = volkswagen_mqb_meb_compute_crc(msg);
-    uint8_t new_checksum = (uint8_t)(new_checksum_full & 0xFU);
-
-    // 4. 把新校验和写回报文最后一个字节 (data[7] 高4位)
-    msg->data[7] &= 0x0F;
-    msg->data[7] |= (new_checksum << 4);
-
-    // 允许转发到 bus0
-    return false;
-  }
-
-  // 其他所有报文正常转发
+// ✅ 恢复旧版 fwd_hook 签名（不带 msg 参数）
+static bool volkswagen_mlb_fwd_hook(int bus_num, int addr) {
+  // 允许所有报文正常转发（我们在 rx_hook 中已经修改了 ACC_05）
   return false;
 }
 
@@ -205,7 +203,7 @@ const safety_hooks volkswagen_mlb_hooks = {
   .init = volkswagen_mlb_init,
   .rx = volkswagen_mlb_rx_hook,
   .tx = volkswagen_mlb_tx_hook,
-  .fwd = volkswagen_mlb_fwd_hook, // 新版适配，完全符合规则
+  .fwd = volkswagen_mlb_fwd_hook, // 旧版签名，完全兼容
   .get_counter = volkswagen_mqb_meb_get_counter,
   .get_checksum = volkswagen_mqb_meb_get_checksum,
   .compute_checksum = volkswagen_mqb_meb_compute_crc,
