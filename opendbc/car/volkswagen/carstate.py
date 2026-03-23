@@ -29,6 +29,7 @@ class CarState(CarStateBase):
     self.stock_zeitluecke = MLB_DEFAULT_ZEITLUECKE
     self.gear_ratio = 0.0
     self.follow_distance = 2
+    self.stock_tsk05_values = {}  # ✅ 新增：存储原生TSK_05的值
 
     # Follow distance derived from stock radar's ACC_Gesetzte_Zeitluecke (MLB only)
     # Stored in Params so the planner can read it independently
@@ -287,9 +288,11 @@ class CarState(CarStateBase):
       ret.cruiseState.available = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (2, 3, 4, 5)
       ret.cruiseState.enabled = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (3, 4, 5)
       ret.accFaulted = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (6, 7)
-     # ret.cruiseState.available = True # ✅ 只看OP是否激活
-     # ret.cruiseState.enabled = True  # ✅ 只看OP是否激活
-     # ret.accFaulted = False  # ✅ 永远不认为故障
+      # ✅ 新增：Bus0 TSK_05故障状态同步到accFaulted
+      if "TSK_05" in pt_cp.vl:
+        # TSK_Status_GRA_ACC_01=3 代表故障，和雷达故障做或运算
+        tsk_acc_fault = pt_cp.vl["TSK_05"]["TSK_Status_GRA_ACC_01"] == 3
+        ret.accFaulted = ret.accFaulted or tsk_acc_fault
       ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
       if ret.cruiseState.speed > 90:
         ret.cruiseState.speed = 0
@@ -346,6 +349,9 @@ class CarState(CarStateBase):
     ret.cruiseState.standstill = self.CP.pcmCruise and self.esp_hold_confirmation
     ret.standstill = ret.vEgoRaw == 0
 
+    # ✅ 新增：解析并存储原生TSK_05的值（用于mlbcan.py的替代报文）
+    self.stock_tsk05_values = pt_cp.vl["TSK_05"] if "TSK_05" in pt_cp.vl else {}
+
     self.frame += 1
     return ret, ret_sp
 
@@ -383,7 +389,11 @@ class CarState(CarStateBase):
     # manually configure some optional and variable-rate/edge-triggered messages
     pt_messages, cam_messages = [], []
 
-    if not CP.flags & VolkswagenFlags.MLB:
+    if CP.flags & VolkswagenFlags.MLB:
+      pt_messages += [
+        ("TSK_05", 1),  # ✅ 新增：解析原生TSK_05（50Hz）
+      ]
+    else:
       pt_messages += [
         ("Blinkmodi_02", 1)  # From J519 BCM (sent at 1Hz when no lights active, 50Hz when active)
       ]

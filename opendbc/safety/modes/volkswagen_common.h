@@ -39,6 +39,8 @@ bool volkswagen_brake_pressure_detected = false;
 #define MSG_ACC_01      0x109U   // TX by OP, ACC control instructions to the drivetrain coordinator (MLB)
 #define MSG_TSK_02      0x10CU   // RX from ECU, for ACC status from drivetrain coordinator
 #define MSG_ACC_05      0x10DU   // RX from radar / TX by OP, ACC status
+// ✅ 新增：TSK_05的CAN ID（MLB平台标准为0x111，以你的DBC为准）
+#define MSG_TSK_05      0x111U   // RX from ECU / TX by OP, TSK status (ACC fault transmission)
 
 static void volkswagen_common_init(void) {
   volkswagen_set_button_prev = false;

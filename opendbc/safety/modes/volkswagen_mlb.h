@@ -12,7 +12,9 @@ static safety_config volkswagen_mlb_init(uint16_t param) {
   // 核心修改1：新增 MSG_ACC_05, 2, 8 → 往 Bus2 发 ACC_05（回馈给雷达）
   static const CanMsg VOLKSWAGEN_MLB_LONG_TX_MSGS[] = {{MSG_HCA_01, 0, 8, .check_relay = true}, {MSG_LDW_02, 0, 8, .check_relay = true},
                                                        {MSG_ACC_02, 0, 8, .check_relay = true}, {MSG_ACC_02, 2, 8, .check_relay = false},
-                                                       {MSG_ACC_05, 0, 8, .check_relay = true}, {MSG_ACC_05, 2, 8, .check_relay = false}};
+                                                       {MSG_ACC_05, 0, 8, .check_relay = true}, {MSG_ACC_05, 2, 8, .check_relay = false},
+                                                        // ✅ 新增：仅拦截 TSK_05（唯一传递 ACC 故障到 ECU 的报文）
+                                                       {MSG_TSK_05, 0, 8, .check_relay = true}};
 
   static RxCheck volkswagen_mlb_rx_checks[] = {
     // TODO: implement checksum validation

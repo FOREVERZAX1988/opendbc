@@ -59,13 +59,15 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active):
 
 # 新增：全局counter，保证ACC_05报文合法性
 _last_acc05_counter = 0
-# 新增：可配置的停车就绪期（适配不同年款，2014-2017款改2，2018-2022改3/5）
+# ✅ 新增：全局counter，保证TSK_05报文合法性
+_last_tsk05_counter = 0
+# 新增：可配置的停车就绪期
 ACC_STOP_READY_TIMEOUT = 5.0
 # 新增全局变量：记录停车超时状态
 park_timeout = False
 park_start_time = None
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, gear_ratio=0, resume=False, set_increase=False):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, gear_ratio=0, resume=False, set_increase=False, stock_tsk05_values=None):
   global _last_acc05_counter, park_timeout, park_start_time
   commands = []
 
@@ -172,6 +174,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
 
   commands.append(acc05_msg)
 
+  # ✅ 新增：生成并添加TSK_05替代报文
+  tsk05_msg = create_tsk05_control(packer, bus, acc_control, stock_tsk05_values)
+  commands.append(tsk05_msg)
+
   return commands
 
 
@@ -192,6 +198,64 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
   }
 
   return packer.make_can_msg("ACC_02", bus, values)
+
+# ✅ 新增：生成无ACC故障的TSK_05替代报文
+def create_tsk05_control(packer, bus, acc_control, stock_tsk05_values=None):
+  global _last_tsk05_counter
+
+  # 优先复制原生TSK_05的非ACC故障信号（避免影响变速箱/ESP）
+  if stock_tsk05_values is not None:
+    values = {s: stock_tsk05_values[s] for s in [
+      "TSK_QBit_Steigung",
+      "TSK_Fahrzeugmasse",
+      "TSK_QBit_Fahrzeugmasse",
+      "TSK_Fahrzeugmasse_02",
+      "TSK_Steigung",
+      "TSK_Getriebeinfo",
+      "TSK_Codierung_ACC",
+      "TSK_Zwangszusch_ESP",
+      "TSK_Freig_Verzoeg_Anf",
+      "TSK_Verzoeg_Anf_02",
+    ]}
+  else:
+    # 无原生值时，用安全默认值
+    values = {
+      "TSK_QBit_Steigung": 0,
+      "TSK_Fahrzeugmasse": 20,  # 20*200+500=4500kg（Macan安全默认值）
+      "TSK_QBit_Fahrzeugmasse": 1,
+      "TSK_Fahrzeugmasse_02": 125,  # 125*32=4000kg
+      "TSK_Steigung": 0,  # 0%坡度
+      "TSK_Getriebeinfo": 0,
+      "TSK_Codierung_ACC": 1,  # ACC已编码
+      "TSK_Zwangszusch_ESP": 0,
+      "TSK_Freig_Verzoeg_Anf": 0,
+      "TSK_Verzoeg_Anf_02": 0,
+    }
+
+  # ✅ 核心修改：把ACC故障相关信号设为「无故障」
+  # TSK_Status_GRA_ACC_01: 2位信号，0=未激活，1=就绪，2=激活（匹配ACC_Status_ACC）
+  if acc_control == 2:
+    tsk_status_gra_acc = 1  # ACC就绪
+  elif acc_control == 3:
+    tsk_status_gra_acc = 2  # ACC激活
+  else:
+    tsk_status_gra_acc = 0  # ACC未激活
+
+  values.update({
+    "TSK_Status_GRA_ACC_01": tsk_status_gra_acc,
+    # 合法counter
+    "COUNTER": _last_tsk05_counter % 16,
+  })
+
+  _last_tsk05_counter += 1
+
+  # 生成报文并计算MLB原厂checksum（TSK_05地址0x111，对应xor起始值0x10）
+  tsk05_msg = packer.make_can_msg("TSK_05", bus, values)
+  tsk05_data = bytearray(tsk05_msg[2])
+  tsk05_data[7] = volkswagen_mlb_checksum(0x111, None, tsk05_data)
+  tsk05_msg = (tsk05_msg[0], tsk05_msg[1], bytes(tsk05_data))
+
+  return tsk05_msg
 
 def volkswagen_mlb_checksum(address: int, sig, d: bytearray) -> int:
   xor_starting_value = {

@@ -37,7 +37,7 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
   def __init__(self, dbc_names, CP, CP_SP):
     CarControllerBase.__init__(self, dbc_names, CP, CP_SP)
     IntelligentCruiseButtonManagementInterface.__init__(self, CP, CP_SP)
-    
+
     self.CCP = CarControllerParams(CP)
     self.CAN = CanBus(CP)
     self.packer_pt = CANPacker(dbc_names[Bus.pt])
@@ -77,11 +77,11 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
       if CC.latActive:
         new_torque = int(round(actuators.torque * self.CCP.STEER_MAX))
         apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last, CS.out.steeringTorque, self.CCP)
-        
+
         self.hca_frame_timer_running += self.CCP.STEER_STEP
 
         apply_torque = self.hca_mitigation.update(apply_torque, self.apply_torque_last)
-        
+
         hca_enabled = abs(apply_torque) > 0
 
         if self.eps_timer_workaround and self.hca_frame_timer_running >= self.CCP.STEER_TIME_BM / DT_CTRL:
@@ -109,7 +109,7 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
           apply_torque = 0
 
       self.eps_timer_soft_disable_alert = self.hca_frame_timer_running > self.CCP.STEER_TIME_ALERT / DT_CTRL
-      
+
       self.apply_torque_last = apply_torque
       can_sends.append(self.CCS.create_steering_control(self.packer_pt, self.CAN.pt, output_torque, hca_enabled))
 
@@ -129,7 +129,8 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
         starting = actuators.longControlState == LongCtrlState.pid and (CS.esp_hold_confirmation or CS.out.vEgo < self.CP.vEgoStopping)
         can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, self.CAN.pt, CS.acc_type, CC.longActive, accel,
                                                            acc_control, stopping, starting, CS.esp_hold_confirmation, v_ego=CS.out.vEgo,
-                                                           gear_ratio=getattr(CS, 'gear_ratio', 0.0)))
+                                                           gear_ratio=getattr(CS, 'gear_ratio', 0.0),
+                                                           stock_tsk05_values=getattr(CS, 'stock_tsk05_values', {})))  # ✅ 新增：传入原生TSK_05的值
 
     # **** HUD Controls ***************************************************** #
 
@@ -152,9 +153,12 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     # **** Stock ACC Button Controls **************************************** #
 
     gra_send_ready = self.CP.pcmCruise and CS.gra_stock_values["COUNTER"] != self.gra_acc_counter_last
-    if gra_send_ready and (CC.cruiseControl.cancel or CC.cruiseControl.resume):
+    # ✅ 新增：Resume Spamming - 只要需要resume，就持续发送按键信号，而不是只发一次
+    need_resume_spam = CC.cruiseControl.resume and CC.longActive and CS.out.standstill
+    need_cancel = CC.cruiseControl.cancel
+    if (gra_send_ready and need_cancel) or need_resume_spam:
       can_sends.append(self.CCS.create_acc_buttons_control(self.packer_pt, self.CAN.ext, CS.gra_stock_values,
-                                                           cancel=CC.cruiseControl.cancel, resume=CC.cruiseControl.resume))
+                                                           cancel=need_cancel, resume=need_resume_spam))
 
     # **** Intelligent Cruise Button Management ******************************** #
 
