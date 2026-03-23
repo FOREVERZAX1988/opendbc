@@ -166,13 +166,8 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
 
   _last_acc05_counter += 1
 
-  # 生成报文并计算MLB原厂checksum
-  acc05_msg = packer.make_can_msg("ACC_05", bus, acc_05_values)
-  acc05_data = bytearray(acc05_msg[2])
-  acc05_data[7] = volkswagen_mlb_checksum(0x10D, None, acc05_data)
-  acc05_msg = (acc05_msg[0], acc05_msg[1], bytes(acc05_data))
-
-  commands.append(acc05_msg)
+  # ✅ 修正：直接用packer生成合法报文，不手动碰校验和
+  commands.append(packer.make_can_msg("ACC_05", bus, acc_05_values))
 
   # ✅ 新增：生成并添加TSK_05替代报文
   tsk05_msg = create_tsk05_control(packer, bus, acc_control, stock_tsk05_values)
@@ -249,13 +244,8 @@ def create_tsk05_control(packer, bus, acc_control, stock_tsk05_values=None):
 
   _last_tsk05_counter += 1
 
-  # 生成报文并计算MLB原厂checksum（TSK_05地址0x111，对应xor起始值0x10）
-  tsk05_msg = packer.make_can_msg("TSK_05", bus, values)
-  tsk05_data = bytearray(tsk05_msg[2])
-  tsk05_data[7] = volkswagen_mlb_checksum(0x111, None, tsk05_data)
-  tsk05_msg = (tsk05_msg[0], tsk05_msg[1], bytes(tsk05_data))
-
-  return tsk05_msg
+  # ✅ 修正：直接用packer生成合法报文，不手动碰校验和
+  return packer.make_can_msg("TSK_05", bus, values)
 
 def volkswagen_mlb_checksum(address: int, sig, d: bytearray) -> int:
   xor_starting_value = {
