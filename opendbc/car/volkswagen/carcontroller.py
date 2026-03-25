@@ -39,7 +39,7 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     # 2. 显式调用父类初始化 (从代码1恢复)
     CarControllerBase.__init__(self, dbc_names, CP, CP_SP)
     IntelligentCruiseButtonManagementInterface.__init__(self, CP, CP_SP)
-    
+
     self.CCP = CarControllerParams(CP)
     self.CAN = CanBus(CP)
     self.packer_pt = CANPacker(dbc_names[Bus.pt])
@@ -76,13 +76,13 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
       if CC.latActive:
         new_torque = int(round(actuators.torque * self.CCP.STEER_MAX))
         apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last, CS.out.steeringTorque, self.CCP)
-        
+
         # 4. 运行计时器 (从代码1恢复)
         self.hca_frame_timer_running += self.CCP.STEER_STEP
 
         # 5. 使用上游新的 HCAMitigation 类 (保留代码2的优化)
         apply_torque = self.hca_mitigation.update(apply_torque, self.apply_torque_last)
-        
+
         hca_enabled = abs(apply_torque) > 0
 
         # 6. 恢复 MLB EPS Timer Reset Workaround 核心逻辑 (从代码1恢复)
@@ -113,7 +113,7 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
 
       # 8. 恢复软禁用警报 (从代码1恢复)
       self.eps_timer_soft_disable_alert = self.hca_frame_timer_running > self.CCP.STEER_TIME_ALERT / DT_CTRL
-      
+
       self.apply_torque_last = apply_torque
       can_sends.append(self.CCS.create_steering_control(self.packer_pt, self.CAN.pt, output_torque, hca_enabled))
 
@@ -136,6 +136,10 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
         can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, self.CAN.pt, CS.acc_type, CC.longActive, accel,
                                                            acc_control, stopping, starting, CS.esp_hold_confirmation, v_ego=CS.out.vEgo,
                                                            gear_ratio=getattr(CS, 'gear_ratio', 0.0)))
+
+        # 【新增】发送 ACC04 报文：复用原厂雷达数据，确保仪表显示正常
+        if len(CS.acc04_original_values) > 0:
+          can_sends.append(self.CCS.create_acc04_control(self.packer_pt, self.CAN.pt, CS.acc04_original_values))
 
     # **** HUD Controls ***************************************************** #
 

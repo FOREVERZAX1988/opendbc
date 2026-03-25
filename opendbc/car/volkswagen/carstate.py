@@ -29,6 +29,8 @@ class CarState(CarStateBase):
     self.stock_zeitluecke = MLB_DEFAULT_ZEITLUECKE
     self.gear_ratio = 0.0
     self.follow_distance = 2
+    # 【新增】保存从 Bus2 读取的原厂 ACC04 所有信号
+    self.acc04_original_values = {}
 
     # Follow distance derived from stock radar's ACC_Gesetzte_Zeitluecke (MLB only)
     # Stored in Params so the planner can read it independently
@@ -337,6 +339,9 @@ class CarState(CarStateBase):
       if new_fd != self.follow_distance:
         self.follow_distance = new_fd
         self._params.put_nonblocking('FollowDistance', self.follow_distance)
+
+    # 【新增】读取 Bus2 (ext_cp) 上的原厂 ACC04 所有信号
+    self.acc04_original_values = ext_cp.vl.get("ACC_04", {})
 
     ret.buttonEvents = self.create_button_events(pt_cp, self.CCP.BUTTONS)
 
