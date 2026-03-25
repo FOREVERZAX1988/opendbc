@@ -138,7 +138,7 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
                                                            gear_ratio=getattr(CS, 'gear_ratio', 0.0)))
 
         # 【新增】发送 ACC04 报文：复用原厂雷达数据，确保仪表显示正常
-        if len(CS.acc04_original_values) > 0:
+        if self.frame % 2 == 0 and len(CS.acc04_original_values) > 0:
           can_sends.append(self.CCS.create_acc04_control(self.packer_pt, self.CAN.pt, CS.acc04_original_values))
 
     # **** HUD Controls ***************************************************** #
