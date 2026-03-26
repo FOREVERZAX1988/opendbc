@@ -151,19 +151,11 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
 
 # 【新增】生成 ACC04 报文：复用原厂雷达信号，确保状态正常
 def create_acc04_control(packer, bus, original_values):
-  """
-  重新生成 ACC04 报文
-  - 复制 Bus2 原厂雷达的所有信号
-  - 仅确保 ACC_Charisma_Status 为正常状态 (1)
-  - Checksum & Counter 由 packer 自动计算
-  """
   # 1. 复制原厂所有信号
   values = original_values.copy()
-
   # 2. 唯一修改：确保状态位正常 (防止雷达故障时状态不对)
   # 0: 不可用, 1: 正常, 2: 警告, 3: 故障
-  values["ACC_Charisma_Status"] = 1
-
+  #values["ACC_Charisma_Status"] = 1
   # 3. 生成报文 (Checksum & Counter 自动处理)
   return packer.make_can_msg("ACC_04", bus, values)
 
@@ -172,7 +164,7 @@ def volkswagen_mlb_checksum(address: int, sig, d: bytearray) -> int:
     0x109: 0x08, # ACC_01
     0x111: 0x10, # TSK_05
     0x30C: 0x0F, # ACC_02
-    0x324: 0x6F, # ACC_04
+    0x324: 0x27, # ACC_04
     0x10B: 0xA,  # LS_01
     0x10D: 0x0C, # ACC_05
     0x10F: 0x0E, # ACC_0x10F
