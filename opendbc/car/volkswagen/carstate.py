@@ -394,6 +394,9 @@ class CarState(CarStateBase):
         ("HCA_01", 1),  # From R242 Driver assistance camera, 50Hz if steering/1Hz if not
       ]
 
+    if CP.flags & VolkswagenFlags.MLB:
+      cam_messages.append(("ACC_04", 25))  # ACC04在CAM总线，25Hz（和原厂一致）
+
     return {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], pt_messages, CanBus(CP).pt),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], cam_messages, CanBus(CP).cam),
