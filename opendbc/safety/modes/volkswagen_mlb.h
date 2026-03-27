@@ -176,14 +176,16 @@ static bool volkswagen_mlb_tx_hook(const CANPacket_t *msg) {
   return tx;
 }
 
-// 【MLB平台专用】放行ECU→雷达的TSK_05心跳，解决雷达超时故障
-static int volkswagen_mlb_fwd_hook(int bus_num, int addr) {
-  // 放行 Bus0 → Bus2 的 TSK_05 心跳
+// 【MLB平台专用】精准放行ECU→雷达的TSK_05心跳，解决雷达超时故障
+static bool volkswagen_mlb_fwd_hook(int bus_num, int addr) {
+  // 核心逻辑：只对Bus0→Bus2的TSK_05心跳，明确放行（返回false=不阻断）
+  // 其他所有报文，不干预默认逻辑
   if (bus_num == 0 && addr == MSG_TSK_05) {
-    return 2; // 转发到Bus2
+    return false; // 不阻断，允许TSK_05从Bus0转发到Bus2
   }
-  // 其他报文保持默认阻断规则
-  return -1;
+
+  // 其他报文：返回false，不干预默认的静态阻断逻辑
+  return false;
 }
 
 // TODO: rename these functions to MXB or something
