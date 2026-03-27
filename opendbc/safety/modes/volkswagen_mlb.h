@@ -181,7 +181,6 @@ const safety_hooks volkswagen_mlb_hooks = {
   .init = volkswagen_mlb_init,
   .rx = volkswagen_mlb_rx_hook,
   .tx = volkswagen_mlb_tx_hook,
-  .fwd = volkswagen_mlb_fwd_hook, // 新增这一行
   .get_counter = volkswagen_mqb_meb_get_counter,
   .get_checksum = volkswagen_mqb_meb_get_checksum,
   .compute_checksum = volkswagen_mqb_meb_compute_crc,
