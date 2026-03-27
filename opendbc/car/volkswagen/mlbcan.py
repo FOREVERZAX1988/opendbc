@@ -154,7 +154,7 @@ def create_acc04_control(packer, bus, original_values):
   # 1. 复制原厂所有信号
   values = original_values.copy()
   # 2. 唯一修改：确保状态位正常 (防止雷达故障时状态不对)
-  # 0: 不可用, 1: 正常, 2: 警告, 3: 故障
+  # 0: 初始化, 1: 正常, 2: 故障, 3: 未知 还没遇见
   #values["ACC_Charisma_Status"] = 1
   # 3. 生成报文 (Checksum & Counter 自动处理)
   return packer.make_can_msg("ACC_04", bus, values)

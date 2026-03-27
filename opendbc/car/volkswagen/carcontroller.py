@@ -128,6 +128,12 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     # (修正为 gear_ratio，与 mlbcan.py 匹配)
 
     if self.CP.openpilotLongitudinalControl:
+
+      # 【参考 ACC05】控制 ACC04 发送频率为 25Hz
+      if self.frame % 4 == 0:  # 100Hz / 4 = 25Hz
+        if hasattr(CS, 'acc04_stock_values') and CS.acc04_stock_values:
+          can_sends.append(self.CCS.create_acc04_control(self.packer_pt, self.CAN.pt, CS.acc04_stock_values))
+
       if self.frame % self.CCP.ACC_CONTROL_STEP == 0:
         acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, CC.longActive)
         accel = float(np.clip(actuators.accel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if CC.longActive else 0)
@@ -137,10 +143,6 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
                                                            acc_control, stopping, starting, CS.esp_hold_confirmation, v_ego=CS.out.vEgo,
                                                            gear_ratio=getattr(CS, 'gear_ratio', 0.0)))
 
-        # 【参考 ACC05】控制 ACC04 发送频率为 25Hz
-        if self.frame % 4 == 0:  # 100Hz / 4 = 25Hz
-          if hasattr(CS, 'acc04_stock_values') and CS.acc04_stock_values:
-            can_sends.append(self.CCS.create_acc04_control(self.packer_pt, self.CAN.pt, CS.acc04_stock_values))
 
     # **** HUD Controls ***************************************************** #
 
