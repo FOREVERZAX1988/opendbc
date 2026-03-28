@@ -153,10 +153,14 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
 def create_acc04_control(packer, bus, original_values):
   # 1. 复制原厂所有信号
   values = original_values.copy()
-  # 2. 唯一修改：确保状态位正常 (防止雷达故障时状态不对)
-  # 0: 初始化, 1: 正常, 2: 故障, 3: 未知 还没遇见
-  values["ACC_Charisma_Status"] = 1
-  # 3. 生成报文 (Checksum & Counter 自动处理)
+  charisma_status = original_values.get("ACC_Charisma_Status", 0)
+  if charisma_status == 1:
+    values["ACC_Charisma_Status"] = 1
+  elif charisma_status == 0:
+    values["ACC_Charisma_Status"] = 0
+  else:
+    # 故障码2 / 未知3 → 统一改为1，保证ACC正常工作
+    values["ACC_Charisma_Status"] = 1
   return packer.make_can_msg("ACC_04", bus, values)
 
 def volkswagen_mlb_checksum(address: int, sig, d: bytearray) -> int:
