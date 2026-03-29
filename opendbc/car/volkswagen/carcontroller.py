@@ -135,13 +135,14 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
           can_sends.append(self.CCS.create_acc04_control(self.packer_pt, self.CAN.pt, CS.acc04_stock_values))
 
       if self.frame % self.CCP.ACC_CONTROL_STEP == 0:
-        acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, CC.longActive)
+        acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, CC.longActive, CS.gasPressed)
         accel = float(np.clip(actuators.accel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if CC.longActive else 0)
         stopping = actuators.longControlState == LongCtrlState.stopping
         starting = actuators.longControlState == LongCtrlState.pid and (CS.esp_hold_confirmation or CS.out.vEgo < self.CP.vEgoStopping)
         can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, self.CAN.pt, CS.acc_type, CC.longActive, accel,
                                                            acc_control, stopping, starting, CS.esp_hold_confirmation, v_ego=CS.out.vEgo,
-                                                           gear_ratio=getattr(CS, 'gear_ratio', 0.0)))
+                                                           gear_ratio=getattr(CS, 'gear_ratio', 0.0),
+                                                           gas_pressed=CS.gasPressed, resume=CC.cruiseControl.resume, stock_acc05_values=getattr(CS, 'stock_acc05_values', None)))
 
 
     # **** HUD Controls ***************************************************** #
@@ -156,9 +157,9 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     if self.frame % self.CCP.ACC_HUD_STEP == 0 and self.CP.openpilotLongitudinalControl:
       lead_distance = getattr(CS, 'stock_lead_distance', 0)
       lead_object = getattr(CS, 'stock_lead_object', 0)
-      acc_hud_status = self.CCS.acc_hud_status_value(CS.out.cruiseState.available, CS.out.accFaulted, CC.longActive)
+      acc_hud_status = self.CCS.acc_hud_status_value(CS.out.cruiseState.available, CS.out.accFaulted, CC.longActive, CS.gasPressed)
       set_speed = hud_control.setSpeed * CV.MS_TO_KPH
-      can_sends.append(self.CCS.create_acc_hud_control(self.packer_pt, self.CAN.pt, acc_hud_status, set_speed,
+      can_sends.append(self.CCS.create_acc_hud_control(self.packer_pt, self.CAN.pt, acc_control, acc_hud_status, set_speed,
                                                        lead_distance, hud_control.leadDistanceBars, lead_object,
                                                        zeitluecke=getattr(CS, 'stock_zeitluecke', 4)))
 

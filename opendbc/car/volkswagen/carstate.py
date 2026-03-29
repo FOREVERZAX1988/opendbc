@@ -29,8 +29,10 @@ class CarState(CarStateBase):
     self.stock_zeitluecke = MLB_DEFAULT_ZEITLUECKE
     self.gear_ratio = 0.0
     self.follow_distance = 2
-    # 【新增】保存从 Bus2 读取的原厂 ACC04 所有信号
+    # 【新增】保存从 Bus2 读取的原厂 ACC02 ACC04 ACC05 所有信号
     self.acc04_stock_values = {}
+    self.stock_acc02_values = {}
+    self.stock_acc05_values = {}
 
     # Follow distance derived from stock radar's ACC_Gesetzte_Zeitluecke (MLB only)
     # Stored in Params so the planner can read it independently
@@ -342,6 +344,9 @@ class CarState(CarStateBase):
 
     # 【新增】读取 Bus2 (ext_cp) 上的原厂 ACC04 所有信号
     self.acc04_stock_values = ext_cp.vl.get("ACC_04", {})
+    # 【新增】直接读取 Bus2 原厂 ACC02 和 ACC05 的完整字典
+    self.stock_acc02_values = ext_cp.vl.get("ACC_02", {})  # 原厂 ACC02 (ID 0x30C)
+    self.stock_acc05_values = ext_cp.vl.get("ACC_05", {})  # 原厂 ACC05 (ID 0x10D)
 
     ret.buttonEvents = self.create_button_events(pt_cp, self.CCP.BUTTONS)
 
@@ -396,6 +401,9 @@ class CarState(CarStateBase):
 
     if CP.flags & VolkswagenFlags.MLB:
       cam_messages.append(("ACC_04", 25))  # ACC04在CAM总线，25Hz（和原厂一致）
+      cam_messages.append(("ACC_02", 25))  # ACC02在CAM总线，25Hz（和原厂一致）
+      cam_messages.append(("ACC_05", 50))  # ACC05在CAM总线，50Hz（和原厂一致）
+
 
     return {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], pt_messages, CanBus(CP).pt),
