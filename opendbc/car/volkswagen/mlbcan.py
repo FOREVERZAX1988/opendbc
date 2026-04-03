@@ -38,11 +38,15 @@ def create_acc_buttons_control(packer, bus, gra_stock_values, cancel=False, resu
   return packer.make_can_msg("LS_01", bus, values)
 
 
-def acc_control_value(main_switch_on, acc_faulted, long_active):
+def acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed):
   if acc_faulted:
     acc_control = 6
+  # 状态4：ACC激活中，驾驶员踩油门临时接管，优先让驾驶员控制
   elif long_active:
-    acc_control = 3
+    if gas_pressed:
+      acc_control = 4  # 状态3的子状态：驾驶员踩油门接管
+    else:
+      acc_control = 3  # 正常
   elif main_switch_on:
     acc_control = 2
   else:
@@ -51,12 +55,12 @@ def acc_control_value(main_switch_on, acc_faulted, long_active):
   return acc_control
 
 
-def acc_hud_status_value(main_switch_on, acc_faulted, long_active):
+def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed):
   # TODO: happens to resemble the ACC control value for now, but extend this for init/gas override later
-  return acc_control_value(main_switch_on, acc_faulted, long_active)
+  return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
 
-
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, gear_ratio=0):
+# 新增CS入参，用于读取真实车速
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, gear_ratio=0, CS=None):
   commands = []
 
   # ACC_05: additive torque control with physics-based gain
@@ -79,6 +83,8 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   #   ~0.4 m/s² at mid-speeds, ~0.6 m/s² at highway. Beyond that, hydraulic brakes take over.
   MASS = 2000.0   # 2023 Macan S ~1955 kg curb + driver
   WHEEL_R = 0.36  # 255/55R18 effective rolling radius
+  # 新增在开头先定义车速兼容逻辑，后面统一用 current_v_ego，确保在CS缺失或vEgo不可用时不会出问题
+  current_v_ego = CS.out.vEgo if (CS is not None and hasattr(CS, 'out') and hasattr(CS.out, 'vEgo')) else v_ego
 
   if acc_enabled:
     braking = accel < -0.4 or stopping or (v_ego < 2.0 and accel <= 0)
@@ -108,7 +114,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     "ACC_Status_ACC": acc_control,
     # Stock ACC_Verz_anf range during braking: -2.015 to 0
     # Panda safety allows -3.5; DBC allows -7.22. Use panda limit for max braking.
-    "ACC_Verz_anf": max(accel, -3.5) if braking else (0 if acc_enabled else 3.01),
+    "ACC_Verz_anf": -2.0 if (acc_enabled and ((current_v_ego < 0.1) or esp_hold)) else (max(accel, -2.0) if braking else (0 if acc_enabled else 0.0)),
     "ACC_Freigabe_Verzanf": 1 if braking else 0,
     "ACC_Freigabe_Momentenanf": 1 if (acc_enabled and not braking) else 0,
     "ACC_Momentenanforderung": acc_moment,
@@ -127,6 +133,8 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     "ACC_StartStopp_Info": acc_enabled,
     "ACC_Anhalten": stopping,
     "ACC_Betaetigung_EPB": esp_hold,  # Echo ESP hold state -- DO NOT use stopping (causes brake release when ACC off)
+    # 【新增 核心修正】匹配原厂逻辑，ACC激活时置1
+    "ACC_KD_Fehler": 1,
   }
   commands.append(packer.make_can_msg("ACC_05", bus, acc_05_values))
 

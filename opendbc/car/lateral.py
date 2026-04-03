@@ -25,25 +25,36 @@ class AngleSteeringLimits:
 
 
 def apply_driver_steer_torque_limits(apply_torque: int, apply_torque_last: int, driver_torque: float, LIMITS, steer_max: int | None = None):
+  #apply_torque: int,        # openpilot 想要输出的目标扭矩
+  #apply_torque_last: int,   # 上一次实际输出的扭矩
+  #driver_torque: float,    # 司机当前施加的扭矩
+  #LIMITS: CarControllerParams.LateralTorqueLimits,  # 车型的转向扭矩限制参数
   # some safety modes utilize a dynamic max steer
+  # 一些安全模式使用动态最大转向值，默认用车型固定的 STEER_MAX，但如果 steer_max 参数被传入，则使用该值作为最大转向限制。这允许在特定情况下调整最大转向限制，例如根据车辆状态或环境条件。
   if steer_max is None:
     steer_max = LIMITS.STEER_MAX
 
   # limits due to driver torque
+  # 允许的最大辅助扭矩（司机往右打，辅助就少出力）
   driver_max_torque = steer_max + (LIMITS.STEER_DRIVER_ALLOWANCE + driver_torque * LIMITS.STEER_DRIVER_FACTOR) * LIMITS.STEER_DRIVER_MULTIPLIER
+  # 允许的最小辅助扭矩（司机往左打，辅助就少出力）
   driver_min_torque = -steer_max + (-LIMITS.STEER_DRIVER_ALLOWANCE + driver_torque * LIMITS.STEER_DRIVER_FACTOR) * LIMITS.STEER_DRIVER_MULTIPLIER
+  # 把辅助扭矩锁在安全范围内
+  # 根据司机当前施加的扭矩和车型的转向扭矩限制参数，计算出允许的最大和最小辅助扭矩。这些限制确保了openpilot的转向控制不会与司机的输入产生过大的冲突，从而提高安全性。
   max_steer_allowed = max(min(steer_max, driver_max_torque), 0)
   min_steer_allowed = min(max(-steer_max, driver_min_torque), 0)
   apply_torque = np.clip(apply_torque, min_steer_allowed, max_steer_allowed)
-
+  # 第二重安全：速率限制（防止方向盘抖 / 猛打） 这是方向盘手感丝滑的关键！
   # slow rate if steer torque increases in magnitude
+  # 扭矩上升：慢一点
   if apply_torque_last > 0:
     apply_torque = np.clip(apply_torque, max(apply_torque_last - LIMITS.STEER_DELTA_DOWN, -LIMITS.STEER_DELTA_UP),
                            apply_torque_last + LIMITS.STEER_DELTA_UP)
+  # 扭矩下降：快一点（更安全）
   else:
     apply_torque = np.clip(apply_torque, apply_torque_last - LIMITS.STEER_DELTA_UP,
                            min(apply_torque_last + LIMITS.STEER_DELTA_DOWN, LIMITS.STEER_DELTA_UP))
-
+  # 输出最终整数扭矩 （因为CAN消息里转向扭矩通常是整数，单位是0.01Nm，所以要四舍五入并转换成整数）
   return int(round(float(apply_torque)))
 
 
