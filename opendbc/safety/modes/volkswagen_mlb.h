@@ -138,7 +138,7 @@ static bool volkswagen_mlb_tx_hook(const CANPacket_t *msg) {
   const LongitudinalLimits VOLKSWAGEN_MLB_LONG_LIMITS = {
     .max_accel = 2000,
     .min_accel = -3500,
-    .inactive_accel = 3010,  // VW sends one increment above the max range when inactive
+    .inactive_accel = 0,  // VW sends one increment above the max range when inactive
   };
 
   bool tx = true;
