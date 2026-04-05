@@ -271,7 +271,7 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
       # 每 0.02 秒执行一次（50Hz），发送 ACC 加减速指令
       if self.frame % self.CCP.ACC_CONTROL_STEP == 0:
         # 1. 确定ACC当前工作状态（开启/暂停/故障）
-        acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, CC.longActive, gas_pressed)
+        acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, CC.longActive, CS.tsk_acc_status)
         # 2. 计算加速指令：根据openpilot的加速指令（actuators.accel）和车型控制参数（CCP.ACCEL_MIN、CCP.ACCEL_MAX）计算出实际要输出的加速度值，并且如果ACC没有激活，则强制加速度为0，确保车辆不受控制地加速或减速
         accel = float(np.clip(actuators.accel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if CC.longActive else 0)
         # 3. 判断车辆是否正在刹停 / 停车起步
@@ -295,7 +295,7 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     if self.frame % self.CCP.ACC_HUD_STEP == 0 and self.CP.openpilotLongitudinalControl:
       lead_distance = getattr(CS, 'stock_lead_distance', 0)
       lead_object = getattr(CS, 'stock_lead_object', 0)
-      acc_hud_status = self.CCS.acc_hud_status_value(CS.out.cruiseState.available, CS.out.accFaulted, CC.longActive, gas_pressed)
+      acc_hud_status = self.CCS.acc_hud_status_value(CS.out.cruiseState.available, CS.out.accFaulted, CC.longActive, CS.tsk_acc_status)
       set_speed = hud_control.setSpeed * CV.MS_TO_KPH
       can_sends.append(self.CCS.create_acc_hud_control(self.packer_pt, self.CAN.pt, acc_hud_status, set_speed,
                                                        lead_distance, hud_control.leadDistanceBars, lead_object,

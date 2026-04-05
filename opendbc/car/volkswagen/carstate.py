@@ -31,6 +31,8 @@ class CarState(CarStateBase):
     self.follow_distance = 2
     # 【新增】保存从 Bus2 读取的原厂 ACC04 所有信号
     self.acc04_stock_values = {}
+    # 【新增】保存 TSK04 的原始状态值（0/1/2/3）
+    self.tsk_acc_status = 0
 
     # Follow distance derived from stock radar's ACC_Gesetzte_Zeitluecke (MLB only)
     # Stored in Params so the planner can read it independently
@@ -296,6 +298,8 @@ class CarState(CarStateBase):
       ret.cruiseState.available = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (0, 1, 2)
       # ret.cruiseState.available = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (1, 2) 上游错误？还是别有用意？先注释掉，等收集到数据再确认
       ret.cruiseState.enabled = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (1, 2)
+      # 【新增】保存 TSK04 的原始状态值，传给后面的 CarController/mlbcan 使用
+      self.tsk_acc_status = int(alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"])
       ret.accFaulted = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] == 3
       ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
       if ret.cruiseState.speed > 90:
@@ -404,6 +408,8 @@ class CarState(CarStateBase):
 
     if CP.flags & VolkswagenFlags.MLB:
       cam_messages.append(("ACC_04", 25))  # ACC04在CAM总线，25Hz（和原厂一致）
+      # 【新增】TSK04在ALT总线（Bus1），50Hz（和原厂一致）
+      alt_messages.append(("TSK_04", 50))
 
     return {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], pt_messages, CanBus(CP).pt),

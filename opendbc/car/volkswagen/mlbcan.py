@@ -38,16 +38,19 @@ def create_acc_buttons_control(packer, bus, gra_stock_values, cancel=False, resu
   return packer.make_can_msg("LS_01", bus, values)
 
 
-def acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed):
-  if acc_faulted:
+def acc_control_value(main_switch_on, acc_faulted, long_active, tsk_acc_status):
+  if acc_faulted or tsk_acc_status == 3:
     acc_control = 6
-  # 状态4：ACC激活中，驾驶员踩油门临时接管，优先让驾驶员控制
-  elif long_active:
-    if gas_pressed:
-      acc_control = 4  # 状态3的子状态：驾驶员踩油门接管
-    else:
-      acc_control = 3  # 正常
-  elif main_switch_on:
+  # 场景1：openpilot主动激活ACC（SET键按下，TSK还没确认）
+  elif long_active and tsk_acc_status == 0:
+    acc_control = 3
+  # 场景2：TSK已确认ACC激活（核心逻辑，完全听TSK的，和long_active无关）
+  elif tsk_acc_status == 1:
+    acc_control = 3
+  elif tsk_acc_status == 2:
+    acc_control = 4
+  # 待机/未激活场景
+  elif main_switch_on or tsk_acc_status == 0:
     acc_control = 2
   else:
     acc_control = 0
@@ -55,9 +58,9 @@ def acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed):
   return acc_control
 
 
-def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed):
+def acc_hud_status_value(main_switch_on, acc_faulted, long_active, tsk_acc_status):
   # TODO: happens to resemble the ACC control value for now, but extend this for init/gas override later
-  return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
+  return acc_control_value(main_switch_on, acc_faulted, long_active, tsk_acc_status)
 
 # 新增CS入参，用于读取真实车速
 def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, gear_ratio=0, CS=None):
