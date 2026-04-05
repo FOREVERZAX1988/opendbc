@@ -257,7 +257,7 @@ class CarState(CarStateBase):
 
   # def update_mlb(self, pt_cp, cam_cp, ext_cp) -> tuple[structs.CarState, structs.CarStateSP]:
   # def update_mlb(self, pt_cp, cam_cp, ext_cp, alt_cp) -> structs.CarState:
-   def update_mlb(self, pt_cp, cam_cp, ext_cp, alt_cp) -> tuple[structs.CarState, structs.CarStateSP]:
+  def update_mlb(self, pt_cp, cam_cp, ext_cp, alt_cp) -> tuple[structs.CarState, structs.CarStateSP]:
     ret = structs.CarState()
     ret_sp = structs.CarStateSP()
 
