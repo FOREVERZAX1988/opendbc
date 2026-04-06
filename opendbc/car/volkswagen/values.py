@@ -30,7 +30,7 @@ class CanBus(CanBusBase):
     return self.offset
 
   @property
-  def aux(self) -> int: #def alt(self) -> int:上游的这个pr还没合并，先保留这个名字，等上游合并后再改成alt
+  def alt(self) -> int: #def alt(self) -> int:上游的这个pr还没合并，先保留这个名字，等上游合并后再改成alt
     # NetworkLocation.fwdCamera: radar-camera object fusion CAN
     # NetworkLocation.gateway: powertrain CAN
     return self.offset + 1
@@ -447,6 +447,12 @@ class CAR(Platforms):
     VolkswagenCarSpecs(mass=1623, wheelbase=2.68),
     chassis_codes={"8U", "F3", "FS"},
     wmis={WMI.AUDI_EUROPE_MPV, WMI.AUDI_GERMANY_CAR, WMI.VOLKSWAGEN_CHINA_FAW},
+  )
+  AUDI_Q5_MK1 = VolkswagenMLBPlatformConfig(
+    [VWCarDocs("Audi Q5 2013-17")],
+    VolkswagenCarSpecs(mass=1895, wheelbase=2.81),
+    chassis_codes={"8R"},
+    wmis={WMI.AUDI_EUROPE_MPV, WMI.AUDI_GERMANY_CAR},
   )
   PORSCHE_MACAN_MK1 = VolkswagenMLBPlatformConfig(
     [VWCarDocs("Porsche Macan 2017-24")],

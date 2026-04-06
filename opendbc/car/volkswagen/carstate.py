@@ -31,6 +31,8 @@ class CarState(CarStateBase):
     self.follow_distance = 2
     # 【新增】保存从 Bus2 读取的原厂 ACC04 所有信号
     self.acc04_stock_values = {}
+    # 【新增】保存 TSK04 的原始状态值（0/1/2/3）
+    self.tsk_acc_status = 0
 
     # Follow distance derived from stock radar's ACC_Gesetzte_Zeitluecke (MLB only)
     # Stored in Params so the planner can read it independently
@@ -68,11 +70,12 @@ class CarState(CarStateBase):
     pt_cp = can_parsers[Bus.pt]
     cam_cp = can_parsers[Bus.cam]
     ext_cp = pt_cp if self.CP.networkLocation == NetworkLocation.fwdCamera else cam_cp
+    alt_cp = can_parsers[Bus.alt]
 
     if self.CP.flags & VolkswagenFlags.PQ:
       return self.update_pq(pt_cp, cam_cp, ext_cp)
     elif self.CP.flags & VolkswagenFlags.MLB:
-      return self.update_mlb(pt_cp, cam_cp, ext_cp)
+      return self.update_mlb(pt_cp, cam_cp, ext_cp, alt_cp)
 
     ret = structs.CarState()
     ret_sp = structs.CarStateSP()
@@ -254,7 +257,7 @@ class CarState(CarStateBase):
     self.frame += 1
     return ret, ret_sp
 
-  def update_mlb(self, pt_cp, cam_cp, ext_cp) -> tuple[structs.CarState, structs.CarStateSP]:
+  def update_mlb(self, pt_cp, cam_cp, ext_cp, alt_cp) -> tuple[structs.CarState, structs.CarStateSP]:
     ret = structs.CarState()
     ret_sp = structs.CarStateSP()
 
@@ -286,9 +289,16 @@ class CarState(CarStateBase):
     # ACC okay but disabled (1), ACC ready (2), a radar visibility or other fault/disruption (6 or 7)
     # currently regulating speed (3), driver accel override (4), brake only (5)
     if self.CP.pcmCruise:
-      ret.cruiseState.available = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (2, 3, 4, 5)
-      ret.cruiseState.enabled = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (3, 4, 5)
-      ret.accFaulted = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (6, 7)
+     # ret.cruiseState.available = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (2, 3, 4, 5)
+     # ret.cruiseState.enabled = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (3, 4, 5)
+     # ret.accFaulted = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (6, 7)
+     # ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
+      ret.cruiseState.available = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (0, 1, 2)
+      # ret.cruiseState.available = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (1, 2) 上游错误？还是别有用意？先注释掉，等收集到数据再确认
+      ret.cruiseState.enabled = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (1, 2)
+      # 【新增】保存 TSK04 的原始状态值，传给后面的 CarController/mlbcan 使用
+      self.tsk_acc_status = int(alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"])
+      ret.accFaulted = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] == 3
       ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
       if ret.cruiseState.speed > 90:
         ret.cruiseState.speed = 0
@@ -306,14 +316,14 @@ class CarState(CarStateBase):
     ret.parkingBrake = bool(pt_cp.vl["Kombi_01"]["KBI_Handbremse"])
     ret.espDisabled = pt_cp.vl["ESP_01"]["ESP_Tastung_passiv"] != 0
 
-    ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_stalk(300, pt_cp.vl["Gateway_11"]["BH_Blinker_li"],
-                                                                            pt_cp.vl["Gateway_11"]["BH_Blinker_re"])
+    ret.leftBlinker = bool(pt_cp.vl["BCM"]["BLINKER_LEFT"])
+    ret.rightBlinker = bool(pt_cp.vl["BCM"]["BLINKER_RIGHT"])
 
-    ret.seatbeltUnlatched = pt_cp.vl["Gateway_06"]["AB_Gurtschloss_FA"] != 3
-    ret.doorOpen = any([pt_cp.vl["Gateway_05"]["FT_Tuer_geoeffnet"],
-                        pt_cp.vl["Gateway_05"]["BT_Tuer_geoeffnet"],
-                        pt_cp.vl["Gateway_05"]["HL_Tuer_geoeffnet"],
-                        pt_cp.vl["Gateway_05"]["HR_Tuer_geoeffnet"]])
+    ret.seatbeltUnlatched = bool(pt_cp.vl["Airbag_01"]["AB_Gurtwarn_VF"])
+    ret.doorOpen = any([alt_cp.vl["Gateway_05"]["FT_Tuer_geoeffnet"],
+                        alt_cp.vl["Gateway_05"]["BT_Tuer_geoeffnet"],
+                        alt_cp.vl["Gateway_05"]["HL_Tuer_geoeffnet"],
+                        alt_cp.vl["Gateway_05"]["HR_Tuer_geoeffnet"]])
 
     # Consume blind-spot monitoring info/warning LED states, if available.
     # Infostufe: BSM LED on, Warnung: BSM LED flashing
@@ -383,7 +393,7 @@ class CarState(CarStateBase):
       return CarState.get_can_parsers_pq(CP)
 
     # manually configure some optional and variable-rate/edge-triggered messages
-    pt_messages, cam_messages = [], []
+    pt_messages, cam_messages, alt_messages = [], [], []
 
     if not CP.flags & VolkswagenFlags.MLB:
       pt_messages += [
@@ -396,10 +406,12 @@ class CarState(CarStateBase):
 
     if CP.flags & VolkswagenFlags.MLB:
       cam_messages.append(("ACC_04", 25))  # ACC04在CAM总线，25Hz（和原厂一致）
+      alt_messages.append(("TSK_04", 50))  # TSK04在ALT总线（Bus1），50Hz（和原厂一致）
 
     return {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], pt_messages, CanBus(CP).pt),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], cam_messages, CanBus(CP).cam),
+      Bus.alt: CANParser(DBC[CP.carFingerprint][Bus.pt], alt_messages, CanBus(CP).alt),
     }
 
   @staticmethod
@@ -407,4 +419,5 @@ class CarState(CarStateBase):
     return {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], CanBus(CP).pt),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [], CanBus(CP).cam),
+      Bus.alt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], CanBus(CP).alt),
     }
