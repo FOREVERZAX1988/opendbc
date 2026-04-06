@@ -41,19 +41,21 @@ def create_acc_buttons_control(packer, bus, gra_stock_values, cancel=False, resu
 def acc_control_value(main_switch_on, acc_faulted, long_active, tsk_acc_status):
   if acc_faulted or tsk_acc_status == 3:
     acc_control = 6
-  # 场景1：openpilot主动激活ACC（SET键按下，TSK还没确认）
-  elif long_active and tsk_acc_status == 0:
-    acc_control = 3
-  # 场景2：TSK已确认ACC激活（核心逻辑，完全听TSK的，和long_active无关）
-  elif tsk_acc_status == 1:
-    acc_control = 3
+  # 【最高优先级】物理主开关关闭 → 直接返回0
+  elif not main_switch_on:
+    acc_control = 0
+  # 【核心逻辑1】TSK_04=2 → 驾驶员正在踩油门接管（原厂状态机告诉我们的）
   elif tsk_acc_status == 2:
     acc_control = 4
-  # 待机/未激活场景
-  elif main_switch_on or tsk_acc_status == 0:
-    acc_control = 2
+  # 【核心逻辑2】TSK_04=1 → ACC正在正常巡航
+  elif tsk_acc_status == 1:
+    acc_control = 3
+  # 【核心逻辑3】TSK_04=0 且 long_active=True → openpilot正在请求激活，TSK还没确认
+  elif long_active and tsk_acc_status == 0:
+    acc_control = 3
+  # 物理主开关打开，但没激活 → 待机状态2
   else:
-    acc_control = 0
+    acc_control = 2
 
   return acc_control
 
