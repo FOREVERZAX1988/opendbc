@@ -118,6 +118,7 @@ static void volkswagen_mlb_rx_hook(const CANPacket_t *msg) {
       // 【完全对齐原始代码】如果主开关关闭，强制把 controls_allowed 设为 false
       if (!acc_main_on) {
         controls_allowed = false;
+        }
       }
     }
   }
