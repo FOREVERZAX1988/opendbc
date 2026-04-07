@@ -35,6 +35,11 @@ class CanBus(CanBusBase):
     # NetworkLocation.gateway: powertrain CAN
     return self.offset + 1
 
+  # 兼容旧代码，让aux直接指向alt
+  @property
+  def aux(self) -> int:
+    return self.alt
+
   @property
   def cam(self) -> int:
     # ADAS / Extended CAN, camera side of the relay

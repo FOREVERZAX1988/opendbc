@@ -308,6 +308,12 @@ class CarState(CarStateBase):
     else:
       # When using openpilot longitudinal, read main switch from LS_01
       ret.cruiseState.available = bool(pt_cp.vl["LS_01"]["LS_Hauptschalter"])
+      # ✅ 必须加上：实时从 CAN 总线读取 TSK_04 状态并更新
+      self.tsk_acc_status = int(alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"])
+      # ✅ 同时更新故障状态
+      ret.accFaulted = self.tsk_acc_status == 3
+      # ✅ 同时更新 enabled 状态
+      ret.cruiseState.enabled = self.tsk_acc_status in (1, 2)
 
     self.parse_mlb_mqb_steering_state(ret, pt_cp)
 
