@@ -293,8 +293,8 @@ class CarState(CarStateBase):
      # ret.cruiseState.enabled = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (3, 4, 5)
      # ret.accFaulted = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (6, 7)
      # ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
-      ret.cruiseState.available = bool(pt_cp.vl["LS_01"]["LS_Hauptschalter"])
-     # ret.cruiseState.available = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (0, 1, 2)
+     # ret.cruiseState.available = bool(pt_cp.vl["LS_01"]["LS_Hauptschalter"])
+      ret.cruiseState.available = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (0, 1, 2)
       # ret.cruiseState.available = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (1, 2) 上游错误？还是别有用意？先注释掉，等收集到数据再确认
       ret.cruiseState.enabled = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (1, 2)
       # 【新增】保存 TSK04 的原始状态值，传给后面的 CarController/mlbcan 使用
@@ -307,6 +307,12 @@ class CarState(CarStateBase):
     else:
       # When using openpilot longitudinal, read main switch from LS_01
       ret.cruiseState.available = bool(pt_cp.vl["LS_01"]["LS_Hauptschalter"])
+      # ✅ 必须加上：实时从 CAN 总线读取 TSK_04 状态并更新
+      self.tsk_acc_status = int(alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"])
+      # ✅ 同时更新故障状态
+      ret.accFaulted = self.tsk_acc_status == 3
+      # ✅ 同时更新 enabled 状态
+      ret.cruiseState.enabled = self.tsk_acc_status in (1, 2)
 
     self.parse_mlb_mqb_steering_state(ret, pt_cp)
 

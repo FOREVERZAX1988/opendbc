@@ -107,19 +107,7 @@ static void volkswagen_mlb_rx_hook(const CANPacket_t *msg) {
       // Signal: TSK_04.TSK_Status_GRA_ACC_02
       int acc_status = (msg->data[7] & 0xC0U) >> 6;
       bool cruise_engaged = (acc_status == 1) || (acc_status == 2);
-
-    // 【完全对齐原始代码】只有原厂纵向模式下，才执行这段逻辑
-    if (!volkswagen_longitudinal) {
-      // 【完全对齐原始代码】推导 acc_main_on：TSK_04=0/1/2 都算主开关打开
-      acc_main_on = (acc_status == 0) || (acc_status == 1) || (acc_status == 2);
-      // 用 TSK_04 状态控制权限
       pcm_cruise_check(cruise_engaged);
-
-      // 【完全对齐原始代码】如果主开关关闭，强制把 controls_allowed 设为 false
-      if (!acc_main_on) {
-        controls_allowed = false;
-        }
-      }
     }
   }
 }
