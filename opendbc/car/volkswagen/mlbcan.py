@@ -86,7 +86,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
 
   Key bug fixes vs earlier implementations:
     1. ACC_Verz_anf = 0 (not -2.0) at standstill — prevents false decel request
-    2. ACC_KD_Fehler = 0 (not 1) — tells PDK/ESP no fault, acceleration allowed
+    2. ACC_KD_Fehler = 1 (stock match) — stock ACC always sends 1 during normal operation
     3. ACC_ax_Getriebe clamped to [-2.016, 10.248] — prevents unsigned overflow
   """
   commands = []
@@ -154,7 +154,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     "ACC_StartStopp_Info": 1 if acc_enabled else 0,
     "ACC_Anhalten": 1 if stopping else 0,
     "ACC_Betaetigung_EPB": 1 if esp_hold else 0,
-    "ACC_KD_Fehler": 0,  # CRITICAL: 0 = no fault, acceleration allowed
+    "ACC_KD_Fehler": 1,  # Stock ACC sends 1: 1 = normal active state
     "ACC_Loeseanforderung": 0,
     "ACC_limitierte_Anfahrdyn": 0,
     "ACC_Getriebestellung_P": 0,
