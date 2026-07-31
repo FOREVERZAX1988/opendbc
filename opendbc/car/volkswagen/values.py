@@ -66,7 +66,7 @@ class CarControllerParams:
   DEFAULT_MIN_STEER_SPEED = 0.4            # m/s, newer EPS racks fault below this speed, don't show a low speed alert
 
   ACCEL_MAX = 2.0                          # 2.0 m/s^2 max acceleration
-  ACCEL_MIN = -3.5                         # 3.5 m/s^2 max deceleration
+  ACCEL_MIN = -2.95                         # -3.0 trips the MLB ACC ECU fault (2014 Audi Q5 3.0T, oscarmcnulty)
 
   def __init__(self, CP):
     can_define = CANDefine(DBC[CP.carFingerprint][Bus.pt])

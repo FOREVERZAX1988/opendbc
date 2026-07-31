@@ -162,6 +162,12 @@ class CarController(CarControllerBase):
           accel = float(np.clip(actuators.accel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if CC.longActive else 0)
           starting = actuators.longControlState == LongCtrlState.pid and (CS.esp_hold_confirmation or CS.out.vEgo < 0.25)
           if self.CP.flags & VolkswagenFlags.MLB:
+            # Jerk-limit the accel setpoint to match ACC_neg/pos_Sollbeschl_Grad (4.0 m/s3)
+            # declared in ACC_01. Without this the MLB ACC ECU faults during high jerk
+            # (verified by oscarmcnulty on 2014 Audi Q5 3.0T; matches Macan lockout symptom).
+            dt = DT_CTRL * self.CCP.ACC_CONTROL_STEP
+            accel = float(np.clip(accel, self.accel_last - 4.0 * dt, self.accel_last + 4.0 * dt))
+            self.accel_last = accel
             can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, self.CAN.pt, CS.acc_type, CC.longActive, accel,
                                                                acc_control, stopping, starting, CS.esp_hold_confirmation,
                                                                v_ego=CS.out.vEgoRaw, engine_torque=getattr(CS, 'engine_torque_output', 0)))

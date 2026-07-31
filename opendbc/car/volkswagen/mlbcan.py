@@ -69,97 +69,58 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active):
 
 def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold,
                              v_ego=0.0, engine_torque=0.0):
-  """Create ACC_05 message for longitudinal control on MLB platform.
+  """Create ACC_05 + ACC_01 messages for longitudinal control on MLB platform.
 
-  ACC_05 is the master acceleration request from ACC to engine (torque request),
-  transmission (gear selection hint via ax_Getriebe), and ESP (brake request).
+  Ported from oscarmcnulty's vw-mlb-2026-06 (verified on 2014 Audi Q5 MK1 3.0T +
+  Porsche Macan MK1), which resolves the MLB ACC ECU acceleration lockout
+  (accel works for a while then dies, brake-only still works, stock ACC also
+  fails after, only recovers after ignition cycle).
 
-  Physics-based additive torque control:
-
-    acc_moment = cruise_torque(v) + accel * torque_gain
-
-  cruise_torque: Quadratic fit to real Macan steady-state engine torque data.
-                 This is the torque needed to hold speed on flat ground.
-
-  torque_gain: Converts m/s² to Nm. Derived from: mass * wheel_radius.
-               Fixed gain of ~720 Nm/(m/s²) → conservative, gentle launches.
-
-  Key bug fixes vs earlier implementations:
-    1. ACC_Verz_anf = 0 (not -2.0) at standstill — prevents false decel request
-    2. ACC_KD_Fehler = 1 (stock match) — stock ACC always sends 1 during normal operation
-    3. ACC_ax_Getriebe clamped to [-2.016, 10.248] — prevents unsigned overflow
+  Why this differs from the previous torque-model implementation:
+    1. ACC_01 carries ACC_Sollbeschleunigung (desired accel) as the PRIMARY request
+       channel -- the ECU computes its own torque from it. This eliminates the
+       "requested torque vs actual accel mismatch -> TSK/ESP consistency lockout".
+    2. ACC_05 ACC_Momentenanforderung is a simple int(accel*100) mapping. No physics
+       torque formula, no dependence on gear_ratio / grade / load.
+    3. ACC_KD_Fehler = 0 (no fault declared). The previous 1 may tell the ECU
+       "ACC self-fault" and contribute to protective lockout.
+    4. ACC_ax_Getriebe passes accel through, clamped to DBC range to prevent the
+       unsigned wrap (verified fix, kept from previous implementation).
   """
   commands = []
 
-  # Determine braking state
-  if acc_enabled:
-    braking = (accel < -0.4) or stopping or (v_ego < 2.0 and accel <= 0)
-  else:
-    braking = False
-
-  if acc_enabled and not braking:
-    # Physics-based torque model
-    # cruise_torque(v) = 0.064 * v² + 2.16 * v + 46.0  (quadratic fit to MO_Mom_Ist)
-    cruise_torque = 0.064 * v_ego * v_ego + 2.16 * v_ego + 46.0
-
-    # Fixed torque gain (Nm per m/s² of acceleration)
-    # Derived from: mass * wheel_radius = 2000 * 0.36 = 720
-    torque_gain = 720.0
-
-    acc_moment = int(max(0, min(500, cruise_torque + accel * torque_gain)))
-  else:
-    acc_moment = 0
-
-  # ACC_Verz_anf: deceleration request to ESP
-  # IMPORTANT: At standstill, send 0, NOT -2.0!
-  # Sending -2.0 with a positive torque request causes ESP_Konsistenz_TSK fault.
-  # Only send decel request when genuinely braking.
-  if acc_enabled and braking:
-    verz_anf = max(accel, -3.5)
-  elif acc_enabled:
-    verz_anf = 0.0
-  else:
-    verz_anf = 0.0
-
-  # ACC_ax_Getriebe: expected acceleration signal for transmission (gear selection hint)
-  # DBC: [-2.016, +10.248]. 9 bits unsigned, offset -2.016.
-  # Values below -2.016 WRAP around to ~+10.248 (unsigned overflow)!
-  # This confuses the TCU — always clamp!
-  if acc_enabled and not braking:
-    if accel > 0.25:
-      ax_getriebe = min(accel, 1.3)
-    elif accel < -0.25:
-      ax_getriebe = max(accel, -0.5)
-    else:
-      ax_getriebe = 0.0
-  elif acc_enabled and braking:
-    # Speed-dependent negative hint
-    ax_getriebe = max(accel, -2.016)
-  else:
-    ax_getriebe = 0.0
-
-  # Clamp to DBC range to prevent overflow
-  ax_getriebe = max(-2.016, min(10.248, ax_getriebe))
-
   acc_05_values = {
     "ACC_Status_ACC": acc_control,
-    "ACC_Verz_anf": verz_anf,
-    "ACC_Freigabe_Verzanf": 1 if braking else 0,
-    "ACC_Freigabe_Momentenanf": 1 if (acc_enabled and not braking) else 0,
-    "ACC_Momentenanforderung": acc_moment,
-    "ACC_zul_Regelabw": 0,
-    "ACC_ax_Getriebe": ax_getriebe,
-    "ACC_Vorbefuellung_Bremsanlage": 1 if braking else 0,
-    "ACC_Beeinflussung_ESP": 1 if (stopping or esp_hold or (braking and accel < -1.0)) else 0,
-    "ACC_StartStopp_Info": 1 if acc_enabled else 0,
-    "ACC_Anhalten": 1 if stopping else 0,
-    "ACC_Betaetigung_EPB": 1 if esp_hold else 0,
-    "ACC_KD_Fehler": 1,  # Stock ACC sends 1: 1 = normal active state
-    "ACC_Loeseanforderung": 0,
-    "ACC_limitierte_Anfahrdyn": 0,
+    "ACC_Freigabe_Momentenanf": 1 if accel > 0 else 0,       # increased acceleration requested?
+    "ACC_Freigabe_Verzanf": 1 if accel < 0 else 0,           # decreased acceleration requested?
     "ACC_Getriebestellung_P": 0,
+    "ACC_limitierte_Anfahrdyn": 0,
+    "ACC_Momentenanforderung": int(accel * 100) if accel > 0 else 0,  # "torque requested"
+    "ACC_zul_Regelabw": 0,
+    "ACC_Verz_anf": accel if accel < 0 else 0,               # brake accel requested (ESP)
+    "ACC_Loeseanforderung": starting,                        # 1 when starting again from stop
+    "ACC_StartStopp_Info": starting,                         # 1 when moving, 0 when stopped
+    "ACC_Vorbefuellung_Bremsanlage": 1 if accel < 0 else 0,
+    "ACC_ax_Getriebe": max(-2.016, min(10.248, accel)),      # accel hint for TCU (clamped!)
+    "ACC_Betaetigung_EPB": 0,
+    "ACC_Beeinflussung_ESP": 0,
+    "ACC_Anhalten": stopping,
+    "ACC_KD_Fehler": 0,                                      # 0 = no fault declared
   }
   commands.append(packer.make_can_msg("ACC_05", bus, acc_05_values))
+
+  acc_01_values = {
+    "ACC_Status_ACC": acc_control,
+    "ACC_Sollbeschleunigung": accel if acc_enabled else 0,
+    "ACC_zul_Regelabw_unten": 0.2,
+    "ACC_zul_Regelabw_oben": 0.2,
+    "ACC_neg_Sollbeschl_Grad": 4.0 if acc_enabled else 0,    # jerk limit, must match carcontroller
+    "ACC_pos_Sollbeschl_Grad": 4.0 if acc_enabled else 0,
+    "ACC_Dynamik": 2,
+    "ACC_Anhalten": stopping,
+    "ACC_Minimale_Bremsung": stopping,
+  }
+  commands.append(packer.make_can_msg("ACC_01", bus, acc_01_values))
 
   return commands
 
