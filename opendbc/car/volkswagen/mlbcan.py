@@ -82,8 +82,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
        "requested torque vs actual accel mismatch -> TSK/ESP consistency lockout".
     2. ACC_05 ACC_Momentenanforderung is a simple int(accel*100) mapping. No physics
        torque formula, no dependence on gear_ratio / grade / load.
-    3. ACC_KD_Fehler = 0 (no fault declared). The previous 1 may tell the ECU
-       "ACC self-fault" and contribute to protective lockout.
+    3. ACC_KD_Fehler = 1 (matches stock radar: verified from Macan drive logs that
+       the factory radar sends 1 in BOTH standby and active states; DBC VAL_ comment
+       "1=fault" is misleading for this bit - it is a module-present/valid bit).
+       (oscar used 0 on Q5, but Macan D4 ECU may treat 0 as "ACC not participating".)
     4. ACC_ax_Getriebe passes accel through, clamped to DBC range to prevent the
        unsigned wrap (verified fix, kept from previous implementation).
   """
@@ -99,13 +101,13 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     "ACC_zul_Regelabw": 0,
     "ACC_Verz_anf": accel if accel < 0 else 0,               # brake accel requested (ESP)
     "ACC_Loeseanforderung": starting,                        # 1 when starting again from stop
-    "ACC_StartStopp_Info": starting,                         # 1 when moving, 0 when stopped
+    "ACC_StartStopp_Info": acc_enabled,                       # 1 while active (stock: 1 in cruise, 0 in standby)
     "ACC_Vorbefuellung_Bremsanlage": 1 if accel < 0 else 0,
     "ACC_ax_Getriebe": max(-2.016, min(10.248, accel)),      # accel hint for TCU (clamped!)
     "ACC_Betaetigung_EPB": 0,
     "ACC_Beeinflussung_ESP": 0,
     "ACC_Anhalten": stopping,
-    "ACC_KD_Fehler": 0,                                      # 0 = no fault declared
+    "ACC_KD_Fehler": 1,                                      # 1 = stock radar constant (verified from Macan drive logs: 1 in standby AND active)
   }
   commands.append(packer.make_can_msg("ACC_05", bus, acc_05_values))
 
