@@ -390,6 +390,12 @@ class CarState(CarStateBase):
     self.gra_stock_values = pt_cp.vl["LS_01"]
 
     ret.buttonEvents = self.create_button_events(pt_cp, self.CCP.BUTTONS)
+    # Macan MLB stalk quirk: pressing SET also asserts LS_Tip_Hoch (byte2 = 0x03),
+    # emitting a spurious accelCruise event. openpilot then sets vCruise to 255
+    # (resumeBlocked) and refuses to engage ("press SET to engage"). Drop the
+    # accompanying accelCruise event while SET is asserted.
+    if any(ev.type == ButtonType.setCruise and ev.pressed for ev in ret.buttonEvents):
+      ret.buttonEvents = [ev for ev in ret.buttonEvents if ev.type != ButtonType.accelCruise]
 
     ret.cruiseState.standstill = self.CP.pcmCruise and self.esp_hold_confirmation
     ret.standstill = ret.vEgoRaw == 0
