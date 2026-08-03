@@ -129,7 +129,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     "ACC_Freigabe_Verzanf": 1 if braking else 0,
     "ACC_Freigabe_Momentenanf": 1 if (acc_enabled and not braking) else 0,
     "ACC_Momentenanforderung": acc_moment,
-    "ACC_zul_Regelabw": 0.2,  # 舒适带宽，替代写死0（原厂通常0.2-0.5）
+    "ACC_zul_Regelabw": 0.0,  # 原厂实测：激活巡航时=0（00000005--4 route 130帧 status=3），保持原厂一致
     # 起步阶段请求ECU限制起步动力（原厂柔和起步机制，缺失会导致起步扭矩不受限）
     "ACC_limitierte_Anfahrdyn": 1 if (starting or (v_ego < 2.0 and accel > 0)) else 0,
     # 起步时请求松开刹车（原厂 Loeseanforderung，缺失影响刹放平顺性）
