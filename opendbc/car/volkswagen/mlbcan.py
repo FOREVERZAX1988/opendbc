@@ -112,9 +112,9 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     _last_acc_moment = 0.0
 
   # 减速请求斜坡（原厂实测）：braking 时 ACC_Verz_anf 每帧加深≤0.025（50Hz≈1.25m/s²/s），
-  # 最深-2.215；请求变浅/恢复立即响应。panda 安全上限 -3.5；DBC 允许 -7.22。
+  # 最深-2.215；请求变浅/恢复立即响应。原厂最深-2.215，上限收紧到-2.2（贴近原厂）。
   if braking:
-    target_verz = max(accel, -3.5)
+    target_verz = max(accel, -2.2)  # 原厂实测最深-2.215（route 00000004）
     global _last_accel_cmd
     if target_verz < _last_accel_cmd:
       verz = max(target_verz, _last_accel_cmd - 0.025)
