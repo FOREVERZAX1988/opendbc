@@ -2,9 +2,16 @@ from opendbc.car.volkswagen.mqbcan import (volkswagen_mqb_meb_checksum, xor_chec
                                            create_lka_hud_control as mqb_create_lka_hud_control)
 
 # 柔和加速（原厂ACC风格）：k_accel 上限 0.55、scale 封顶 1.8、扭矩上升斜坡 8Nm/帧(≈400Nm/s)
+#
+# 2026-08-03 原厂 ACC_05 实测校准（route 00000004--915ebf086f，59段全扫描）：
+#   - ACC_limitierte_Anfahrdyn / ACC_Loeseanforderung：原厂全程=0（此前的假设性补发已移除）
+#   - 力矩基线按原厂拟合：0km/h 起步=27Nm、20km/h=48-52Nm、100km/h+=180-198Nm
+#     （旧公式 2.5*v+141 低速段偏高约3倍，是起步发冲的根本原因）
+#   - 减速 ACC_Verz_anf 斜坡渐进：原厂每帧约-0.025（50Hz≈1.25m/s²/s），最深-2.215
 _ACC_MOMENT_RAMP = 8.0
 _ACC_SCALE_MAX = 1.8
 _last_acc_moment = 0.0
+_last_accel_cmd = 0.0  # 减速请求斜坡状态（原厂 verz 渐进式加深）
 
 # TODO: Parameterize the hca control type (5 vs 7) and consolidate with MQB (and PQ?)
 def create_steering_control(packer, bus, apply_steer, lkas_enabled):
@@ -66,32 +73,19 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
 
   # ACC_05: multiplicative torque control
   #
-  # Cruise torque (2.5 * v_ego + 141) is the baseline needed to hold speed on flat ground.
-  # Instead of adding a small gain on top (additive, weak for decel), we SCALE the baseline:
+  # Torque baseline calibrated to STOCK ACC observations (route 00000004--915ebf086f):
+  #   standstill: ~27 Nm | 20 km/h: 48-52 Nm | 100 km/h+: 180-198 Nm
+  #   fit: full_cruise = 6.3 * v_ego + 15 (v_ego in m/s)
+  #   low-speed ramp: 27 Nm at standstill -> full baseline at ~20 km/h (v_ego/5.56)
+  #
+  # Scaling strategy (unchanged):
   #   accel > 0:  scale up   (more torque, car accelerates)
   #   accel = 0:  scale = 1  (cruise torque, hold speed)
   #   accel < 0:  scale down (less torque, engine braking)
-  #   accel = -0.5: scale = 0 (max engine braking, transition to hydraulic)
-  #
-  # This eliminates the dead zone: at accel=-0.05, torque drops by ~18 Nm (vs 4 Nm additive).
-  # Self-correcting: if drag formula is 5 Nm too high, planner only needs accel=-0.02 to fix it.
-  # No hysteresis needed: torque is already ~0 at the hydraulic braking threshold, so there's
-  # no cliff to cause brake stabs when switching modes.
-  #
-  # Asymmetric k: planner sends 0.8-1.5 for launches but only -0.05 to -0.1 for
-  # cruise corrections. k_decel=2.5 gives effective engine braking (torque reaches 0 at -0.40).
-  # Hydraulic brakes engage at accel < -0.4; ESP influence at accel < -1.0 for hard braking.
-  # k_accel ramps quadratically from 0.2 at standstill to 0.9 at ~25 kph. The 0.2 floor
-  # lets the planner modulate launch torque: with a close lead the planner sends gentle
-  # accel (~0.3 m/s²) → 85 Nm, without a lead it sends ~1.5 m/s² → 104 Nm. This avoids
-  # needing the stock radar's flickery lead signal -- the planner already fuses radar+vision.
-  #
-  # Low-speed cruise_torque ramp: in gear 1, cruise_torque alone (141 Nm) produces ~1.8 m/s²
-  # due to ~11x gear multiplication -- too aggressive for stop-and-go. Ramp from 80 Nm at
-  # standstill to full at ~18 kph. 80 Nm in gear 1 ≈ 1.0 m/s², comfortable baseline.
-  #
-  # Full cruise torque baseline (at 15+ kph):
-  #   20 km/h: 155   40 km/h: 169   60 km/h: 183   80 km/h: 196   100 km/h: 210
+  #   accel = -0.4: scale = 0 (max engine braking, transition to hydraulic)
+  # Asymmetric k: k_accel ramps from 0.30 (launch, stock-ish 1.5 m/s² -> ~40 Nm on 27 Nm
+  # base) to 0.55 at ~25 kph; scale capped at 1.8. k_decel=2.5 reaches 0 torque at -0.40.
+  # Rise limited by _ACC_MOMENT_RAMP (8 Nm/frame ≈ 400 Nm/s) for stock-like smooth launch.
 
   if acc_enabled:
     braking = accel < -0.4 or stopping or (v_ego < 2.0 and accel <= 0)
@@ -99,11 +93,11 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     braking = False
 
   if acc_enabled and not braking:
-    full_cruise = 2.5 * v_ego + 141
-    low_speed_ramp = min(1.0, v_ego / 5.0)
-    cruise_torque = 80 + (full_cruise - 80) * low_speed_ramp
+    full_cruise = 6.3 * v_ego + 15.0
+    low_speed_ramp = min(1.0, v_ego / 5.56)   # 0 -> 20 km/h linear to full baseline
+    cruise_torque = 27.0 + (full_cruise - 27.0) * low_speed_ramp
     if accel >= 0:
-      k_accel = max(0.15, 0.55 * min(1.0, (v_ego / 7.0) ** 2))
+      k_accel = max(0.30, 0.55 * min(1.0, (v_ego / 7.0) ** 2))
       scale = min(1.0 + accel * k_accel, _ACC_SCALE_MAX)
     else:
       scale = max(0.0, 1.0 + accel * 2.5)
@@ -117,23 +111,36 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     acc_moment = 0
     _last_acc_moment = 0.0
 
+  # 减速请求斜坡（原厂实测）：braking 时 ACC_Verz_anf 每帧加深≤0.025（50Hz≈1.25m/s²/s），
+  # 最深-2.215；请求变浅/恢复立即响应。panda 安全上限 -3.5；DBC 允许 -7.22。
+  if braking:
+    target_verz = max(accel, -3.5)
+    global _last_accel_cmd
+    if target_verz < _last_accel_cmd:
+      verz = max(target_verz, _last_accel_cmd - 0.025)
+    else:
+      verz = target_verz
+    _last_accel_cmd = verz
+  else:
+    verz = 0 if acc_enabled else 3.01
+    _last_accel_cmd = 0.0
+
   # Stock ACC signal behavior observed from Cabana:
   #   Cruise/Accel: ACC_Verz_anf=0, ACC_Freigabe_Verzanf=0, ACC_ax_Getriebe=positive, torque enabled
   #   Braking:      ACC_Verz_anf=negative, ACC_Freigabe_Verzanf=1, ACC_ax_Getriebe=negative, torque=0
   #   Disabled:     ACC_Verz_anf=3.01, all others=0
   acc_05_values = {
     "ACC_Status_ACC": acc_control,
-    # Stock ACC_Verz_anf range during braking: -2.015 to 0
-    # Panda safety allows -3.5; DBC allows -7.22. Use panda limit for max braking.
-    "ACC_Verz_anf": max(accel, -3.5) if braking else (0 if acc_enabled else 3.01),
+    "ACC_Verz_anf": verz,
     "ACC_Freigabe_Verzanf": 1 if braking else 0,
     "ACC_Freigabe_Momentenanf": 1 if (acc_enabled and not braking) else 0,
     "ACC_Momentenanforderung": acc_moment,
     "ACC_zul_Regelabw": 0.0,  # 原厂实测：激活巡航时=0（00000005--4 route 130帧 status=3），保持原厂一致
-    # 起步阶段请求ECU限制起步动力（原厂柔和起步机制，缺失会导致起步扭矩不受限）
-    "ACC_limitierte_Anfahrdyn": 1 if (starting or (v_ego < 2.0 and accel > 0)) else 0,
-    # 起步时请求松开刹车（原厂 Loeseanforderung，缺失影响刹放平顺性）
-    "ACC_Loeseanforderung": 1 if starting else 0,
+    # 原厂59段全扫描（00000004--915ebf086f）：ACC_limitierte_Anfahrdyn 全程=0，
+    # 柔和起步靠力矩渐进（_ACC_MOMENT_RAMP）+低基线（27Nm），无需限动力信号
+    "ACC_limitierte_Anfahrdyn": 0,
+    # 原厂实测全程=0；刹放平顺由力矩斜坡与 verz 管理
+    "ACC_Loeseanforderung": 0,
     # ACC_ax_Getriebe: tells PDK what acceleration to expect (gear selection hint).
     # DBC: [-2.016, +10.248]. Values below -2.016 WRAP to ~+10 (unsigned overflow).
     # Accel > 0.25: hint positive, capped at 1.3 (prevents high-RPM downshifts)
