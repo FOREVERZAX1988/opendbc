@@ -1,6 +1,11 @@
 from opendbc.car.volkswagen.mqbcan import (volkswagen_mqb_meb_checksum, xor_checksum,
                                            create_lka_hud_control as mqb_create_lka_hud_control)
 
+# 柔和加速（原厂ACC风格）：k_accel 上限 0.55、scale 封顶 1.8、扭矩上升斜坡 8Nm/帧(≈400Nm/s)
+_ACC_MOMENT_RAMP = 8.0
+_ACC_SCALE_MAX = 1.8
+_last_acc_moment = 0.0
+
 # TODO: Parameterize the hca control type (5 vs 7) and consolidate with MQB (and PQ?)
 def create_steering_control(packer, bus, apply_steer, lkas_enabled):
   values = {
@@ -98,13 +103,19 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     low_speed_ramp = min(1.0, v_ego / 5.0)
     cruise_torque = 80 + (full_cruise - 80) * low_speed_ramp
     if accel >= 0:
-      k_accel = max(0.2, 0.9 * min(1.0, (v_ego / 7.0) ** 2))
-      scale = 1.0 + accel * k_accel
+      k_accel = max(0.15, 0.55 * min(1.0, (v_ego / 7.0) ** 2))
+      scale = min(1.0 + accel * k_accel, _ACC_SCALE_MAX)
     else:
       scale = max(0.0, 1.0 + accel * 2.5)
     acc_moment = int(min(500, cruise_torque * scale))
+    # 上升斜坡：激活/加速时扭矩渐进（原厂ACC柔和感）
+    global _last_acc_moment
+    if acc_moment > _last_acc_moment:
+      acc_moment = min(acc_moment, int(_last_acc_moment + _ACC_MOMENT_RAMP))
+    _last_acc_moment = float(acc_moment)
   else:
     acc_moment = 0
+    _last_acc_moment = 0.0
 
   # Stock ACC signal behavior observed from Cabana:
   #   Cruise/Accel: ACC_Verz_anf=0, ACC_Freigabe_Verzanf=0, ACC_ax_Getriebe=positive, torque enabled
