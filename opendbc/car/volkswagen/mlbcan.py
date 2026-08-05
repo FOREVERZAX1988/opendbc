@@ -50,11 +50,15 @@ def create_acc_buttons_control(packer, bus, gra_stock_values, cancel=False, resu
   return packer.make_can_msg("LS_01", bus, values)
 
 
-def acc_control_value(main_switch_on, acc_faulted, long_active):
+def acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed=False):
   if acc_faulted:
     acc_control = 6
   elif long_active:
     acc_control = 3
+  elif main_switch_on and gas_pressed:
+    # 驾驶员踩油门（超驰）：原厂ACC进入 OVERRIDE(4)——ACC保持armed、力矩归零、
+    # 松油门自动恢复激活(3)。若直接发2(待机)，ECU看到激活->待机异常波动会触发ACC故障锁死。
+    acc_control = 4
   elif main_switch_on:
     acc_control = 2
   else:
@@ -63,9 +67,9 @@ def acc_control_value(main_switch_on, acc_faulted, long_active):
   return acc_control
 
 
-def acc_hud_status_value(main_switch_on, acc_faulted, long_active):
+def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=False):
   # TODO: happens to resemble the ACC control value for now, but extend this for init/gas override later
-  return acc_control_value(main_switch_on, acc_faulted, long_active)
+  return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
 
 
 def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0):
@@ -87,6 +91,8 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # base) to 0.55 at ~25 kph; scale capped at 1.8. k_decel=2.5 reaches 0 torque at -0.40.
   # Rise limited by _ACC_MOMENT_RAMP (8 Nm/frame ≈ 400 Nm/s) for stock-like smooth launch.
 
+  # OVERRIDE(4)：驾驶员踩油门时 ACC 保持 armed，力矩照发巡航值（原厂 st=4 力矩≈st=3），
+  # 仅状态字从 3 切 4；松油门后状态回 3 自动恢复。
   if acc_enabled:
     braking = accel < -0.4 or stopping or (v_ego < 2.0 and accel <= 0)
   else:

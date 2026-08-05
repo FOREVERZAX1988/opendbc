@@ -282,6 +282,9 @@ class CarState(CarStateBase):
     else:
       # When using openpilot longitudinal, read main switch from LS_01
       ret.cruiseState.available = bool(pt_cp.vl["LS_01"]["LS_Hauptschalter"])
+      # 故障检测：ext bus 上雷达原厂 ACC_05 仍持续广播（status 6/7=可逆/不可逆故障）。
+      # 若不在 OP 纵向模式下检测 accFaulted，OP 会在 ECU/雷达已锁死时继续发 st=3 激活请求。
+      ret.accFaulted = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (6, 7)
 
     self.parse_mlb_mqb_steering_state(ret, pt_cp)
 
