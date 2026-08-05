@@ -159,7 +159,8 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
       # OP 代发 ACC_04（原厂雷达状态文本，16Hz）：屏蔽 bus2->bus0 转发后由 OP 保持总线活跃，
       # 内容为原厂正常模板（无故障文本），避免网关/仪表对 ACC_04 超时监测报 ACC 故障
       lead_speed_kph = getattr(CS, 'stock_lead_speed_kph', 327.36)
-      can_sends.append(self.CCS.create_acc_04_control(self.packer_pt, self.CAN.pt, lead_speed_kph))
+      acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active)
+      can_sends.append(self.CCS.create_acc_04_control(self.packer_pt, self.CAN.pt, lead_speed_kph, acc_control))
 
     # **** Stock ACC Button Controls **************************************** #
 

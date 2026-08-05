@@ -178,20 +178,23 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
   return packer.make_can_msg("ACC_02", bus, values)
 
 
-def create_acc_04_control(packer, bus, lead_speed_kph=327.36):
+def create_acc_04_control(packer, bus, lead_speed_kph=327.36, acc_control=2):
   # OP 代发 ACC_04（原厂雷达状态文本，~16Hz）。屏蔽 bus2->bus0 转发后，
   # 由 OP 在 bus0 保持 ACC_04 周期在线，避免网关/仪表对 ACC_04 超时监测报 ACC 故障。
-  # 内容采用原厂正常模板（无故障文本、无警告），Charisma 字段对齐原厂实测：
-  #   ACC_Geschw_Zielfahrzeug 满量程=无目标（327.36 km/h，0x3FF）
+  # 内容对齐原厂规则（route 00000004--915ebf086f 实测，原厂ACC纵向+OP横向）：
+  #   - ACC_Texte_Zusatzanz 随 ACC_Status_ACC 变化：off=1 / 待机=2 / 激活=8 / 超驰=3
+  #   - Charisma 恒定 (FahrPr=2, Status=1, Umschaltung=0)
+  #   - ACC_Geschw_Zielfahrzeug：无目标=满量程 327.36（0x3FF），有目标=真实前车速度
+  texte_zusatz = {0: 1, 2: 2, 3: 8, 4: 3}.get(acc_control, 0)
   values = {
-    "ACC_Texte_Zusatzanz": 0,
+    "ACC_Texte_Zusatzanz": texte_zusatz,
     "ACC_Status_Zusatzanz": 0,
     "ACC_Texte": 0,
     "ACC_Texte_braking_guard": 0,
     "ACC_Warnhinweis": 0,
     "ACC_Geschw_Zielfahrzeug": lead_speed_kph,
     "ACC_Charisma_FahrPr": 2,
-    "ACC_Charisma_Status": 2,
+    "ACC_Charisma_Status": 1,
     "ACC_Charisma_Umschaltung": 0,
   }
   return packer.make_can_msg("ACC_04", bus, values)
