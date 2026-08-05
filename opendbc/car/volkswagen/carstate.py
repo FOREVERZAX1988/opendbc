@@ -314,6 +314,8 @@ class CarState(CarStateBase):
     # The stock radar ECU continues sending ACC_02 on bus 2 even when openpilot controls ACC.
     self.stock_lead_distance = int(ext_cp.vl["ACC_02"]["ACC_Abstandsindex"])
     self.stock_lead_object = int(ext_cp.vl["ACC_02"]["ACC_Relevantes_Objekt"])
+    # 前车绝对速度（radar Doppler，km/h）：OP 代发 ACC_04 时镜像原厂值（无目标=327.36 满量程）
+    self.stock_lead_speed_kph = float(ext_cp.vl["ACC_04"]["ACC_Geschw_Zielfahrzeug"])
     stock_zl = int(ext_cp.vl["ACC_02"]["ACC_Gesetzte_Zeitluecke"])
     if 1 <= stock_zl <= 5:
       self.stock_zeitluecke = stock_zl
