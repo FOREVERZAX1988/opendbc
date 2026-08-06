@@ -122,7 +122,9 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
         # 刹车优先：踩下刹车立即切 standby 并清空力矩，消除「刹车+ACC激活」矛盾窗口
         # （ECU 检测到刹车踏板=1 且 ACC Status=3 同时出现会写 DTC 锁死 ACC，需两次点火循环恢复）
         brake_override = CS.out.brakePressed or CS.out.brake > 0.01
-        long_active = CC.longActive and not brake_override
+        # 油门超驰：踩油门时 long_active 降级，让 acc_control_value 走 OVERRIDE(4) 分支
+        # （实锤 00000015--994ca60130--23：OP 发 st=3 + 油门 → 0.8s 内 ECU 锁死；雷达正确切 st=4）
+        long_active = CC.longActive and not brake_override and not CS.out.gasPressed
         gas_override = CS.out.gasPressed and CS.out.cruiseState.available and not brake_override
         acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
         # OVERRIDE(4) 时保持巡航力矩（原厂 st=4 力矩≈st=3，仅状态字切 4）；accel=0 → 巡航基线
