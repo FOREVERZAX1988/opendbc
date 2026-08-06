@@ -105,11 +105,15 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     low_speed_ramp = min(1.0, v_ego / 5.56)   # 0 -> 20 km/h linear to full baseline
     cruise_torque = 27.0 + (full_cruise - 27.0) * low_speed_ramp
     if accel >= 0:
-      k_accel = max(0.30, 0.55 * min(1.0, (v_ego / 7.0) ** 2))
-      scale = min(1.0 + accel * k_accel, _ACC_SCALE_MAX)
+      # 原厂实测拟合（00000015--994ca60130--23 radar）：v≈1.6m/s 加速 ax=1.22 → Mom=145Nm（巡航基线≈27Nm）
+      # 旧乘性模型（k_accel=0.30、scale≤1.8）在低速段最多输出 27*1.8=48Nm，仅够维持 6km/h 怠速蠕行
+      # → 用户症状"激活成功但车不加速"的直接根因（同窗口原厂请求 145Nm，差 5 倍）。
+      # 修复：正加速度改用加性映射 Mom = 巡航基线 + accel*85 Nm/(m/s²)（原厂斜率≈97，留12%余量防过冲）；
+      # 8Nm/帧上升斜坡（_ACC_MOMENT_RAMP）继续保证起步柔和。
+      acc_moment = int(min(500, cruise_torque + accel * 85.0))
     else:
       scale = max(0.0, 1.0 + accel * 2.5)
-    acc_moment = int(min(500, cruise_torque * scale))
+      acc_moment = int(min(500, cruise_torque * scale))
     # 上升斜坡：激活/加速时扭矩渐进（原厂ACC柔和感）
     global _last_acc_moment
     if acc_moment > _last_acc_moment:
