@@ -122,9 +122,12 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
         # 刹车优先：踩下刹车立即切 standby 并清空力矩，消除「刹车+ACC激活」矛盾窗口
         # （ECU 检测到刹车踏板=1 且 ACC Status=3 同时出现会写 DTC 锁死 ACC，需两次点火循环恢复）
         brake_override = CS.out.brakePressed or CS.out.brake > 0.01
-        # 油门超驰：踩油门时 long_active 降级，让 acc_control_value 走 OVERRIDE(4) 分支
-        # （实锤 00000015--994ca60130--23：OP 发 st=3 + 油门 → 0.8s 内 ECU 锁死；雷达正确切 st=4）
-        long_active = CC.longActive and not brake_override and not CS.out.gasPressed
+        # 油门超驰：long_active 保持（不排除 gas）——acc_control_value 在 long_active 分支内
+        # 处理 gas（4 if gas else 3）。⚠️若在此排除 gasPressed，long_active 变 False 会导致
+        # acc_control_value 掉到 main_switch_on→2（待机），踩油门发 st=2 而非 st=4，
+        # ECU 看到「激活(3)→待机(2)跳变+油门」会锁死 ACC（2026-08-07 路试实测：踩油门即
+        # 巡航系统故障，需重启车辆）。原厂行为：激活中踩油门 st 3→4（00000004--seg7 实锤）。
+        long_active = CC.longActive and not brake_override
         gas_override = CS.out.gasPressed and CS.out.cruiseState.available and not brake_override
         acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
         # OVERRIDE(4) 时保持巡航力矩（原厂 st=4 力矩≈st=3，仅状态字切 4）；accel=0 → 巡航基线
