@@ -53,15 +53,14 @@ def create_acc_buttons_control(packer, bus, gra_stock_values, cancel=False, resu
 def acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed=False):
   if acc_faulted:
     acc_control = 6
-  elif main_switch_on and gas_pressed:
-    # 驾驶员踩油门（超驰）优先级高于 OP 激活：原厂ACC进入 OVERRIDE(4)——ACC保持armed、
-    # 力矩照发巡航值（原厂 st=4 力矩≈st=3），松油门自动恢复激活(3)。
-    # 若此时仍发 3(active)，ECU 检测到「ACC激活+油门踏板」矛盾会写 DTC 锁死 ACC
-    # （实锤：00000015--994ca60130--23 踩油门后0.8s accFaulted；雷达同窗口正确切 st=4）。
-    acc_control = 4
   elif long_active:
-    acc_control = 3
+    # 激活中踩油门 → OVERRIDE(4)（原厂行为，00000004--seg7 实锤：激活中踩油门 st 3→4，
+    # 力矩照发巡航值；松油门自动回 3）。若激活中仍发 3(active)，ECU 检测到
+    # 「ACC激活+油门踏板」矛盾会写 DTC 锁死（00000015--seg23 踩油门0.8s accFaulted）。
+    acc_control = 4 if gas_pressed else 3
   elif main_switch_on:
+    # 待机：踩不踩油门都保持 2（原厂行为，00000004--seg1 实锤：待机踩油门 st 全程=2）。
+    # 注意：不能在这里发 4——ECU 会把「2→4 未经过3」视为异常状态跳变。
     acc_control = 2
   else:
     acc_control = 0
