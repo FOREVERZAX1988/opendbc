@@ -132,7 +132,9 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
         acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
         # OVERRIDE(4) 时保持巡航力矩（原厂 st=4 力矩≈st=3，仅状态字切 4）；accel=0 → 巡航基线
         torque_active = long_active or gas_override
-        accel = float(np.clip(actuators.accel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if torque_active else 0)
+        # 油门超驰：gas 时 accel 强制 0 → 力矩=巡航基线，驾驶员主导加速（对齐原厂 st=4 行为，
+        # 避免 OP 叠加 planner 加速度请求与驾驶员抢加速）；松油门立即恢复 planner 控制
+        accel = float(np.clip(0.0 if CS.out.gasPressed else actuators.accel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if torque_active else 0)
         stopping = actuators.longControlState == LongCtrlState.stopping and not brake_override
         starting = actuators.longControlState == LongCtrlState.pid and (CS.esp_hold_confirmation or CS.out.vEgo < self.CP.vEgoStopping) and not brake_override
         can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
