@@ -29,18 +29,43 @@
 #include "opendbc/safety/modes/psa.h"
 #include "opendbc/safety/modes/hyundai_canfd.h"
 
+//CAN报文数据提取函数：函数名GET_BYTES，参数为CAN报文指针、起始位置和长度，返回值为提取的32位无符号整数
+//1字节=8位，32位=4字节，因此函数会从CAN报文的data数组中提取指定长度的字节，并将它们组合成一个32位无符号整数返回
+//之所以4个字节，是因为他不是用来整个CAN报文的data数组，而是用来提取其中的一部分数据，通常是一个信号的值，这个信号可能占用1到4个字节不等
+//因此len取值范围是≤（32/8)=4字节，函数会根据len的值来提取相应数量的字节，并将它们组合成一个32位无符号整数返回
+//const CANPacket_t *msg:参数名称→msg，*表示这是一个指向CANPacket_t类型的常量指针，意味着函数不会修改这个指针所指向的数据
+//const(只读锁、安全锁)代表只读报文数据，绝对不能改.因为msg是指针，指向地址，所以赋值赋值应该用->data，而不是.data
+//CANPacket_t中_t表示这是自定义类型，通常是一个结构体或联合体,方便阅读._t=type的缩写，表示这是一个类型定义
+//unit32_t:无符号32位整数类型，范围从0到4294967295，常用于存储较大的整数值，或者需要确保非负数的场景
+//unit32_t：是官方标准类型.u = unsigned（无符号，不带负数）、int = 整数、32 = 32 位._t = 官方强制加的后缀.并非自定义.
+//ret：函数里的临时小盒子（局部变量），专门用来存放「拼接好的数据」GET_BYTES 这个函数最终返回的结果，就是变量 ret 最后算出来的值
+//严格说GET_BYTES ≠ ret（一个是函数，一个是变量）.虽然程序跑完一次后两个获得的值是相同的.
+//怎么区分uint32_t X,这个X是函数还是变量？
+//1.看名字后面有没有 () 小括号 + {} 大括号，这是唯一标准！a.名字后面紧跟 () 小括号 b.小括号后面一定有 {} 大括号
+//2.看上下文，如果前面已经定义了一个函数，那他里面的只能是变量.因为C 语言 绝对不允许 函数里面定义函数！
+//3.C语言虽然不允许函数里面定义函数，但允许在函数里面定义变量！也允许在函数里面调用已经定义的函数.
+//<< 是位运算符中的左移运算符，每次读8位=1字节.确保读取的字节被正确地放置在返回值的准确位置。
+//|= 是位运算符中的按位或赋值运算符，用于将提取的字节与当前的返回值进行组合，确保所有提取的字节都被正确地累积到返回值中。
+//ret一开始被初始化为0U，表示返回值初始为0。也就是32个0，每取出对应位就跟对应位取或运算，0与任何非0的值取或就等于那个值。
+//定义一个32位无符号整数函数:GET_BYTES，GET_BYTES(CAN信号的地址,起始位,占用的字节长度).
+//作用：准确的根据CAN信息，读取需要的字节数，存入一个4字节的盒子里.（4字节应该是为了读取1个完整信号最多用到的字节数）
+//0U:无符号整数0，表示返回值初始为0。U后缀表示这是一个无符号整数常量，确保在计算过程中不会发生符号扩展或溢出问题。
+//0:普通的有符号整数.
 uint32_t GET_BYTES(const CANPacket_t *msg, int start, int len) {
   uint32_t ret = 0U;
   for (int i = 0; i < len; i++) {
-    const uint32_t shift = i * 8;
+    const uint32_t shift = i * 8; //1字节=8位
+    //为何这里的msg要加(uint32_t)，因为不加这个，msg对应的是一个字节的数据（8位），这时候执行左移，会导致数据溢出，无法正确移动到目标位置.
+    //先转换为32位后再执行左移，便不会溢出，能够正确地将每个字节移动到返回值的准确位置.
     ret |= (((uint32_t)msg->data[start + i]) << shift);
   }
   return ret;
 }
-
+//最大错误计数器值，超过这个值就认为计数器错误过多，消息无效
 const int MAX_WRONG_COUNTERS = 5;
 
 // This can be set by the safety hooks
+// 安全系统的全局变量
 bool controls_allowed = false;
 bool relay_malfunction = false;
 bool gas_pressed = false;
@@ -92,6 +117,7 @@ uint16_t current_safety_param_sp = 0;
 static const safety_hooks *current_hooks = &nooutput_hooks;
 safety_config current_safety_config;
 
+//函数声明，非定义函数；作用：给编译器打个招呼：
 static void generic_rx_checks(void);
 static void stock_ecu_check(bool stock_ecu_detected);
 
@@ -105,12 +131,16 @@ static bool is_msg_valid(RxCheck addr_list[], int index) {
   }
   return valid;
 }
-
+// 函数名：get_addr_check_index
+// 返回值index：int → 匹配到的位置编号，没找到返回-1
+// 参数：收到的CAN报文、白名单列表、列表长度
+// CANPacket_t、RxCheck都是项目自定义的结构体 这把换一家C语言只有结构体，没有类.
 static int get_addr_check_index(const CANPacket_t *msg, RxCheck addr_list[], const int len) {
-  int addr = msg->addr;
-  int length = GET_LEN(msg);
+  //左边的addr是自定义名称的变量，名字可以随意取，右边的addr是CANPacket_t结构体中的成员（里面地址就叫addr）变量，表示CAN报文的地址。因为msg是一个指针，所以要使用->运算符来访问成员变量addr。
+  int addr = msg->addr; //msg的地址赋值给addr变量，因为是指针，所以要用->访问成员变量addr.如果不用->直接用点号.会报错.
+  int length = GET_LEN(msg); //获取数据长度 GET_LEN()函数也是一个自定义函数
 
-  int index = -1;
+  int index = -1;//初始化返回值index为-1，表示默认没有找到匹配的地址
   for (int i = 0; i < len; i++) {
     // if multiple msgs are allowed, determine which one is present on the bus
     if (!addr_list[i].status.msg_seen) {
