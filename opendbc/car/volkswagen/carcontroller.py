@@ -158,11 +158,25 @@ class CarController(CarControllerBase):
           self.accel_last = accel
 
         else:
-          acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, CC.longActive)
-          accel = float(np.clip(actuators.accel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if CC.longActive else 0)
-          starting = actuators.longControlState == LongCtrlState.pid and (CS.esp_hold_confirmation or CS.out.vEgo < 0.25)
-          can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, self.CAN.pt, CS.acc_type, CC.longActive, accel,
-                                                             acc_control, stopping, starting, CS.esp_hold_confirmation))
+          # 刹车优先：踩下刹车立即切 standby 并清空力矩，消除「刹车+ACC激活」矛盾窗口
+          # （ECU 检测到刹车踏板=1 且 ACC Status=3 同时出现会写 DTC 锁死 ACC）
+          brake_override = CS.out.brakePressed or CS.out.brake > 0.01
+          # 油门超驰：long_active 保持（不排除 gas）——acc_control_value 在 long_active 分支内
+          # 处理 gas（4 if gas else 3）。若在此排除 gasPressed，long_active 变 False 会导致
+          # acc_control_value 掉到 main_switch_on→2（待机），踩油门发 st=2 而非 st=4，
+          # ECU 看到「激活(3)→待机(2)跳变+油门」会锁死 ACC。原厂行为：激活中踩油门 st 3→4。
+          long_active = CC.longActive and not brake_override
+          gas_override = CS.out.gasPressed and CS.out.cruiseState.available and not brake_override
+          acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
+          # OVERRIDE(4) 时保持巡航力矩（原厂 st=4 力矩≈st=3，仅状态字切 4）；accel=0 → 巡航基线
+          torque_active = long_active or gas_override
+          # 油门超驰：gas 时 accel 强制 0 → 力矩=巡航基线，驾驶员主导加速；松油门立即恢复 planner 控制
+          accel = float(np.clip(0.0 if CS.out.gasPressed else actuators.accel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if torque_active else 0)
+          stopping = actuators.longControlState == LongCtrlState.stopping and not brake_override
+          starting = actuators.longControlState == LongCtrlState.pid and (CS.esp_hold_confirmation or CS.out.vEgo < self.CP.vEgoStopping) and not brake_override
+          can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
+                                                             acc_control, stopping, starting, CS.esp_hold_confirmation, v_ego=CS.out.vEgo,
+                                                             engine_torque=getattr(CS, 'engine_torque_output', 0)))
 
       #if self.aeb_available:
       #  if self.frame % self.CCP.AEB_CONTROL_STEP == 0:
@@ -195,15 +209,20 @@ class CarController(CarControllerBase):
                                                        CS.esp_hold_confirmation, lead_distance, 0, fcw_alert))
 
       else:
-        lead_distance = 0
-        if hud_control.leadVisible and self.frame * DT_CTRL > 1.0:  # Don't display lead until we know the scaling factor
-          lead_distance = 512 if CS.upscale_lead_car_signal else 8
-        acc_hud_status = self.CCS.acc_hud_status_value(CS.out.cruiseState.available, CS.out.accFaulted, CC.longActive)
+        lead_distance = getattr(CS, 'stock_lead_distance', 0)
+        lead_object = getattr(CS, 'stock_lead_object', 0)
+        acc_hud_status = self.CCS.acc_hud_status_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
         # FIXME: PQ may need to use the on-the-wire mph/kmh toggle to fix rounding errors
         # FIXME: Detect clusters with vEgoCluster offsets and apply an identical vCruiseCluster offset
         set_speed = hud_control.setSpeed * CV.MS_TO_KPH
         can_sends.append(self.CCS.create_acc_hud_control(self.packer_pt, self.CAN.pt, acc_hud_status, set_speed,
-                                                         lead_distance, hud_control.leadDistanceBars))
+                                                         lead_distance, hud_control.leadDistanceBars, lead_object,
+                                                         zeitluecke=getattr(CS, 'stock_zeitluecke', 4)))
+        # OP 代发 ACC_04（原厂雷达状态文本，16Hz）：屏蔽 bus2->bus0 转发后由 OP 保持总线活跃，
+        # 内容为原厂正常模板（无故障文本），避免网关/仪表对 ACC_04 超时监测报 ACC 故障
+        lead_speed_kph = getattr(CS, 'stock_lead_speed_kph', 327.36)
+        acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
+        can_sends.append(self.CCS.create_acc_04_control(self.packer_pt, self.CAN.pt, lead_speed_kph, acc_control))
 
     # **** Stock ACC Button Controls **************************************** #
 

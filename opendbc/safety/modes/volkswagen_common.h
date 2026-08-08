@@ -37,6 +37,9 @@ bool volkswagen_brake_pressure_detected = false;
 #define MSG_LS_01       0x10BU   // TX by OP, ACC control buttons for cancel/resume
 #define MSG_MOTOR_03    0x105U   // RX from ECU, for driver throttle input and brake switch status
 #define MSG_TSK_04      0x10EU   // RX from ECU, for ACC status from drivetrain coordinator
+#define MSG_ACC_01      0x109U   // TX by OP, ACC control instructions to the drivetrain coordinator (MLB)
+#define MSG_ACC_05      0x10DU   // RX from radar / TX by OP, ACC status
+#define MSG_ACC_04      0x324U   // RX from radar, ACC status texts (HUD/Cluster). Blocked from fwd in LONG mode
 
 static void volkswagen_common_init(void) {
   volkswagen_set_button_prev = false;
