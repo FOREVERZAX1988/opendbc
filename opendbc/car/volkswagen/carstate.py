@@ -20,6 +20,8 @@ class CarState(CarStateBase):
     self.upscale_lead_car_signal = False
     self.eps_stock_values = False
     self.acc_type = 0
+    self.engine_torque_output = 0.0
+    self.gear_ratio = 0.0
     self.travel_assist_available = False
     self.curvature_meas = 0.
 
@@ -341,12 +343,23 @@ class CarState(CarStateBase):
     )
 
     ret.gasPressed = pt_cp.vl["Motor_03"]["MO_Fahrpedalrohwert_01"] > 0
+    # Longitudinal control support signals
+    self.engine_torque_output = pt_cp.vl["Motor_01"]["MO_Mom_o_ex"]
+    raw_uefkt = alt_cp.vl["Getriebe_03"]["GE_Uefkt"]
+    if 0.1 < raw_uefkt < 100.0:
+      self.gear_ratio = raw_uefkt
+    elif raw_uefkt < 0.1:
+      self.gear_ratio = 0.0
+    self.esp_hold_confirmation = bool(pt_cp.vl["ESP_05"]["ESP_Autohold_aktiv"])
     ret.gearShifter = self.parse_gear_shifter(self.CCP.shifter_values.get(alt_cp.vl["Getriebe_03"]["GE_Waehlhebel"], None))
 
     # TODO: We don't have a true mainswitch state yet, might need stateful tracking on LS_01 if momentary-press is a thing
     # TSK_04.TSK_Status_GRA_ACC_02 0 = not engaged, 1 = engaged, 2 = engaged with driver accel override, 3 = fault
-    ret.cruiseState.available = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (0, 1, 2)
-    ret.cruiseState.available = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (1, 2)
+
+    #ret.cruiseState.available = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (0, 1, 2)
+    #ret.cruiseState.available = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (1, 2)
+    ret.cruiseState.available = bool(pt_cp.vl["LS_01"]["LS_Hauptschalter"])
+    ret.cruiseState.enabled = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (1, 2)
     ret.accFaulted = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] == 3
     ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
 
