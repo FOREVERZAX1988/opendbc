@@ -160,7 +160,7 @@ class CarController(CarControllerBase):
         else:
           # 刹车优先：踩下刹车立即切 standby 并清空力矩，消除「刹车+ACC激活」矛盾窗口
           # （ECU 检测到刹车踏板=1 且 ACC Status=3 同时出现会写 DTC 锁死 ACC）
-          brake_override = CS.out.brakePressed or CS.out.brake > 0.01
+          brake_override = CS.out.brakePressed  # master-c3 CarState 无 brake 力度字段，仅 brakePressed 开关量
           # 油门超驰：long_active 保持（不排除 gas）——acc_control_value 在 long_active 分支内
           # 处理 gas（4 if gas else 3）。若在此排除 gasPressed，long_active 变 False 会导致
           # acc_control_value 掉到 main_switch_on→2（待机），踩油门发 st=2 而非 st=4，
