@@ -139,6 +139,12 @@ class CarState(CarStateBase):
     self.gra_stock_values = pt_cp.vl["GRA_ACC_01"]
 
     ret.buttonEvents = self.create_button_events(pt_cp, self.CCP.BUTTONS)
+    # Macan(MLB) 巡航拨杆：按 SET 时 LS_01 bit16(SET)+bit17(Hoch/+) 同时置位 → 产生
+    # accelCruise 事件 → selfdrived 误判 resume_pressed → vCruise>250 → resumeBlocked
+    # (NO_ENTRY "Press Set to Engage") → 无法接合。同帧出现 setCruise 时过滤 accelCruise；
+    # 单独按 +/-（只有 bit17/18）不受影响，功能保留。
+    if any(b.type == ButtonType.setCruise for b in ret.buttonEvents):
+      ret.buttonEvents = [b for b in ret.buttonEvents if b.type != ButtonType.accelCruise]
 
     ret.lowSpeedAlert = self.update_low_speed_alert(ret.vEgo)
 
@@ -226,6 +232,12 @@ class CarState(CarStateBase):
     ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_stalk(300, pt_cp.vl["Gate_Komf_1"]["GK1_Blinker_li"],
                                                                             pt_cp.vl["Gate_Komf_1"]["GK1_Blinker_re"])
     ret.buttonEvents = self.create_button_events(pt_cp, self.CCP.BUTTONS)
+    # Macan(MLB) 巡航拨杆：按 SET 时 LS_01 bit16(SET)+bit17(Hoch/+) 同时置位 → 产生
+    # accelCruise 事件 → selfdrived 误判 resume_pressed → vCruise>250 → resumeBlocked
+    # (NO_ENTRY "Press Set to Engage") → 无法接合。同帧出现 setCruise 时过滤 accelCruise；
+    # 单独按 +/-（只有 bit17/18）不受影响，功能保留。
+    if any(b.type == ButtonType.setCruise for b in ret.buttonEvents):
+      ret.buttonEvents = [b for b in ret.buttonEvents if b.type != ButtonType.accelCruise]
     self.gra_stock_values = pt_cp.vl["GRA_Neu"]
 
     # Additional safety checks performed in CarInterface.
@@ -324,6 +336,12 @@ class CarState(CarStateBase):
     self.klr_stock_values = pt_cp.vl["KLR_01"] if self.CP.flags & VolkswagenFlags.STOCK_KLR_PRESENT else {}
 
     ret.buttonEvents = self.create_button_events(pt_cp, self.CCP.BUTTONS)
+    # Macan(MLB) 巡航拨杆：按 SET 时 LS_01 bit16(SET)+bit17(Hoch/+) 同时置位 → 产生
+    # accelCruise 事件 → selfdrived 误判 resume_pressed → vCruise>250 → resumeBlocked
+    # (NO_ENTRY "Press Set to Engage") → 无法接合。同帧出现 setCruise 时过滤 accelCruise；
+    # 单独按 +/-（只有 bit17/18）不受影响，功能保留。
+    if any(b.type == ButtonType.setCruise for b in ret.buttonEvents):
+      ret.buttonEvents = [b for b in ret.buttonEvents if b.type != ButtonType.accelCruise]
     ret.lowSpeedAlert = self.update_low_speed_alert(ret.vEgo)
 
     self.frame += 1
@@ -380,6 +398,12 @@ class CarState(CarStateBase):
     self.gra_stock_values = pt_cp.vl["LS_01"]
 
     ret.buttonEvents = self.create_button_events(pt_cp, self.CCP.BUTTONS)
+    # Macan(MLB) 巡航拨杆：按 SET 时 LS_01 bit16(SET)+bit17(Hoch/+) 同时置位 → 产生
+    # accelCruise 事件 → selfdrived 误判 resume_pressed → vCruise>250 → resumeBlocked
+    # (NO_ENTRY "Press Set to Engage") → 无法接合。同帧出现 setCruise 时过滤 accelCruise；
+    # 单独按 +/-（只有 bit17/18）不受影响，功能保留。
+    if any(b.type == ButtonType.setCruise for b in ret.buttonEvents):
+      ret.buttonEvents = [b for b in ret.buttonEvents if b.type != ButtonType.accelCruise]
 
     ret.cruiseState.standstill = self.CP.pcmCruise and self.esp_hold_confirmation
     ret.standstill = ret.vEgoRaw == 0

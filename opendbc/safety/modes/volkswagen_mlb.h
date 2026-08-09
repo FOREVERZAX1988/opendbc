@@ -9,6 +9,11 @@ static safety_config volkswagen_mlb_init(uint16_t param) {
   static const CanMsg VOLKSWAGEN_MLB_STOCK_TX_MSGS[] = {{MSG_HCA_01, 0, 8, .check_relay = true}, {MSG_LDW_02, 0, 8, .check_relay = true},
                                                         {MSG_LS_01, 0, 4, .check_relay = false}, {MSG_LS_01, 2, 4, .check_relay = false}};
 
+  // OP 纵向模式：代发 ACC_02/ACC_05/ACC_04（Macan 纵向适配，sp-longtest-0807 成果）
+  static const CanMsg VOLKSWAGEN_MLB_LONG_TX_MSGS[] = {{MSG_HCA_01, 0, 8, .check_relay = true}, {MSG_LDW_02, 0, 8, .check_relay = true},
+                                                       {MSG_ACC_02, 0, 8, .check_relay = true}, {MSG_ACC_05, 0, 8, .check_relay = true},
+                                                       {MSG_ACC_04, 0, 8, .check_relay = true}};
+
   static RxCheck volkswagen_mlb_rx_checks[] = {
     // TODO: implement checksum validation
     {.msg = {{MSG_ESP_03, 0, 8, 50U, .ignore_checksum = true, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
@@ -19,10 +24,15 @@ static safety_config volkswagen_mlb_init(uint16_t param) {
     {.msg = {{MSG_LS_01, 0, 4, 10U, .ignore_checksum = true, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
   };
 
+#ifdef ALLOW_DEBUG
+  volkswagen_longitudinal = GET_FLAG(param, FLAG_VOLKSWAGEN_LONG_CONTROL);
+#else
   SAFETY_UNUSED(param);
+#endif
   volkswagen_common_init();
 
-  return BUILD_SAFETY_CFG(volkswagen_mlb_rx_checks, VOLKSWAGEN_MLB_STOCK_TX_MSGS);
+  return volkswagen_longitudinal ? BUILD_SAFETY_CFG(volkswagen_mlb_rx_checks, VOLKSWAGEN_MLB_LONG_TX_MSGS) : \
+                                   BUILD_SAFETY_CFG(volkswagen_mlb_rx_checks, VOLKSWAGEN_MLB_STOCK_TX_MSGS);
 }
 
 static void volkswagen_mlb_rx_hook(const CANPacket_t *msg) {
@@ -44,6 +54,26 @@ static void volkswagen_mlb_rx_hook(const CANPacket_t *msg) {
     }
 
     if (msg->addr == MSG_LS_01) {
+      if (volkswagen_longitudinal) {
+        // When using openpilot longitudinal, read ACC main switch from LS_01 (bus 0)
+        // instead of relying on ACC_05 from the stock radar (bus 2)
+        // Signal: LS_01.LS_Hauptschalter
+        acc_main_on = GET_BIT(msg, 12U);
+        if (!acc_main_on) {
+          controls_allowed = false;
+        }
+
+        // Enter controls on falling edge of Set or Resume with main switch on
+        // Signal: LS_01.LS_Tip_Setzen
+        // Signal: LS_01.LS_Tip_Wiederaufnahme
+        bool set_button = GET_BIT(msg, 16U);
+        bool resume_button = GET_BIT(msg, 19U);
+        if ((volkswagen_set_button_prev && !set_button) || (volkswagen_resume_button_prev && !resume_button)) {
+          controls_allowed = acc_main_on;
+        }
+        volkswagen_set_button_prev = set_button;
+        volkswagen_resume_button_prev = resume_button;
+      }
       // Always exit controls on rising edge of Cancel
       // Signal: LS_01.LS_Abbrechen
       if (GET_BIT(msg, 13U)) {
