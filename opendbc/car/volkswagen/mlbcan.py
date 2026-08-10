@@ -166,6 +166,11 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     "ACC_StartStopp_Info": acc_enabled,
     "ACC_Anhalten": stopping,
     "ACC_Betaetigung_EPB": esp_hold,  # Echo ESP hold state -- DO NOT use stopping (causes brake release when ACC off)
+    # KD_Fehler (63|1 = byte7 bit7): 原厂实测（route 00000004 全59段）恒 1 = 正常。
+    # DBC 命名误导——它是 ACC 健康位而非故障位。OP 此前漏设 → packer 恒发 0，
+    # ECU 在激活+驾驶员介入(st=4)时判定"ACC 自报故障却仍在请求" → 锁死 ACC/PAS
+    # （route 0000002e seg5 463.3s accFaulted 实锤）。与原厂逐字节对齐：恒 1。
+    "ACC_KD_Fehler": 1,
   }
   commands.append(packer.make_can_msg("ACC_05", bus, acc_05_values))
 
