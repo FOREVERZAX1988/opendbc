@@ -17,6 +17,9 @@ class CarState(CarStateBase):
     self.CCP = CarControllerParams(CP)
     self.button_states = {button.event_type: False for button in self.CCP.BUTTONS}
     self.esp_hold_confirmation = False
+    # 原厂 ACC_05 状态（bus2 雷达域 src=2），update_mlb 每帧刷新。
+    # 默认 3（激活）避免 MLB 首帧前 carcontroller 读到 None 误降级。
+    self.acc05_stock_status = 3
     self.upscale_lead_car_signal = False
     self.eps_stock_values = False
     self.acc_type = 0
@@ -377,13 +380,23 @@ class CarState(CarStateBase):
     ret.cruiseState.available = bool(pt_cp.vl["LS_01"]["LS_Hauptschalter"])
     ret.cruiseState.enabled = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] in (1, 2)
     ret.accFaulted = alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"] == 3
+    # 原厂 ACC_05 状态（bus2 雷达域 src=2）：OP 激活期间若原厂已撤力矩/退出（st∉(3,4)），
+    # OP 必须同步降级，否则「OP st=3 + 原厂已退出」矛盾窗口会让 ECU 写 DTC 锁死 ACC
+    # （00000033 seg0: 309.68s 原厂 Mom146→0、309.86s st3→2，OP 仍 st=3 → 310.19s accFaulted）。
+    # 正常激活时原厂 src=2 st=3（287-307s 实测一致），仅原厂退出时触发降级。
+    self.acc05_stock_status = int(ext_cp.vl["ACC_05"]["ACC_Status_ACC"])
     ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
 
     self.parse_mlb_mqb_steering_state(ret, pt_cp)
 
     brake_pedal_pressed = bool(pt_cp.vl["Motor_03"]["MO_Fahrer_bremst"])
     brake_pressure_detected = bool(pt_cp.vl["ESP_05"]["ESP_Fahrer_bremst"])
-    ret.brakePressed = brake_pedal_pressed or brake_pressure_detected
+    # 轻踩刹车检测（00000033 实锤）：MO_BLS(34|1 制动灯开关) 轻踩即亮（309.737s 变1），
+    # 而 MO_Fahrer_bremst/ESP_Fahrer_bremst 在 ESP_Bremsdruck<1.8bar 时仍=0 → OP 漏检
+    # 轻踩刹车 → 保持 st=3 → 「刹车+ACC激活」矛盾窗口 → ECU 写 DTC 锁死 ACC/PAS。
+    # BLS 为物理踏板开关，ACC 自动制动（ECD_Bremslicht 点灯）不触发，可安全区分驾驶员介入。
+    brake_light_switch = bool(pt_cp.vl["Motor_03"]["MO_BLS"])
+    ret.brakePressed = brake_pedal_pressed or brake_pressure_detected or brake_light_switch
     ret.parkingBrake = bool(pt_cp.vl["Kombi_01"]["KBI_Handbremse"])
     ret.espDisabled = pt_cp.vl["ESP_01"]["ESP_Tastung_passiv"] != 0
 

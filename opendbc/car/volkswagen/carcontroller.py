@@ -166,6 +166,12 @@ class CarController(CarControllerBase):
           # acc_control_value 掉到 main_switch_on→2（待机），踩油门发 st=2 而非 st=4，
           # ECU 看到「激活(3)→待机(2)跳变+油门」会锁死 ACC。原厂行为：激活中踩油门 st 3→4。
           long_active = CC.longActive and not brake_override
+          # 原厂状态同步（00000033 根因修复）：OP 激活期间若原厂 ACC_05 已退出（st∉(3,4)），
+          # 强制 acc_control 回待机(2)——消除「OP st=3 + 原厂已撤力矩退出」矛盾窗口，
+          # 防止 ECU 检测到状态矛盾写 DTC 锁死 ACC/PAS（需两次点火清除）。
+          # 正常激活时原厂 src=2 st=3（实测一致），仅在原厂雷达撤力/退出时触发。
+          if long_active and getattr(CS, 'acc05_stock_status', 3) not in (3, 4):
+            long_active = False
           gas_override = CS.out.gasPressed and CS.out.cruiseState.available and not brake_override
           acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
           # OVERRIDE(4) 时保持巡航力矩（原厂 st=4 力矩≈st=3，仅状态字切 4）；accel=0 → 巡航基线
