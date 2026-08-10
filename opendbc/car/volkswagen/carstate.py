@@ -21,6 +21,11 @@ class CarState(CarStateBase):
     self.eps_stock_values = False
     self.acc_type = 0
     self.travel_assist_available = False
+    # 车距档位（ACC_02 ACC_Gesetzte_Zeitluecke，37|3）：原厂共 4 档，ZL 值=格数
+    # （1=最近/1格 ... 4=最远/4格），默认 3 格（用户确认：每次上车默认 3 格，习惯按+到 4 格）。
+    # 由 LS_Verstellung_Zeitluecke(20|2) 按键增减，OP 代发 ACC_02 时传给仪表。
+    self.stock_zeitluecke = 3
+    self.zeitluecke_key_last = 0
     self.curvature_meas = 0.
 
   def update_button_enable(self, buttonEvents: list[structs.CarState.ButtonEvent]):
@@ -399,6 +404,17 @@ class CarState(CarStateBase):
 
     self.ldw_stock_values = cam_cp.vl["LDW_02"] if self.CP.networkLocation == NetworkLocation.fwdCamera else {}
     self.gra_stock_values = pt_cp.vl["LS_01"]
+
+    # 车距键消费：LS_Verstellung_Zeitluecke(20|2) 非 0 时是"按下"，边沿触发 ±1 档。
+    # 值 1=减小（-）、值 2=增大（+）——方向如路试不符可对调。OP 代发 ACC_02 时
+    # 通过 CS.stock_zeitluecke 驱动仪表 1-4 格显示（原厂默认 ZL=4 → 3 格）。
+    zl_key = pt_cp.vl["LS_01"]["LS_Verstellung_Zeitluecke"]
+    if zl_key != 0 and self.zeitluecke_key_last == 0:
+      if zl_key == 1:
+        self.stock_zeitluecke = max(1, self.stock_zeitluecke - 1)
+      elif zl_key == 2:
+        self.stock_zeitluecke = min(4, self.stock_zeitluecke + 1)
+    self.zeitluecke_key_last = zl_key
 
     button_events = self.create_button_events(pt_cp, self.CCP.BUTTONS)
     # Macan(MLB) 巡航拨杆：按 SET 时 LS_01 bit16(SET)+bit17(Hoch/+) 同时置位
