@@ -95,7 +95,9 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # OVERRIDE(4)：驾驶员踩油门时 ACC 保持 armed，力矩照发巡航值（原厂 st=4 力矩≈st=3），
   # 仅状态字从 3 切 4；松油门后状态回 3 自动恢复。
   if acc_enabled:
-    braking = accel < -0.4 or stopping or (v_ego < 2.0 and accel <= 0)
+    # 00000039 seg5 实锤：原厂 verz=-0.40 被旧阈值 -0.4（严格小于）吞掉 → OP 发 verz=0
+    # → 雷达自检"减速请求未执行" → st6。放宽到 -0.05：任何轻微减速都走 braking 发 verz。
+    braking = accel < -0.05 or stopping or (v_ego < 2.0 and accel <= 0)
   else:
     braking = False
 
@@ -158,11 +160,17 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # Cruise/mild decel: 0 (no gear hunting)
     # Engine braking (accel < -0.25): mild negative hint, capped at -0.5
     # Hydraulic braking: speed-dependent negative, clamped to DBC min -2.016
-    "ACC_ax_Getriebe": ((min(accel, 1.3) if accel > 0.25 else
-                          (max(accel, -0.5) if accel < -0.25 else 0)) if not braking else
-                         max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))) if acc_enabled else 0,
+    # 00000039 seg7 实锤：原厂跟停保持（vEgo=0, anh=1）axG=+1.63（1挡怠速拖滞蠕行），
+    # 旧逻辑 braking 时发 max(accel, -0.6...)≈-0.60 负值 → 与原厂方向矛盾 → 雷达 st6。
+    # 修复：stopping（跟停/停车保持）时 axG 按原厂 +1.63 正蠕行；普通 braking 保持负值。
+    "ACC_ax_Getriebe": (1.63 if stopping else
+                         ((min(accel, 1.3) if accel > 0.25 else
+                           (max(accel, -0.5) if accel < -0.25 else 0)) if not braking else
+                          max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6)))) if acc_enabled else 0,
     "ACC_Vorbefuellung_Bremsanlage": 1 if braking else 0,
-    "ACC_Beeinflussung_ESP": 1 if (stopping or esp_hold or (braking and accel < -1.0)) else 0,  # ESP for stopping, hold, or hard braking (>1 m/s²)
+    # 00000039 seg7 实锤：原厂跟停全程 ESP=0（ESP_VerzTSK=0，靠1挡怠速拖滞），
+    # 旧逻辑 stopping 时发 ESP=1 → 雷达自检异常 → st6。仅 esp_hold 或硬刹车(<-1.0) 才请求 ESP。
+    "ACC_Beeinflussung_ESP": 1 if (esp_hold or (braking and accel < -1.0)) else 0,
     "ACC_StartStopp_Info": acc_enabled,
     "ACC_Anhalten": stopping,
     "ACC_Betaetigung_EPB": esp_hold,  # Echo ESP hold state -- DO NOT use stopping (causes brake release when ACC off)
