@@ -385,6 +385,12 @@ class CarState(CarStateBase):
     # （00000033 seg0: 309.68s 原厂 Mom146→0、309.86s st3→2，OP 仍 st=3 → 310.19s accFaulted）。
     # 正常激活时原厂 src=2 st=3（287-307s 实测一致），仅原厂退出时触发降级。
     self.acc05_stock_status = int(ext_cp.vl["ACC_05"]["ACC_Status_ACC"])
+    # 原厂 ACC_05 减速/停车意图（bus2 雷达域 src=2）：00000037/00000038 根因修复——
+    # OP 代发加速请求与原厂雷达自身减速/停车请求矛盾 1.3~5s → 雷达自检失败报 st=6 →
+    # ECU 写 DTC 锁死 ACC。OP 激活期间若原厂在请求减速（ACC_Verz_anf<0）或停车
+    # （ACC_Anhalten=1），carcontroller 仲裁逻辑将禁止 OP 正加速，只能比原厂保守。
+    self.acc05_stock_verz = float(ext_cp.vl["ACC_05"]["ACC_Verz_anf"])
+    self.acc05_stock_anhalten = bool(ext_cp.vl["ACC_05"]["ACC_Anhalten"])
     ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
 
     self.parse_mlb_mqb_steering_state(ret, pt_cp)

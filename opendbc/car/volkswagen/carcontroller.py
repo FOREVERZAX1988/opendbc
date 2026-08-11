@@ -178,6 +178,14 @@ class CarController(CarControllerBase):
           torque_active = long_active or gas_override
           # 油门超驰：gas 时 accel 强制 0 → 力矩=巡航基线，驾驶员主导加速；松油门立即恢复 planner 控制
           accel = float(np.clip(0.0 if CS.out.gasPressed else actuators.accel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if torque_active else 0)
+          # 原厂意图仲裁（00000037/00000038 根因修复）：OP 代发请求不能与原厂雷达矛盾。
+          # 原厂在请求减速（verz<0）或停车（anh=1）时，OP 跟随原厂意图（最多同深度减速），
+          # 绝不允许比原厂激进（正加速）——否则雷达自检失败报 st=6 → ECU 写 DTC 锁死 ACC。
+          # 跟停后起步需等原厂先释放（anh=0 且 verz≥0），起步略延迟是安全代价。
+          stock_verz = getattr(CS, 'acc05_stock_verz', 0.0)
+          stock_anhalten = getattr(CS, 'acc05_stock_anhalten', False)
+          if torque_active and (stock_anhalten or stock_verz < -0.15):
+            accel = min(accel, stock_verz if stock_verz < 0 else -1.0)
           stopping = actuators.longControlState == LongCtrlState.stopping and not brake_override
           # vEgoStopping 字段在 car.capnp 与 volkswagenMqbEvo@29 ordinal 冲突被 capnp 静默忽略 → 运行时缺失。
           # getattr 兜底 2.0 m/s（≈7.2km/h 低速起步阈值，VW ACC 起步语义），避免激活后 AttributeError 崩溃。
