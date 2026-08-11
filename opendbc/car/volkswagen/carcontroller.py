@@ -186,6 +186,13 @@ class CarController(CarControllerBase):
           stock_anhalten = getattr(CS, 'acc05_stock_anhalten', False)
           if torque_active and (stock_anhalten or stock_verz < -0.15):
             accel = min(accel, stock_verz if stock_verz < 0 else -1.0)
+          # 撤力仲裁（00000038 实锤补丁）：原厂力矩请求持续归零（mom<60）表示雷达在撤动力、
+          # 认为不应加速（目标接近/限速/弯道）。此时 OP 若仍猛加速（00000038: 92→152）会触发
+          # 雷达自检 st=6 → DTC 锁死。OP 跟随：原厂撤力时禁止正加速，最多滑行（accel<=0）。
+          # 反向（原厂保持、OP 减速）已实测安全（7 窗口 0 锁死），故此处只限制「比原厂激进」。
+          stock_mom = getattr(CS, 'acc05_stock_mom', 1021.0)
+          if torque_active and stock_mom < 60:
+            accel = min(accel, 0.0)
           stopping = actuators.longControlState == LongCtrlState.stopping and not brake_override
           # vEgoStopping 字段在 car.capnp 与 volkswagenMqbEvo@29 ordinal 冲突被 capnp 静默忽略 → 运行时缺失。
           # getattr 兜底 2.0 m/s（≈7.2km/h 低速起步阈值，VW ACC 起步语义），避免激活后 AttributeError 崩溃。

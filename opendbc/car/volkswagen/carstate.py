@@ -390,6 +390,11 @@ class CarState(CarStateBase):
     # ECU 写 DTC 锁死 ACC。OP 激活期间若原厂在请求减速（ACC_Verz_anf<0）或停车
     # （ACC_Anhalten=1），carcontroller 仲裁逻辑将禁止 OP 正加速，只能比原厂保守。
     self.acc05_stock_verz = float(ext_cp.vl["ACC_05"]["ACC_Verz_anf"])
+    # 原厂力矩请求（ACC_Momentenanforderung，10bit 0-1021）：00000038 实锤——雷达的减速意图
+    # 有两种表达：verz<0/anh=1（停车请求）与 mom 下降/归零（撤动力）。00000038@688.4s 雷达
+    # mom 114→26→0 持续撤力，OP 无视继续拉 92→152 猛加速 → 雷达自检失败 st=6 → DTC 锁死。
+    # 723f0b8f 只仲裁 verz/anh 拦不住该场景；此处透传 mom 供 carcontroller 做撤力仲裁。
+    self.acc05_stock_mom = float(ext_cp.vl["ACC_05"]["ACC_Momentenanforderung"])
     self.acc05_stock_anhalten = bool(ext_cp.vl["ACC_05"]["ACC_Anhalten"])
     # 原厂 ACC_02 目标车显示字段（bus2 雷达域 src=2）：OP 代发 ACC_02 到 bus0 时若
     # ACC_Abstandsindex/ACC_Relevantes_Objekt 恒 0，仪表盘永远显示「无目标」——
