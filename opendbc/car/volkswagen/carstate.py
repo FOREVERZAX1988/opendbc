@@ -151,8 +151,15 @@ class CarState(CarStateBase):
     # accelCruise 事件 → selfdrived 误判 resume_pressed → vCruise>250 → resumeBlocked
     # (NO_ENTRY "Press Set to Engage") → 无法接合。同帧出现 setCruise 时过滤 accelCruise；
     # 单独按 +/-（只有 bit17/18）不受影响，功能保留。
+    # Macan(MLB) 巡航拨杆：SET 与 + 是同一物理键（bit16+bit17 同置位）→ 同帧产生
+    # setCruise+accelCruise。原厂语义按巡航状态分发（用户路试确认）：
+    #   未激活：该键=SET（设速+接合）→ 保留 setCruise，滤 accelCruise（防 resumeBlocked）
+    #   激活中：该键=+（巡航速度+1）→ 保留 accelCruise，滤 setCruise
     if any(b.type == ButtonType.setCruise for b in button_events):
-      button_events = [b for b in button_events if b.type != ButtonType.accelCruise]
+      if ret.cruiseState.enabled:
+        button_events = [b for b in button_events if b.type != ButtonType.setCruise]
+      else:
+        button_events = [b for b in button_events if b.type != ButtonType.accelCruise]
     ret.buttonEvents = button_events
 
     ret.lowSpeedAlert = self.update_low_speed_alert(ret.vEgo)
