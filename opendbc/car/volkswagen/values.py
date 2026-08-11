@@ -156,8 +156,8 @@ class CarControllerParams:
           Button(structs.CarState.ButtonEvent.Type.decelCruise, "LS_01", "LS_Tip_Runter", [1]),
           Button(structs.CarState.ButtonEvent.Type.cancel, "LS_01", "LS_Abbrechen", [1]),
           Button(structs.CarState.ButtonEvent.Type.gapAdjustCruise, "LS_01", "LS_Verstellung_Zeitluecke", [1]),
-          # 值2=Dist+1（拉远方向）→ gapAdjustCruiseDown（长按切实验模式；拉远=保守方向，误触安全）
-          Button(structs.CarState.ButtonEvent.Type.gapAdjustCruiseDown, "LS_01", "LS_Verstellung_Zeitluecke", [2]),
+          # 值2=Dist+1（拉远方向）→ altButton2（长按切实验模式；拉远=保守方向，误触安全）
+          Button(structs.CarState.ButtonEvent.Type.altButton2, "LS_01", "LS_Verstellung_Zeitluecke", [2]),
         ]
 
       else:
