@@ -198,12 +198,17 @@ class CarController(CarControllerBase):
           if torque_active and stock_mom < 60:
             accel = min(accel, 0.0)
           stopping = actuators.longControlState == LongCtrlState.stopping and not brake_override
+          # 油门超驰（0000003f 红灯起步实锤）：驾驶员踩油门时强制释放停车请求，
+          # 否则模型 shouldStop 卡1 → LCS 卡 stopping → Anh=1 → 踩油门也被按死。
+          # 对齐原厂 st=4 超驰语义：油门接管时 ACC 不请求保持停车。
+          if CS.out.gasPressed:
+            stopping = False
           # 跟停保持：进入 stopping 且 vEgo≈0 后保持 anh=1，防止停稳后 stopping 偶发掉 0
           # （00000039 seg7: 512.9-513.2 OP anh 掉 0 → 原厂雷达判定矛盾 st6）。
           # 起步（vEgo>0.5）或踩刹车时释放。
           if stopping:
             self.stopping_hold = True
-          elif self.stopping_hold and (brake_override or CS.out.vEgo > 0.5):
+          elif self.stopping_hold and (brake_override or CS.out.gasPressed or CS.out.vEgo > 0.5):
             self.stopping_hold = False
           stopping = stopping or self.stopping_hold
           # vEgoStopping 字段在 car.capnp 与 volkswagenMqbEvo@29 ordinal 冲突被 capnp 静默忽略 → 运行时缺失。
