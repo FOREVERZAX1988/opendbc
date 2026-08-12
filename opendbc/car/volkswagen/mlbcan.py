@@ -73,7 +73,7 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
   return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False):
   commands = []
 
   # ACC_05: multiplicative torque control
@@ -170,7 +170,11 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     "ACC_Vorbefuellung_Bremsanlage": 1 if braking else 0,
     # 00000039 seg7 实锤：原厂跟停全程 ESP=0（ESP_VerzTSK=0，靠1挡怠速拖滞），
     # 旧逻辑 stopping 时发 ESP=1 → 雷达自检异常 → st6。仅 esp_hold 或硬刹车(<-1.0) 才请求 ESP。
-    "ACC_Beeinflussung_ESP": 1 if (esp_hold or (braking and accel < -1.0)) else 0,
+    # 0000003f 实锤：原厂跟停全程 ESP=0（怠速拖滞），旧条件 braking and accel<-1.0
+    # 在仲裁把 accel 压到 stock_verz(-2) 时误触发 → OP ESP=1 与原厂矛盾。
+    # 仲裁已保证 accel 最负 -1.0（原厂不减速时），accel<-1 只可能来自跟随原厂 verz，
+    # 此时 ESP 应以原厂为准（透传 stock_esp）；esp_hold（原厂 ESP hold 确认）保留。
+    "ACC_Beeinflussung_ESP": 1 if (esp_hold or stock_esp) else 0,
     "ACC_StartStopp_Info": acc_enabled,
     "ACC_Anhalten": stopping,
     "ACC_Betaetigung_EPB": esp_hold,  # Echo ESP hold state -- DO NOT use stopping (causes brake release when ACC off)
