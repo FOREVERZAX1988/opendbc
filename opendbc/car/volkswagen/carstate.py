@@ -409,6 +409,12 @@ class CarState(CarStateBase):
     # → OP 代发 ESP=1 与原厂 ESP=0 矛盾（白耗液压预充，存在雷达 st6 锁死隐患）。
     # 修复：透传原厂 ESP 位，完全复刻原厂行为。
     self.acc05_stock_esp = bool(ext_cp.vl["ACC_05"]["ACC_Beeinflussung_ESP"])
+    # 原厂 ACC_05 力矩/减速通道许可（ACC_Freigabe_Momentenanf / ACC_Freigabe_Verzanf）：
+    # 00000041 seg7 实锤——原厂撤力（mom 118→0）后切 FV=1 减速通道（verz 缓降到 -0.06），
+    # 旧仲裁只盯 verz<-0.15（从未触发），OP 继续发 FM=1 力矩 → 方向性矛盾 → 雷达 st6 →
+    # TSK_04 st02 1→0 → controlsMismatch。透传通道位供 carcontroller 做「撤力跟随」。
+    self.acc05_stock_fm = bool(ext_cp.vl["ACC_05"]["ACC_Freigabe_Momentenanf"])
+    self.acc05_stock_fv = bool(ext_cp.vl["ACC_05"]["ACC_Freigabe_Verzanf"])
     # 原厂 ACC_02 目标车显示字段（bus2 雷达域 src=2）：OP 代发 ACC_02 到 bus0 时若
     # ACC_Abstandsindex/ACC_Relevantes_Objekt 恒 0，仪表盘永远显示「无目标」——
     # 即使 OP/雷达已捕捉到前车也不显示车距图标/三档距离（00000037/38 路试反馈）。

@@ -73,7 +73,7 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
   return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False):
   commands = []
 
   # ACC_05: multiplicative torque control
@@ -124,6 +124,16 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     acc_moment = 0
     _last_acc_moment = 0.0
 
+  # 撤力跟随（00000041 修复）：原厂撤力/减速（stock_follow=True）时，OP 代发帧必须完全
+  # 镜像原厂——力矩强制归零、力矩通道关闭（FM=0）。即使 accel=0（非 braking 分支），
+  # 也绝不允许发出巡航基线力矩（6.3*v+15），否则与原厂 mom=0 方向矛盾 → 雷达 st6 →
+  # TSK_04 1→0 退出 → controlsMismatch。verz/FV 由上方 braking 逻辑自然跟随：
+  #   纯撤力（原厂 FV=0, verz≈0）→ accel=0 → 非 braking → verz=0, FV=0, FM=0, mom=0（滑行）
+  #   跟减速（原厂 FV=1, verz<0）→ accel=stock_verz → braking → verz=stock_verz, FV=1, FM=0
+  if stock_follow:
+    acc_moment = 0
+    _last_acc_moment = 0.0
+
   # 减速请求斜坡（原厂实测）：braking 时 ACC_Verz_anf 每帧加深≤0.025（50Hz≈1.25m/s²/s），
   # 最深-2.215；请求变浅/恢复立即响应。原厂最深-2.215，上限收紧到-2.2（贴近原厂）。
   if braking:
@@ -146,7 +156,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     "ACC_Status_ACC": acc_control,
     "ACC_Verz_anf": verz,
     "ACC_Freigabe_Verzanf": 1 if braking else 0,
-    "ACC_Freigabe_Momentenanf": 1 if (acc_enabled and not braking) else 0,
+    "ACC_Freigabe_Momentenanf": 1 if (acc_enabled and not braking and not stock_follow) else 0,
     "ACC_Momentenanforderung": acc_moment,
     "ACC_zul_Regelabw": 0.0,  # 原厂实测：激活巡航时=0（00000005--4 route 130帧 status=3），保持原厂一致
     # 原厂59段全扫描（00000004--915ebf086f）：ACC_limitierte_Anfahrdyn 全程=0，

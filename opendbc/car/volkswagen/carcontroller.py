@@ -204,14 +204,19 @@ class CarController(CarControllerBase):
           # 跟停后起步需等原厂先释放（anh=0 且 verz≥0），起步略延迟是安全代价。
           stock_verz = getattr(CS, 'acc05_stock_verz', 0.0)
           stock_anhalten = getattr(CS, 'acc05_stock_anhalten', False)
-          if torque_active and (stock_anhalten or stock_verz < -0.15):
-            accel = min(accel, stock_verz if stock_verz < 0 else -1.0)
-          # 撤力仲裁（00000038 实锤补丁）：原厂力矩请求持续归零（mom<60）表示雷达在撤动力、
-          # 认为不应加速（目标接近/限速/弯道）。此时 OP 若仍猛加速（00000038: 92→152）会触发
-          # 雷达自检 st=6 → DTC 锁死。OP 跟随：原厂撤力时禁止正加速，最多滑行（accel<=0）。
-          # 反向（原厂保持、OP 减速）已实测安全（7 窗口 0 锁死），故此处只限制「比原厂激进」。
+          stock_fv = getattr(CS, 'acc05_stock_fv', False)  # 原厂减速通道许可（00000041 seg7 实锤）
           stock_mom = getattr(CS, 'acc05_stock_mom', 1021.0)
-          if torque_active and stock_mom < 60:
+          if torque_active and (stock_anhalten or stock_fv or stock_verz < -0.05):
+            # 原厂意图跟随（00000037/38/41 根因修复）：原厂请求减速（verz<0）或开减速通道
+            # （FV=1，00000041 seg7 原厂 verz 只缓降到 -0.06，旧阈值 -0.15 拦不住）时，
+            # OP 最多同深度减速，绝不比原厂激进。跟停后起步需等原厂先释放。
+            accel = min(accel, stock_verz if stock_verz < 0 else -1.0)
+          # 撤力跟随（00000041 seg5/seg7 实锤补丁）：原厂力矩归零（mom<60）或切减速通道
+          # （fv=1）时，OP 必须让代发帧完全镜像原厂（mom=0、FM=0、FV/verz 跟随原厂）。
+          # 旧仲裁只压 accel≤0，但 mlbcan 在 accel=0 时仍发巡航基线力矩（6.3*v+15≈80），
+          # 与原厂 mom=0 方向矛盾 → 雷达 st6 → TSK_04 1→0 退出 → controlsMismatch。
+          stock_follow = torque_active and (stock_mom < 60 or stock_fv)
+          if stock_follow:
             accel = min(accel, 0.0)
           stopping = actuators.longControlState == LongCtrlState.stopping and not brake_override
           # 油门超驰（0000003f 红灯起步实锤）：驾驶员踩油门时强制释放停车请求，
@@ -233,7 +238,8 @@ class CarController(CarControllerBase):
           can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                              acc_control, stopping, starting, CS.esp_hold_confirmation, v_ego=CS.out.vEgo,
                                                              engine_torque=getattr(CS, 'engine_torque_output', 0),
-                                                             stock_esp=getattr(CS, 'acc05_stock_esp', False)))
+                                                             stock_esp=getattr(CS, 'acc05_stock_esp', False),
+                                                             stock_follow=stock_follow))
 
       #if self.aeb_available:
       #  if self.frame % self.CCP.AEB_CONTROL_STEP == 0:
