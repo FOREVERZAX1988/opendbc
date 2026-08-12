@@ -403,6 +403,12 @@ class CarState(CarStateBase):
     # 723f0b8f 只仲裁 verz/anh 拦不住该场景；此处透传 mom 供 carcontroller 做撤力仲裁。
     self.acc05_stock_mom = float(ext_cp.vl["ACC_05"]["ACC_Momentenanforderung"])
     self.acc05_stock_anhalten = bool(ext_cp.vl["ACC_05"]["ACC_Anhalten"])
+    # 原厂 ACC_05 是否请求 ESP 介入（ACC_Beeinflussung_ESP，bus2 雷达域 src=2）：
+    # 0000003f 实锤——原厂跟停（Verz=-2/Anh=1）全程 ESP=0（靠1挡怠速拖滞）；
+    # OP 旧逻辑在仲裁把 accel 压到 stock_verz(-2) 后误触发 accel<-1 的 ESP 条件
+    # → OP 代发 ESP=1 与原厂 ESP=0 矛盾（白耗液压预充，存在雷达 st6 锁死隐患）。
+    # 修复：透传原厂 ESP 位，完全复刻原厂行为。
+    self.acc05_stock_esp = bool(ext_cp.vl["ACC_05"]["ACC_Beeinflussung_ESP"])
     # 原厂 ACC_02 目标车显示字段（bus2 雷达域 src=2）：OP 代发 ACC_02 到 bus0 时若
     # ACC_Abstandsindex/ACC_Relevantes_Objekt 恒 0，仪表盘永远显示「无目标」——
     # 即使 OP/雷达已捕捉到前车也不显示车距图标/三档距离（00000037/38 路试反馈）。

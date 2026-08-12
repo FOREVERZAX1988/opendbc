@@ -216,7 +216,8 @@ class CarController(CarControllerBase):
           starting = actuators.longControlState == LongCtrlState.pid and (CS.esp_hold_confirmation or CS.out.vEgo < getattr(self.CP, 'vEgoStopping', 2.0)) and not brake_override
           can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                              acc_control, stopping, starting, CS.esp_hold_confirmation, v_ego=CS.out.vEgo,
-                                                             engine_torque=getattr(CS, 'engine_torque_output', 0)))
+                                                             engine_torque=getattr(CS, 'engine_torque_output', 0),
+                                                             stock_esp=getattr(CS, 'acc05_stock_esp', False)))
 
       #if self.aeb_available:
       #  if self.frame % self.CCP.AEB_CONTROL_STEP == 0:
