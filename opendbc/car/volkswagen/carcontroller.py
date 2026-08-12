@@ -63,6 +63,22 @@ class CarController(CarControllerBase):
     self.stopping_hold = False
     self.hca_mitigation = HCAMitigation(self.CCP)
 
+  @staticmethod
+  def op_lead_to_index(drel, vego):
+    """OP 前车距离 → 原厂 ACC_Abstandsindex（1-1021）。4 档映射按到达时间 dRel/vEgo，
+    对齐原厂 Zeitlücke 1.0/1.3/1.8/2.6s（边界取相邻中点 1.15/1.55/2.2s）；
+    低速（vEgo<5m/s≈18km/h）用等效距离兜底（t=dRel/5，避免低速档位虚远）。
+    index 量级按本车初值标定：~150/300/480/700（index 200-250→16m、650-750→42m，
+    待专项路试精标定后再校准）。"""
+    t = drel / vego if vego > 5.0 else drel / 5.0
+    if t < 1.15:
+      return 150
+    if t < 1.55:
+      return 300
+    if t < 2.20:
+      return 480
+    return 700
+
   def update(self, CC, CC_SP, CS, now_nanos):
     actuators = CC.actuators
     hud_control = CC.hudControl
@@ -252,6 +268,13 @@ class CarController(CarControllerBase):
       else:
         lead_distance = getattr(CS, 'stock_lead_distance', 0)
         lead_object = getattr(CS, 'stock_lead_object', 0)
+        # 车距显示路线A：原厂雷达无目标（lead_object==0）但 OP 识别到前车时，
+        # 用 OP 的 leadOne.dRel 换算成 ACC_Abstandsindex 补位驱动仪表前车图标。
+        # 纯显示层（ACC_02 显示报文），不参与 ACC_05 控制链路，无安全风险。
+        op_drel = getattr(CS, 'op_lead_dRel', 0.0)
+        if lead_object == 0 and op_drel > 0:
+          lead_distance = self.op_lead_to_index(op_drel, CS.out.vEgo)
+          lead_object = 1
         acc_hud_status = self.CCS.acc_hud_status_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
         # FIXME: PQ may need to use the on-the-wire mph/kmh toggle to fix rounding errors
         # FIXME: Detect clusters with vEgoCluster offsets and apply an identical vCruiseCluster offset
