@@ -9,6 +9,8 @@ from opendbc.car.volkswagen.mqbcan import (volkswagen_mqb_meb_checksum, xor_chec
 #     （旧公式 2.5*v+141 低速段偏高约3倍，是起步发冲的根本原因）
 #   - 减速 ACC_Verz_anf 斜坡渐进：原厂每帧约-0.025（50Hz≈1.25m/s²/s），最深-2.215
 _ACC_MOMENT_RAMP = 8.0
+_ACC_MOMENT_RAMP_DOWN = 3.0  # 撤力跟随斜坡（50Hz≈150Nm/s）：00000042 seg7 原厂 mom 96→0 约0.68s(≈2.8/帧)，
+                             # OP 用 3/帧 斜坡下降避免 110→0 瞬间跳变与原厂残余力矩方向相反 → st=6
 _ACC_SCALE_MAX = 1.8
 _last_acc_moment = 0.0
 _last_accel_cmd = 0.0  # 减速请求斜坡状态（原厂 verz 渐进式加深）
@@ -73,7 +75,8 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
   return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0):
+  global _last_acc_moment
   commands = []
 
   # ACC_05: multiplicative torque control
@@ -104,7 +107,20 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   else:
     braking = False
 
-  if acc_enabled and not braking:
+  # 撤力跟随优先（00000041 修复）：原厂撤力/减速（stock_follow=True）时，OP 代发帧必须完全
+  # 镜像原厂——力矩归零、力矩通道关闭（FM=0）。即使 accel=0（非 braking 分支），
+  # 也绝不允许发出巡航基线力矩（6.3*v+15），否则与原厂 mom=0 方向矛盾 → 雷达 st6 →
+  # TSK_04 1→0 退出 → controlsMismatch。verz/FV 由 braking 逻辑自然跟随：
+  #   纯撤力（原厂 FV=0, verz≈0）→ accel=0 → 非 braking → verz=0, FV=0, FM=0, mom=0（滑行）
+  #   跟减速（原厂 FV=1, verz<0）→ accel=stock_verz → braking → verz=stock_verz, FV=1, FM=0
+  # 00000042 seg7 修复：mom 斜坡下降（3/帧≈150Nm/s）跟随原厂缓撤力曲线（96→0 约0.68s≈2.8/帧），
+  # 而非瞬间 110→0 跳变——否则与原厂 FM=1 残余力矩方向相反 → 雷达 st6 → TSK_04 退出。
+  # 独立于正常力矩计算（不经过 +8 上升斜坡再 -3 的净+5 问题），纯斜坡下降；
+  # 撤力结束（stock_follow=False）后从当前 _last 平滑恢复发力矩。
+  if stock_follow:
+    acc_moment = max(0, int(_last_acc_moment - _ACC_MOMENT_RAMP_DOWN))
+    _last_acc_moment = float(acc_moment)
+  elif acc_enabled and not braking:
     full_cruise = 6.3 * v_ego + 15.0
     low_speed_ramp = min(1.0, v_ego / 5.56)   # 0 -> 20 km/h linear to full baseline
     cruise_torque = 27.0 + (full_cruise - 27.0) * low_speed_ramp
@@ -119,21 +135,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
       scale = max(0.0, 1.0 + accel * 2.5)
       acc_moment = int(min(500, cruise_torque * scale))
     # 上升斜坡：激活/加速时扭矩渐进（原厂ACC柔和感）
-    global _last_acc_moment
     if acc_moment > _last_acc_moment:
       acc_moment = min(acc_moment, int(_last_acc_moment + _ACC_MOMENT_RAMP))
     _last_acc_moment = float(acc_moment)
   else:
-    acc_moment = 0
-    _last_acc_moment = 0.0
-
-  # 撤力跟随（00000041 修复）：原厂撤力/减速（stock_follow=True）时，OP 代发帧必须完全
-  # 镜像原厂——力矩强制归零、力矩通道关闭（FM=0）。即使 accel=0（非 braking 分支），
-  # 也绝不允许发出巡航基线力矩（6.3*v+15），否则与原厂 mom=0 方向矛盾 → 雷达 st6 →
-  # TSK_04 1→0 退出 → controlsMismatch。verz/FV 由上方 braking 逻辑自然跟随：
-  #   纯撤力（原厂 FV=0, verz≈0）→ accel=0 → 非 braking → verz=0, FV=0, FM=0, mom=0（滑行）
-  #   跟减速（原厂 FV=1, verz<0）→ accel=stock_verz → braking → verz=stock_verz, FV=1, FM=0
-  if stock_follow:
     acc_moment = 0
     _last_acc_moment = 0.0
 
@@ -158,7 +163,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   acc_05_values = {
     "ACC_Status_ACC": acc_control,
     "ACC_Verz_anf": verz,
-    "ACC_Freigabe_Verzanf": 1 if braking else 0,
+    "ACC_Freigabe_Verzanf": 1 if (braking or (acc_enabled and stock_fv and not gas_override)) else 0,
     "ACC_Freigabe_Momentenanf": 1 if (acc_enabled and not braking and not stock_follow) else 0,
     "ACC_Momentenanforderung": acc_moment,
     "ACC_zul_Regelabw": 0.0,  # 原厂实测：激活巡航时=0（00000005--4 route 130帧 status=3），保持原厂一致

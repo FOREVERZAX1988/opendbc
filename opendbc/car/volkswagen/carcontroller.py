@@ -261,7 +261,9 @@ class CarController(CarControllerBase):
                                                              engine_torque=getattr(CS, 'engine_torque_output', 0),
                                                              stock_esp=getattr(CS, 'acc05_stock_esp', False),
                                                              stock_follow=stock_follow,
-                                                             gas_override=CS.out.gasPressed))
+                                                             gas_override=CS.out.gasPressed,
+                                                             stock_fv=stock_fv,
+                                                             stock_mom=stock_mom))
 
       #if self.aeb_available:
       #  if self.frame % self.CCP.AEB_CONTROL_STEP == 0:
