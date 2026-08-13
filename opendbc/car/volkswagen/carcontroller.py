@@ -216,8 +216,15 @@ class CarController(CarControllerBase):
           if torque_active and (stock_anhalten or stock_fv or stock_verz < -0.05):
             # 原厂意图跟随（00000037/38/41 根因修复）：原厂请求减速（verz<0）或开减速通道
             # （FV=1，00000041 seg7 原厂 verz 只缓降到 -0.06，旧阈值 -0.15 拦不住）时，
-            # OP 最多同深度减速，绝不比原厂激进。跟停后起步需等原厂先释放。
-            accel = min(accel, stock_verz if stock_verz < 0 else -1.0)
+            # OP 最多同深度减速，绝不比原厂激进。
+            # 00000044 实锤修正（2026-08-13）：原厂 verz 为正（如 +1.48）是"允许/请求加速"
+            # （跟停起步原厂先释放 anh、verz 转正），旧代码 verz>=0 时压 -1.0 会反向压制原厂
+            # 加速意图 → 绿灯不自动起步。现在：anh=1（原厂停车请求）压 -1.0；verz<0 跟随同深度；
+            # verz>=0（原厂允许加速）不压，让 OP 正 accel 通过（跟随后续由 mpc/planner 接管）。
+            if stock_anhalten:
+              accel = min(accel, -1.0)
+            elif stock_verz < 0:
+              accel = min(accel, stock_verz)
           # 撤力跟随（00000041 seg5/seg7 实锤补丁）：原厂力矩归零（mom<60）或切减速通道
           # （fv=1）时，OP 必须让代发帧完全镜像原厂（mom=0、FM=0、FV/verz 跟随原厂）。
           # 旧仲裁只压 accel≤0，但 mlbcan 在 accel=0 时仍发巡航基线力矩（6.3*v+15≈80），
