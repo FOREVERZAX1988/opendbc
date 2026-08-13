@@ -206,9 +206,15 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
   lead_obj = lead_object if lead_object else (1 if 0 < lead_distance < 1000 else 0)
   values = {
     "ACC_Status_Anzeige": acc_hud_status,
+    # ACC_Status_Prim_Anz：原厂（00000004 实测）anz=3 激活时 primAnz=1（跟车 HUD 主状态），
+    # anz=2 待机/anz=4 超驰时 primAnz=0。OP 此前恒发 0 → 激活时仪表缺"跟车"主状态。
+    "ACC_Status_Prim_Anz": 1 if acc_hud_status == 3 else 0,
+    # ACC_Display_Prio：原厂（00000004 全段 44|2 实测）只出现 2/3（36001 帧无 0/1）：
+    #   prio=3 常态（93.5%，有/无目标均多）、prio=2 偶发（6.5%，集中待机有目标窗口）。
+    # 保持上游 opendbc 标准行为 2/3（有目标→2，无目标→3），勿改 0/1。
+    "ACC_Display_Prio": 2 if lead_obj else 3,
     "ACC_Wunschgeschw_02": set_speed if set_speed < 250 else 327.36,
     "ACC_Gesetzte_Zeitluecke": zeitluecke,  # Mirror stock radar's ZL from ext bus (responds to DIST button)
-    "ACC_Display_Prio": 2 if lead_obj else 3,
     "ACC_Abstandsindex": lead_distance,
     "ACC_Relevantes_Objekt": lead_obj,
   }
