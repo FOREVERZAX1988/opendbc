@@ -291,6 +291,11 @@ class CarController(CarControllerBase):
             # hold：视觉目标短暂丢失（<2s），保持上次补位值显示，图标不闪
             lead_distance = self.lead_hold_distance
             lead_object = 1
+        elif lead_distance > 0:
+          # 雷达有目标：同步刷新 hold 窗口（用雷达值），雷达丢失后平滑过渡到 hold 值，
+          # 避免回退显示很久以前的旧补位值
+          self.lead_hold_expire = now_nanos + 2_000_000_000
+          self.lead_hold_distance = lead_distance
         acc_hud_status = self.CCS.acc_hud_status_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
         # FIXME: PQ may need to use the on-the-wire mph/kmh toggle to fix rounding errors
         # FIXME: Detect clusters with vEgoCluster offsets and apply an identical vCruiseCluster offset
