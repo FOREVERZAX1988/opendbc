@@ -196,8 +196,13 @@ class CarController(CarControllerBase):
             long_active = False
           gas_override = CS.out.gasPressed and CS.out.cruiseState.available and not brake_override
           acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
-          # OVERRIDE(4) 时保持巡航力矩（原厂 st=4 力矩≈st=3，仅状态字切 4）；accel=0 → 巡航基线
-          torque_active = long_active or gas_override
+          # OVERRIDE(4) 时保持巡航力矩（原厂 st=4 力矩≈st=3，仅状态字切 4）；accel=0 → 巡航基线。
+          # 力矩许可只跟 long_active（激活态），不跟 gas_override（00000004 seg2 实锤：待机+踩油门
+          # 原厂 ACC_05 全程 st=2/fm=0/mom=0，ACC 不发力矩，动力完全由驾驶员油门主导；
+          # 00000041 seg2@175.41s 旧代码 torque_active=long_active or gas_override → 待机踩油门
+          # 时 OP 代发 fm=1/mom=27（巡航基线）与原厂零力矩矛盾，状态机待机却请求力矩）。
+          # 激活中踩油门 long_active 保持 True（gas 不改 long_active），力矩照发 → st=4 超驰不受影响。
+          torque_active = long_active
           # 油门超驰：gas 时 accel 强制 0 → 力矩=巡航基线，驾驶员主导加速；松油门立即恢复 planner 控制
           accel = float(np.clip(0.0 if CS.out.gasPressed else actuators.accel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if torque_active else 0)
           # 原厂意图仲裁（00000037/00000038 根因修复）：OP 代发请求不能与原厂雷达矛盾。
