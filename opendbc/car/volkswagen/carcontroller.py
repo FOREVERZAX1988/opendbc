@@ -222,7 +222,14 @@ class CarController(CarControllerBase):
           # （fv=1）时，OP 必须让代发帧完全镜像原厂（mom=0、FM=0、FV/verz 跟随原厂）。
           # 旧仲裁只压 accel≤0，但 mlbcan 在 accel=0 时仍发巡航基线力矩（6.3*v+15≈80），
           # 与原厂 mom=0 方向矛盾 → 雷达 st6 → TSK_04 1→0 退出 → controlsMismatch。
-          stock_follow = torque_active and (stock_mom < 60 or stock_fv)
+          # 撤力跟随条件收紧（00000042 seg3/seg6 实锤补丁）：仅原厂激活(st=3)且未跟停(anh=0)时
+          # 才跟随撤力。跟停中 mom=0/FV=1 是停车保持（非撤力），踩油门后原厂切 st=4 超驰
+          # 发力矩（mom70-140/FM1）更不应跟随——否则 OP 撤力 vs 原厂发力矩方向矛盾 →
+          # TSK_04 2->0 退出 → 松油门后纵向已退出不加速。
+          # seg5/seg7 撤力场景（st=3/anh=0）不受影响；跟停正常帧靠 stopping 逻辑输出
+          # （00000042 seg3@224s 实证 OP=RADAR 一致，不依赖 stock_follow）。
+          stock_status = getattr(CS, 'acc05_stock_status', 3)
+          stock_follow = torque_active and stock_status == 3 and not stock_anhalten and (stock_mom < 60 or stock_fv)
           if stock_follow:
             accel = min(accel, 0.0)
           stopping = actuators.longControlState == LongCtrlState.stopping and not brake_override
@@ -246,7 +253,8 @@ class CarController(CarControllerBase):
                                                              acc_control, stopping, starting, CS.esp_hold_confirmation, v_ego=CS.out.vEgo,
                                                              engine_torque=getattr(CS, 'engine_torque_output', 0),
                                                              stock_esp=getattr(CS, 'acc05_stock_esp', False),
-                                                             stock_follow=stock_follow))
+                                                             stock_follow=stock_follow,
+                                                             gas_override=CS.out.gasPressed))
 
       #if self.aeb_available:
       #  if self.frame % self.CCP.AEB_CONTROL_STEP == 0:
