@@ -73,7 +73,7 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
   return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False):
   commands = []
 
   # ACC_05: multiplicative torque control
@@ -97,7 +97,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   if acc_enabled:
     # 00000039 seg5 实锤：原厂 verz=-0.40 被旧阈值 -0.4（严格小于）吞掉 → OP 发 verz=0
     # → 雷达自检"减速请求未执行" → st6。放宽到 -0.05：任何轻微减速都走 braking 发 verz。
-    braking = accel < -0.05 or stopping or (v_ego < 2.0 and accel <= 0)
+    # 00000042 seg3/seg6 实锤：油门超驰（gas_override）时不得因 v_ego<2 走 braking——
+    # 原厂跟停中踩油门会切 st=4 并发力矩（mom 70->140/FM=1/FV=0），若 OP 因低速条件
+    # 走 braking（FV=1/verz=0）则与原厂方向矛盾 → TSK_04 2->0 退出 → 松油门不加速。
+    braking = accel < -0.05 or stopping or (not gas_override and v_ego < 2.0 and accel <= 0)
   else:
     braking = False
 
