@@ -70,19 +70,16 @@ class CarController(CarControllerBase):
 
   @staticmethod
   def op_lead_to_index(drel, vego):
-    """OP 前车距离 → 原厂 ACC_Abstandsindex（1-1021）。4 档映射按到达时间 dRel/vEgo，
-    对齐原厂 Zeitlücke 1.0/1.3/1.8/2.6s（边界取相邻中点 1.15/1.55/2.2s）；
-    低速（vEgo<5m/s≈18km/h）用等效距离兜底（t=dRel/5，避免低速档位虚远）。
-    index 量级按本车初值标定：~150/300/480/700（index 200-250→16m、650-750→42m，
-    待专项路试精标定后再校准）。"""
+    """OP 前车距离 → 原厂 ACC_Abstandsindex（1-1021）。分段线性插值，标定点来自
+    00000004 原厂 ACC 模式下雷达 abstand 与视觉 leadOne.dRel 的 8411 个同步配对样本
+    （按 t=dRel/vEgo 分桶取中位数，2026-08-13 校准）。低速（vEgo<5m/s≈18km/h）用
+    等效距离兜底（t=dRel/5，避免低速档位虚远）。"""
     t = drel / vego if vego > 5.0 else drel / 5.0
-    if t < 1.15:
-      return 150
-    if t < 1.55:
-      return 300
-    if t < 2.20:
-      return 480
-    return 700
+    # 基于 00000004 配对校准（8411 样本，2026-08-13）：原厂 abstand 中位数 vs t=dRel/vEgo
+    # 0.5s→106, 1.0→122, 1.5→168, 2.0→234, 2.5→271, 3.0→363, 3.5→380, 4.0→389, 4.5→401
+    # （>4.5s 视觉远距离不可靠，封顶 420）。分段线性插值对齐原厂，替代旧 4 档量化（偏高 1.4-2.2x）
+    return int(np.interp(t, [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 6.0],
+                         [100, 106, 122, 168, 234, 271, 363, 380, 389, 401, 420]))
 
   def update(self, CC, CC_SP, CS, now_nanos):
     actuators = CC.actuators
