@@ -61,6 +61,11 @@ class CarController(CarControllerBase):
     # ACC_Anhalten 抖动，原厂 anh 全程保持。进入 stopping 且 vEgo≈0 后保持 anh，
     # 直到起步（vEgo>0.5）或驾驶员刹车才释放。
     self.stopping_hold = False
+    # 车距显示 hold（00000041 问题3）：视觉补位 leadOne.present 断续（0.5-1s）导致仪表
+    # 前车图标闪烁。一旦视觉补位生效，保持显示 2s（HUD 10Hz ≈ 20 帧），视觉目标短暂
+    # 丢失时图标不闪；连续丢失超过 2s 才清除（对齐原厂"main 开+有障碍物即显示"行为）。
+    self.lead_hold_expire = 0       # 单调时钟纳秒
+    self.lead_hold_distance = 0
     self.hca_mitigation = HCAMitigation(self.CCP)
 
   @staticmethod
@@ -278,9 +283,17 @@ class CarController(CarControllerBase):
         # 用 OP 的 leadOne.dRel 换算成 ACC_Abstandsindex 补位驱动仪表前车图标。
         # 纯显示层（ACC_02 显示报文），不参与 ACC_05 控制链路，无安全风险。
         op_drel = getattr(CS, 'op_lead_dRel', 0.0)
-        if lead_object == 0 and op_drel > 0:
-          lead_distance = self.op_lead_to_index(op_drel, CS.out.vEgo)
-          lead_object = 1
+        if lead_object == 0:
+          if op_drel > 0:
+            # 视觉补位生效：换算 Abstandsindex + 开启 2s 保持窗口（防 leadOne 断续闪屏）
+            lead_distance = self.op_lead_to_index(op_drel, CS.out.vEgo)
+            lead_object = 1
+            self.lead_hold_expire = now_nanos + 2_000_000_000
+            self.lead_hold_distance = lead_distance
+          elif now_nanos < self.lead_hold_expire and self.lead_hold_distance > 0:
+            # hold：视觉目标短暂丢失（<2s），保持上次补位值显示，图标不闪
+            lead_distance = self.lead_hold_distance
+            lead_object = 1
         acc_hud_status = self.CCS.acc_hud_status_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
         # FIXME: PQ may need to use the on-the-wire mph/kmh toggle to fix rounding errors
         # FIXME: Detect clusters with vEgoCluster offsets and apply an identical vCruiseCluster offset
