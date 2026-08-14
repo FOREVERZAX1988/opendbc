@@ -250,7 +250,13 @@ class CarController(CarControllerBase):
           # 起步（vEgo>0.5）或踩刹车时释放。
           if stopping:
             self.stopping_hold = True
-          elif self.stopping_hold and (brake_override or CS.out.gasPressed or CS.out.vEgo > 0.5):
+          elif self.stopping_hold and (brake_override or CS.out.gasPressed or CS.out.vEgo > 0.5
+                                       # 起步释放（2026-08-14 00000045 seg4 实锤）：LCS=pid 且正向
+                                       # 加速请求 = OP 明确起步意图。旧条件只有 brake/gas/vEgo>0.5，
+                                       # 车静止时 stopping_hold 卡 anh=1 → 原厂不放行 → 车不动
+                                       # （实测 7.3s，用户踩油门才释放）。planner 起步 boost 后
+                                       # accel≈0.6>0.1 稳定满足 → 自动起步。
+                                       or (actuators.longControlState == LongCtrlState.pid and actuators.accel > 0.1)):
             self.stopping_hold = False
           stopping = stopping or self.stopping_hold
           # vEgoStopping 字段在 car.capnp 与 volkswagenMqbEvo@29 ordinal 冲突被 capnp 静默忽略 → 运行时缺失。
