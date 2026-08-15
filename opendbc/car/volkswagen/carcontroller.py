@@ -335,10 +335,17 @@ class CarController(CarControllerBase, SnGCarController):
 
     # **** Stock ACC Button Controls **************************************** #
 
+    # 物理按键转发（relay 断开后 bus0->bus2 不转发，必须由 OP 代发才能到达原厂 ACC）：
+    # pcmCruise 模式下 CC.cruiseControl 恒 False，改为直接读取原厂 LS_01 按键位——
+    # 用户按 SET/RESUME/± 时 COUNTER 变化 → 原样代发到 bus2（原厂 ACC 侧），
+    # 恢复"原厂 ACC 模式下按 SET/RESUME 继续起步"的原厂行为（00000047 路试反馈）。
     gra_send_ready = self.CP.pcmCruise and CS.gra_stock_values["COUNTER"] != self.gra_acc_counter_last
-    if gra_send_ready and (CC.cruiseControl.cancel or CC.cruiseControl.resume):
+    if gra_send_ready:
       can_sends.append(self.CCS.create_acc_buttons_control(self.packer_pt, self.CAN.ext, CS.gra_stock_values,
-                                                           cancel=CC.cruiseControl.cancel, resume=CC.cruiseControl.resume))
+                                                           cancel=bool(CS.gra_stock_values.get("LS_Abbrechen", 0)),
+                                                           resume=bool(CS.gra_stock_values.get("LS_Tip_Wiederaufnahme", 0)),
+                                                           set_increase=bool(CS.gra_stock_values.get("LS_Tip_Setzen", 0)),
+                                                           set_decrease=bool(CS.gra_stock_values.get("LS_Tip_Runter", 0))))
 
     # **** Macan 起步跟停（MacanStartStop）：原厂停车保持态时由视觉模型判定起步，
     # OP 代发 LS_01 RESUME 按键帧解除原厂 anh 保持（00000047 根因修复）********* #
