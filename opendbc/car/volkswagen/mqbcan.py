@@ -70,7 +70,7 @@ def create_acc_buttons_control(packer, bus, gra_stock_values, cancel=False, resu
   return packer.make_can_msg("GRA_ACC_01", bus, values)
 
 
-def acc_control_value(main_switch_on, acc_faulted, long_active):
+def acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed=False):
   if acc_faulted:
     acc_control = 6
   elif long_active:
@@ -83,12 +83,13 @@ def acc_control_value(main_switch_on, acc_faulted, long_active):
   return acc_control
 
 
-def acc_hud_status_value(main_switch_on, acc_faulted, long_active):
+def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=False):
   # TODO: happens to resemble the ACC control value for now, but extend this for init/gas override later
   return acc_control_value(main_switch_on, acc_faulted, long_active)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold,
+                                 v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0):
   commands = []
 
   acc_06_values = {
@@ -128,7 +129,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   return commands
 
 
-def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance, distance):
+def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance, distance, lead_object=0, zeitluecke=4):
   values = {
     "ACC_Status_Anzeige": acc_hud_status,
     "ACC_Wunschgeschw_02": set_speed if set_speed < 250 else 327.36,
@@ -295,3 +296,8 @@ VOLKSWAGEN_MEB_ALT_CRC_CONSTANTS: dict[int, tuple[int, list[int]]] = {
   0x13D: (28, [0x18, 0x71, 0x10, 0x8D, 0xD7, 0xAA, 0xB0, 0x78,
                0xAC, 0x12, 0xAE, 0x0C, 0xDD, 0xF1, 0x85, 0x68]), # QFK_01
 }
+
+def create_acc_04_control(packer, bus, lead_speed_kph, acc_control):
+  # MQB/PQ 不代发 ACC_04（原厂正常转发），保持原厂总线行为
+  return []
+
