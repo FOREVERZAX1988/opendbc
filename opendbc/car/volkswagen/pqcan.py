@@ -49,7 +49,7 @@ def create_acc_buttons_control(packer, bus, gra_stock_values, cancel=False, resu
   return packer.make_can_msg("GRA_Neu", bus, values)
 
 
-def acc_control_value(main_switch_on, acc_faulted, long_active):
+def acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed=False):
   if long_active:
     acc_control = 1
   elif main_switch_on:
@@ -60,7 +60,7 @@ def acc_control_value(main_switch_on, acc_faulted, long_active):
   return acc_control
 
 
-def acc_hud_status_value(main_switch_on, acc_faulted, long_active):
+def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=False):
   if acc_faulted:
     hud_status = 6
   elif long_active:
@@ -73,7 +73,8 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active):
   return hud_status
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold,
+                                 v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0):
   commands = []
 
   values = {
@@ -92,7 +93,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   return commands
 
 
-def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance, distance):
+def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance, distance, lead_object=0, zeitluecke=4):
   values = {
     "ACA_StaACC": acc_hud_status,
     "ACA_Zeitluecke": distance + 2,
@@ -104,3 +105,8 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
   }
 
   return packer.make_can_msg("ACC_GRA_Anzeige", bus, values)
+
+def create_acc_04_control(packer, bus, lead_speed_kph, acc_control):
+  # MQB/PQ 不代发 ACC_04（原厂正常转发），保持原厂总线行为
+  return []
+
