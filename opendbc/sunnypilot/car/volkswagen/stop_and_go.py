@@ -38,7 +38,9 @@ class SnGCarController:
   def __init__(self, CP: structs.CarParams, CP_SP: structs.CarParamsSP):
     self.CP = CP
     self.CP_SP = CP_SP
-    self.enabled = bool(CP_SP.flags & VolkswagenFlagsSP.STOP_AND_GO)
+    # 平台过滤：仅 Macan(MLB) 生效——其他 VW 平台即使误开开关也不触发（安全兜底）
+    self.enabled = (CP.brand == "volkswagen" and CP.carFingerprint == "PORSCHE_MACAN_MK1"
+                    and bool(CP_SP.flags & VolkswagenFlagsSP.STOP_AND_GO))
 
     self.last_standstill_frame = 0
     self.resume_frames_sent = 0
