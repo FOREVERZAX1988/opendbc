@@ -106,7 +106,14 @@ static void volkswagen_mlb_rx_hook(const CANPacket_t *msg) {
       int acc_status = (msg->data[7] & 0xC0U) >> 6;
       bool cruise_engaged = (acc_status == 1) || (acc_status == 2);
 
-      pcm_cruise_check(cruise_engaged);
+      // 2026-08-16 Macan(MLB) 适配：LONG 模式（OP 纵向）跳过 pcm_cruise_check——
+      // controls_allowed 由 LS_01 按键（SET/Resume 下降沿+主开关）管理。
+      // 无条件执行会在原厂巡航未激活（停车等红灯 TSK_04∉1/2）时撤 controls_allowed，
+      // 而 OP 已 enabled → selfdrived mismatch_counter 200 帧 → controlsMismatch 报警。
+      // 与 volkswagen_mqb.h / volkswagen_meb.h 处理一致。
+      if (!volkswagen_longitudinal) {
+        pcm_cruise_check(cruise_engaged);
+      }
     }
   }
 }
