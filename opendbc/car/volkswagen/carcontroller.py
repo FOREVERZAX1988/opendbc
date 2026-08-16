@@ -339,7 +339,11 @@ class CarController(CarControllerBase, SnGCarController):
     # pcmCruise 模式下 CC.cruiseControl 恒 False，改为直接读取原厂 LS_01 按键位——
     # 用户按 SET/RESUME/± 时 COUNTER 变化 → 原样代发到 bus2（原厂 ACC 侧），
     # 恢复"原厂 ACC 模式下按 SET/RESUME 继续起步"的原厂行为（00000047 路试反馈）。
-    gra_send_ready = self.CP.pcmCruise and CS.gra_stock_values["COUNTER"] != self.gra_acc_counter_last
+    # 平台过滤：仅 MLB（Macan 等）启用物理按键转发——MQB/PQ/MEB 的
+    # create_acc_buttons_control 不支持 set_increase/set_decrease（接口签名不同），
+    # 且这些平台走原厂按键转发路径（bus0->bus2），无需 OP 代发。
+    gra_send_ready = (self.CP.flags & VolkswagenFlags.MLB) and self.CP.pcmCruise \
+                     and CS.gra_stock_values["COUNTER"] != self.gra_acc_counter_last
     if gra_send_ready:
       can_sends.append(self.CCS.create_acc_buttons_control(self.packer_pt, self.CAN.ext, CS.gra_stock_values,
                                                            cancel=bool(CS.gra_stock_values.get("LS_Abbrechen", 0)),
