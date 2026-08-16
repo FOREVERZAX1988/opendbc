@@ -87,6 +87,11 @@ class CarController(CarControllerBase, SnGCarController):
     actuators = CC.actuators
     hud_control = CC.hudControl
     can_sends = []
+    # SnG 起步判定提前到帧首（供 ACC 段释放 stopping_hold）：OP 停车保持态持续代发
+    # ACC_05 anh=1，会覆盖用户/代发的 RESUME 按键（0000004c+用户实测 2026-08-17：
+    # 停车按 SET/RESUME 无效，只有轻踩油门 gasPressed 才释放 anh）。SnG 判定
+    # 可起步时同步释放 stopping_hold，代发 RESUME 才能生效。
+    sng_resume_ready = self.update_stop_and_go(CC, CS, self.frame)
 
     # **** Steering Controls ************************************************ #
 
@@ -252,7 +257,7 @@ class CarController(CarControllerBase, SnGCarController):
           # 起步（vEgo>0.5）或踩刹车时释放。
           if stopping:
             self.stopping_hold = True
-          elif self.stopping_hold and (brake_override or CS.out.gasPressed or CS.out.vEgo > 0.5):
+          elif self.stopping_hold and (brake_override or CS.out.gasPressed or CS.out.vEgo > 0.5 or sng_resume_ready):
             self.stopping_hold = False
           stopping = stopping or self.stopping_hold
           # vEgoStopping 字段在 car.capnp 与 volkswagenMqbEvo@29 ordinal 冲突被 capnp 静默忽略 → 运行时缺失。
@@ -353,7 +358,8 @@ class CarController(CarControllerBase, SnGCarController):
 
     # **** Macan 起步跟停（MacanStartStop）：原厂停车保持态时由视觉模型判定起步，
     # OP 代发 LS_01 RESUME 按键帧解除原厂 anh 保持（00000047 根因修复）********* #
-    can_sends.extend(self.create_stop_and_go(self.CCS, self.packer_pt, self.CAN.ext, CC, CS, self.frame))
+    can_sends.extend(self.create_stop_and_go(self.CCS, self.packer_pt, self.CAN.ext, CC, CS, self.frame,
+                                             resume_ready=sng_resume_ready))
 
     new_actuators = actuators.as_builder()
     new_actuators.torque = self.apply_torque_last / self.CCP.STEER_MAX

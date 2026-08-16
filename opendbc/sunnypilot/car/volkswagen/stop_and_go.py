@@ -11,10 +11,15 @@ from opendbc.car.interfaces import CarStateBase
 
 from opendbc.sunnypilot.car.volkswagen.values_ext import VolkswagenFlagsSP
 
-# OP 判定可起步的加速度阈值（m/s²）。停车保持态时 OP 的 aTarget 通常≈0，
-# 前车起步/绿灯时视觉模型输出正加速度请求（00000047 seg29 实测：起步瞬间 aTarget 从
-# +0.01 → +0.60）。accel>0.3 表示 OP 明确要正加速——触发代发 RESUME 解除原厂停车保持。
-_RESUME_ACCEL_THRESHOLD = 0.3
+# OP 判定可起步的加速度阈值（m/s²）。停车保持态时 OP 的 aTarget≈0 或负（前车未动时
+# accel 恒 -0.55），前车起步/绿灯时视觉模型输出正加速度请求（0000004c 全29段实测
+# 2026-08-17：无 gas 长停车 planner accel 峰值仅 0.00-0.26，旧阈值 0.3 永远达不到
+# ——SnG 12次停车0次自动起步的根因）。0.15 + 连续帧确认可覆盖实测无 gas 峰值
+# （seg11=0.16 / seg14=0.17 / seg24=0.23），同时滤除单帧模型抖动（停车保持态
+# accel≈0 或负，误触发面很小）。
+_RESUME_ACCEL_THRESHOLD = 0.15
+# 起步意图确认帧数：连续 N 帧 accel>阈值才触发（5 帧 ≈ 50ms @100Hz 控制帧率）
+_RESUME_CONFIRM_FRAMES = 5
 # 起步确认阈值：vEgo 超过该值视为车已动起来，重置防抖状态
 _RESUME_VEGO_RESET = 0.5
 # 停车保持态下连续发送 RESUME 的最大帧数（0.2s @100Hz 控制帧率）
@@ -44,6 +49,7 @@ class SnGCarController:
 
     self.last_standstill_frame = 0
     self.resume_frames_sent = 0
+    self.confirm_frames = 0
     self.prev_close_distance = 0.0
 
   def update_stop_and_go(self, CC: structs.CarControl, CS: CarStateBase, frame: int) -> bool:
@@ -58,18 +64,26 @@ class SnGCarController:
     # 驾驶员干预时绝不代发（踩油门/刹车归驾驶员控制）
     if CS.out.gasPressed or CS.out.brakePressed:
       self.resume_frames_sent = 0
+      self.confirm_frames = 0
       return False
 
     # 车未静止（行驶中）不触发
     if not CS.out.standstill:
       self.resume_frames_sent = 0
+      self.confirm_frames = 0
       return False
 
-    # OP 判定可起步：planner 请求正加速度（视觉模型看到前车起步/绿灯）
-    # 注意：停车保持态时 OP 的 aTarget≈0（00000047 seg29 实测），只有模型
-    # 明确放行起步时才 >0.3——避免在红灯/前车未动时误触发。
+    # OP 判定可起步：planner 请求正加速度 + 连续帧确认（滤除单帧噪声）。
+    # 停车保持态时 OP 的 aTarget≈0 或负（前车未动时 -0.55），只有模型明确
+    # 放行起步时才转正——前车起步/绿灯时实测 0.16-0.26（0000004c 全29段，
+    # 旧阈值 0.3 无 gas 场景永远达不到）。0.15 + 5帧确认避免红灯/前车未动误触发。
     if CC.actuators.accel <= _RESUME_ACCEL_THRESHOLD:
+      self.confirm_frames = 0
       self.resume_frames_sent = 0
+      return False
+
+    self.confirm_frames += 1
+    if self.confirm_frames < _RESUME_CONFIRM_FRAMES:
       return False
 
     # 防抖：连续发送有上限（RESUME 是瞬时按键，过长可能被原厂当长按）
@@ -79,13 +93,16 @@ class SnGCarController:
     self.resume_frames_sent += 1
     return True
 
-  def create_stop_and_go(self, CCS, packer, bus, CC: structs.CarControl, CS: CarStateBase, frame: int) -> list[CanData]:
+  def create_stop_and_go(self, CCS, packer, bus, CC: structs.CarControl, CS: CarStateBase, frame: int,
+                         resume_ready: bool | None = None) -> list[CanData]:
+    """resume_ready: carcontroller 已在帧首调用 update_stop_and_go 时传入结果，
+    避免重复调用导致 resume_frames_sent 双倍计数。"""
     can_sends = []
 
     if not self.enabled:
       return can_sends
 
-    send_resume = self.update_stop_and_go(CC, CS, frame)
+    send_resume = self.update_stop_and_go(CC, CS, frame) if resume_ready is None else resume_ready
     if send_resume:
       can_sends.append(CCS.create_acc_buttons_control(packer, bus, CS.gra_stock_values, resume=True))
 
