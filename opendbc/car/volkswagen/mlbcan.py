@@ -137,6 +137,12 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # 上升斜坡：激活/加速时扭矩渐进（原厂ACC柔和感）
     if acc_moment > _last_acc_moment:
       acc_moment = min(acc_moment, int(_last_acc_moment + _ACC_MOMENT_RAMP))
+    # 方案A：OP力矩≤原厂雷达力矩（2026-08-17 cut-in实证）
+    # 原厂收油预备（Mom 88→81 持续下降）时 OP 必须跟随，不能反向加速（Mom 100-164）——
+    # 水平限制强制 OP ≤ 原厂；v_ego≤11km/h 豁免起步（SnG 正常，原厂 mom=0/爬升期不被锁死）；
+    # 正常加速 OP 本来就≤原厂（实测 72.9 vs 87.9），限制不生效；上升斜坡保证平滑爬升。
+    if stock_mom > 0 and v_ego > 3.0:
+      acc_moment = min(acc_moment, int(stock_mom))
     _last_acc_moment = float(acc_moment)
   else:
     acc_moment = 0
