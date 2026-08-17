@@ -52,7 +52,8 @@ class SnGCarController:
     self.confirm_frames = 0
     self.prev_close_distance = 0.0
 
-  def update_stop_and_go(self, CC: structs.CarControl, CS: CarStateBase, frame: int) -> bool:
+  def update_stop_and_go(self, CC: structs.CarControl, CS: CarStateBase, frame: int,
+                            a_target: float | None = None) -> bool:
     """返回 True 表示本帧应代发 RESUME 按键帧。"""
 
     if not self.enabled:
@@ -73,11 +74,13 @@ class SnGCarController:
       self.confirm_frames = 0
       return False
 
-    # OP 判定可起步：planner 请求正加速度 + 连续帧确认（滤除单帧噪声）。
-    # 停车保持态时 OP 的 aTarget≈0 或负（前车未动时 -0.55），只有模型明确
-    # 放行起步时才转正——前车起步/绿灯时实测 0.16-0.26（0000004c 全29段，
-    # 旧阈值 0.3 无 gas 场景永远达不到）。0.15 + 5帧确认避免红灯/前车未动误触发。
-    if CC.actuators.accel <= _RESUME_ACCEL_THRESHOLD:
+    # OP 判定可起步：优先用 planner 原始 aTarget（经 CC_SP.params 传入）而非
+    # CC.actuators.accel——LoC 在停车保持态（原厂 cruise_standstill=True）
+    # 卡在 stopping 状态，输出恒 ≤0（0000004d 实测 aTarget 0.21-0.45 但
+    # accel=0 → 5 次长停全未自动起步）。aTarget 是真实起步意图，不受
+    # LoC 状态机压制。0.15 + 5帧确认避免红灯/前车未动误触发。
+    target = a_target if a_target is not None else CC.actuators.accel
+    if target <= _RESUME_ACCEL_THRESHOLD:
       self.confirm_frames = 0
       self.resume_frames_sent = 0
       return False
