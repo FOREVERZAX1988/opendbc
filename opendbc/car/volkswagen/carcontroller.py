@@ -257,7 +257,7 @@ class CarController(CarControllerBase, SnGCarController):
           # 起步（vEgo>0.5）或踩刹车时释放。
           if stopping:
             self.stopping_hold = True
-          elif self.stopping_hold and (brake_override or CS.out.gasPressed or CS.out.vEgo > 0.5 or sng_resume_ready):
+          elif self.stopping_hold and (brake_override or CS.out.gasPressed or CS.out.vEgo > 0.5 or sng_resume_ready or accel > 0.05):
             self.stopping_hold = False
           stopping = stopping or self.stopping_hold
           # vEgoStopping 字段在 car.capnp 与 volkswagenMqbEvo@29 ordinal 冲突被 capnp 静默忽略 → 运行时缺失。
