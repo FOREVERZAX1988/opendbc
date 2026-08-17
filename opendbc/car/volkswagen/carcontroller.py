@@ -91,7 +91,18 @@ class CarController(CarControllerBase, SnGCarController):
     # ACC_05 anh=1，会覆盖用户/代发的 RESUME 按键（0000004c+用户实测 2026-08-17：
     # 停车按 SET/RESUME 无效，只有轻踩油门 gasPressed 才释放 anh）。SnG 判定
     # 可起步时同步释放 stopping_hold，代发 RESUME 才能生效。
-    sng_resume_ready = self.update_stop_and_go(CC, CS, self.frame)
+    # SnG 判定输入用 planner 原始 aTarget（controlsd_ext 经 CC_SP.params 传入）
+    # ——LoC 在停车保持态压 accel≤0，CC.actuators.accel 看不到正信号（0000004d 实测）。
+    a_target = None
+    for _p in CC_SP.params:
+      if _p.get("key") == "aTarget":
+        try:
+          _v = _p.get("value")
+          a_target = float(_v.decode() if isinstance(_v, bytes) else _v)
+        except (ValueError, TypeError, AttributeError):
+          a_target = None
+        break
+    sng_resume_ready = self.update_stop_and_go(CC, CS, self.frame, a_target=a_target)
 
     # **** Steering Controls ************************************************ #
 
@@ -255,9 +266,15 @@ class CarController(CarControllerBase, SnGCarController):
           # 跟停保持：进入 stopping 且 vEgo≈0 后保持 anh=1，防止停稳后 stopping 偶发掉 0
           # （00000039 seg7: 512.9-513.2 OP anh 掉 0 → 原厂雷达判定矛盾 st6）。
           # 起步（vEgo>0.5）或踩刹车时释放。
+          # 用户按 RESUME/SET 也想手动起步——原厂保持态（anh=1）下按键被 ACC_05 覆盖
+          # （0000004d 用户实测：停车按 SET/RESUME 无效，只有踩油门才起步）。
+          # 检测到按键时释放 stopping_hold，原厂才能响应 RESUME 放行。
+          # gra_stock_values 是原始 LS_01 报文（不经 OP 消费），MLB 按键在此。
+          resume_btn = bool(CS.gra_stock_values.get("LS_Tip_Wiederaufnahme", 0)) or \
+                       bool(CS.gra_stock_values.get("LS_Tip_Setzen", 0))
           if stopping:
             self.stopping_hold = True
-          elif self.stopping_hold and (brake_override or CS.out.gasPressed or CS.out.vEgo > 0.5 or sng_resume_ready or accel > 0.05):
+          elif self.stopping_hold and (brake_override or CS.out.gasPressed or CS.out.vEgo > 0.5 or sng_resume_ready or accel > 0.05 or resume_btn):
             self.stopping_hold = False
           stopping = stopping or self.stopping_hold
           # vEgoStopping 字段在 car.capnp 与 volkswagenMqbEvo@29 ordinal 冲突被 capnp 静默忽略 → 运行时缺失。
