@@ -7,7 +7,8 @@ from opendbc.car.volkswagen.mqbcan import (volkswagen_mqb_meb_checksum, xor_chec
 #   - ACC_limitierte_Anfahrdyn / ACC_Loeseanforderung：原厂全程=0（此前的假设性补发已移除）
 #   - 力矩基线按原厂拟合：0km/h 起步=27Nm、20km/h=48-52Nm、100km/h+=180-198Nm
 #     （旧公式 2.5*v+141 低速段偏高约3倍，是起步发冲的根本原因）
-#   - 减速 ACC_Verz_anf 斜坡渐进：原厂每帧约-0.025（50Hz≈1.25m/s²/s），最深-2.215
+#   - 减速 ACC_Verz_anf 斜坡渐进：缓刹约-0.025/帧（00000004），紧急加深实测 0.06-0.07/帧
+#     （0000004c seg22/23/25）——OP 取 0.07/帧（目标值仍由 accel 决定，缓刹不受影响）
 _ACC_MOMENT_RAMP = 8.0
 _ACC_MOMENT_RAMP_DOWN = 3.0  # 撤力跟随斜坡（50Hz≈150Nm/s）：00000042 seg7 原厂 mom 96→0 约0.68s(≈2.8/帧)，
                              # OP 用 3/帧 斜坡下降避免 110→0 瞬间跳变与原厂残余力矩方向相反 → st=6
@@ -151,10 +152,12 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # 减速请求斜坡（原厂实测）：braking 时 ACC_Verz_anf 每帧加深≤0.025（50Hz≈1.25m/s²/s），
   # 最深-2.215；请求变浅/恢复立即响应。原厂最深-2.215，上限收紧到-2.2（贴近原厂）。
   if braking:
-    target_verz = max(accel, -2.2)  # 原厂实测最深-2.215（route 00000004）
+    # 停车保持（stopping）时镜像原厂保持力度 -2.0（0000004c seg1-5 坡道后溜实锤：
+    # OP 保持 verz=-0.55 vs 原厂 -2.0，坡上保持力不足→后溜）。刹停过程仍用 accel 目标。
+    target_verz = -2.0 if stopping else max(accel, -2.2)  # 原厂实测最深-2.215
     global _last_accel_cmd
     if target_verz < _last_accel_cmd:
-      verz = max(target_verz, _last_accel_cmd - 0.025)
+      verz = max(target_verz, _last_accel_cmd - 0.07)  # 原厂实测 0.06-0.07/帧（0000004c seg22/23/25 紧急加深）
     else:
       verz = target_verz
     _last_accel_cmd = verz
