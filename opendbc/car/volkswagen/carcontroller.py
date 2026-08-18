@@ -94,14 +94,18 @@ class CarController(CarControllerBase, SnGCarController):
     # SnG 判定输入用 planner 原始 aTarget（controlsd_ext 经 CC_SP.params 传入）
     # ——LoC 在停车保持态压 accel≤0，CC.actuators.accel 看不到正信号（0000004d 实测）。
     a_target = None
+    self.slope_pct = 0.0
     for _p in CC_SP.params:
-      if _p.get("key") == "aTarget":
-        try:
-          _v = _p.get("value")
+      _k = _p.get("key")
+      try:
+        _v = _p.get("value")
+        if _k == "aTarget":
           a_target = float(_v.decode() if isinstance(_v, bytes) else _v)
-        except (ValueError, TypeError, AttributeError):
+        elif _k == "slopePct":
+          self.slope_pct = float(_v.decode() if isinstance(_v, bytes) else _v)
+      except (ValueError, TypeError, AttributeError):
+        if _k == "aTarget":
           a_target = None
-        break
     sng_resume_ready = self.update_stop_and_go(CC, CS, self.frame, a_target=a_target)
 
     # **** Steering Controls ************************************************ #
