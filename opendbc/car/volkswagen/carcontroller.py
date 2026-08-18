@@ -277,6 +277,14 @@ class CarController(CarControllerBase, SnGCarController):
           elif self.stopping_hold and (brake_override or CS.out.gasPressed or CS.out.vEgo > 0.5 or sng_resume_ready or accel > 0.05 or resume_btn):
             self.stopping_hold = False
           stopping = stopping or self.stopping_hold
+          # SnG 自动起步/手动按键起步：强制解除停车保持请求+请求正力矩。
+          # LoC 卡 stopping（should_stop 未及时变 False）时 stopping 仍 True → anh 还 1 →
+          # 原厂等不到释放 → 锁死（0000004d 未起步区间实测：aTarget 正 0.21-0.45 但 accel≤0.135）。
+          # 仅停车中+原厂已放行（未请求保持）时生效——原厂 stock_anhalten=True 时跟随原厂（安全）。
+          if (sng_resume_ready or resume_btn) and CS.out.standstill and not stock_anhalten:
+            stopping = False
+            self.stopping_hold = False
+            accel = max(accel, 0.1)
           # vEgoStopping 字段在 car.capnp 与 volkswagenMqbEvo@29 ordinal 冲突被 capnp 静默忽略 → 运行时缺失。
           # getattr 兜底 2.0 m/s（≈7.2km/h 低速起步阈值，VW ACC 起步语义），避免激活后 AttributeError 崩溃。
           starting = actuators.longControlState == LongCtrlState.pid and (CS.esp_hold_confirmation or CS.out.vEgo < getattr(self.CP, 'vEgoStopping', 2.0)) and not brake_override
