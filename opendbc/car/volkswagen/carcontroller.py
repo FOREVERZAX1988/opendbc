@@ -42,6 +42,15 @@ class CarController(CarControllerBase, SnGCarController):
     self.CAN = CanBus(CP)
     self.packer_pt = CANPacker(dbc_names[Bus.pt])
     self.aeb_available = not CP.flags & VolkswagenFlags.PQ
+    # Macan 坡度补偿/转向系数开关（重启生效；opendbc 测试环境无 openpilot 包时安全降级 False）
+    try:
+      from openpilot.common.params import Params
+      self._mp = Params()
+      self.slope_comp = self._mp.get_bool("MacanSlopeComp")
+      self.slope_comp_unlimited = self._mp.get_bool("MacanSlopeCompUnlimited")
+    except Exception:
+      self.slope_comp = False
+      self.slope_comp_unlimited = False
 
     if CP.flags & VolkswagenFlags.PQ:
       self.CCS = pqcan
@@ -299,7 +308,10 @@ class CarController(CarControllerBase, SnGCarController):
                                                              stock_follow=stock_follow,
                                                              gas_override=CS.out.gasPressed,
                                                              stock_fv=stock_fv,
-                                                             stock_mom=stock_mom))
+                                                             stock_mom=stock_mom,
+                                                             slope_pct=self.slope_pct,
+                                                             slope_comp=self.slope_comp,
+                                                             slope_comp_unlimited=self.slope_comp_unlimited))
 
       #if self.aeb_available:
       #  if self.frame % self.CCP.AEB_CONTROL_STEP == 0:

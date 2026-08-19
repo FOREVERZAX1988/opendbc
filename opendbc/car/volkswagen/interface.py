@@ -141,4 +141,14 @@ class CarInterface(CarInterfaceBase):
       safety_configs.insert(0, get_safety_config(structs.CarParams.SafetyModel.noOutput))
     ret.safetyConfigs = safety_configs
 
+    # Macan 转向系数开关（实验值18.0/0.52，跨route标定极差22%不可靠，默认关等路试修正）
+    if candidate == CAR.PORSCHE_MACAN_MK1:
+      try:
+        from openpilot.common.params import Params
+        if Params().get_bool("MacanSteerParams"):
+          ret.steerRatio = 18.0
+          if ret.lateralTuning.which() == 'torque':
+            ret.lateralTuning.torque.friction = 0.52
+      except Exception:
+        pass
     return ret

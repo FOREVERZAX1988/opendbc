@@ -76,9 +76,20 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
   return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False):
   global _last_acc_moment
   commands = []
+
+  # Macan 坡度补偿（2026-08-19 重新实施）：slope_pct 由 carcontroller 经参数传入（非 CS 变量）。
+  # accel_eff = accel + g*sin(atan(slope_pct/100))——上坡(正)增加力矩，下坡(负)触发/加深 verz（刹一脚）。
+  # 受 MacanSlopeComp 开关控制；原厂限制：slope_comp_unlimited=False=min(stock_mom)（选项1），
+  # True=min(max(stock_mom,200))（选项2 放开小坡空间）。
+  if slope_comp:
+    import math
+    accel_eff = accel + 9.81 * math.sin(math.atan(slope_pct / 100.0))
+  else:
+    accel_eff = accel
+
 
   # ACC_05: multiplicative torque control
   #
@@ -104,7 +115,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # 00000042 seg3/seg6 实锤：油门超驰（gas_override）时不得因 v_ego<2 走 braking——
     # 原厂跟停中踩油门会切 st=4 并发力矩（mom 70->140/FM=1/FV=0），若 OP 因低速条件
     # 走 braking（FV=1/verz=0）则与原厂方向矛盾 → TSK_04 2->0 退出 → 松油门不加速。
-    braking = accel < -0.05 or stopping or (not gas_override and v_ego < 2.0 and accel <= 0)
+    braking = accel_eff < -0.05 or stopping or (not gas_override and v_ego < 2.0 and accel_eff <= 0)
   else:
     braking = False
 
@@ -125,15 +136,15 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     full_cruise = 6.3 * v_ego + 15.0
     low_speed_ramp = min(1.0, v_ego / 5.56)   # 0 -> 20 km/h linear to full baseline
     cruise_torque = 27.0 + (full_cruise - 27.0) * low_speed_ramp
-    if accel >= 0:
+    if accel_eff >= 0:
       # 原厂实测拟合（00000015--994ca60130--23 radar）：v≈1.6m/s 加速 ax=1.22 → Mom=145Nm（巡航基线≈27Nm）
       # 旧乘性模型（k_accel=0.30、scale≤1.8）在低速段最多输出 27*1.8=48Nm，仅够维持 6km/h 怠速蠕行
       # → 用户症状"激活成功但车不加速"的直接根因（同窗口原厂请求 145Nm，差 5 倍）。
       # 修复：正加速度改用加性映射 Mom = 巡航基线 + accel*85 Nm/(m/s²)（原厂斜率≈97，留12%余量防过冲）；
       # 8Nm/帧上升斜坡（_ACC_MOMENT_RAMP）继续保证起步柔和。
-      acc_moment = int(min(500, cruise_torque + accel * 85.0))
+      acc_moment = int(min(500, cruise_torque + accel_eff * 85.0))
     else:
-      scale = max(0.0, 1.0 + accel * 2.5)
+      scale = max(0.0, 1.0 + accel_eff * 2.5)
       acc_moment = int(min(500, cruise_torque * scale))
     # 上升斜坡：激活/加速时扭矩渐进（原厂ACC柔和感）
     if acc_moment > _last_acc_moment:
@@ -143,7 +154,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # 水平限制强制 OP ≤ 原厂；v_ego≤11km/h 豁免起步（SnG 正常，原厂 mom=0/爬升期不被锁死）；
     # 正常加速 OP 本来就≤原厂（实测 72.9 vs 87.9），限制不生效；上升斜坡保证平滑爬升。
     if stock_mom > 0 and v_ego > 3.0:
-      acc_moment = min(acc_moment, int(stock_mom))
+      if slope_comp and slope_comp_unlimited:
+        acc_moment = min(acc_moment, int(max(stock_mom, 200.0)))   # 选项2：放开给小坡空间
+      else:
+        acc_moment = min(acc_moment, int(stock_mom))                # 选项1：原厂限制
     _last_acc_moment = float(acc_moment)
   else:
     acc_moment = 0
@@ -154,7 +168,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   if braking:
     # 停车保持（stopping）时镜像原厂保持力度 -2.0（0000004c seg1-5 坡道后溜实锤：
     # OP 保持 verz=-0.55 vs 原厂 -2.0，坡上保持力不足→后溜）。刹停过程仍用 accel 目标。
-    target_verz = -2.0 if stopping else max(accel, -2.2)  # 原厂实测最深-2.215
+    target_verz = -2.0 if stopping else max(accel_eff, -2.2)  # 原厂实测最深-2.215
     global _last_accel_cmd
     if target_verz < _last_accel_cmd:
       verz = max(target_verz, _last_accel_cmd - 0.07)  # 原厂实测 0.06-0.07/帧（0000004c seg22/23/25 紧急加深）
