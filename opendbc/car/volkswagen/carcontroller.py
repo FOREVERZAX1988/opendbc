@@ -104,6 +104,7 @@ class CarController(CarControllerBase, SnGCarController):
     # ——LoC 在停车保持态压 accel≤0，CC.actuators.accel 看不到正信号（0000004d 实测）。
     a_target = None
     self.slope_pct = 0.0
+    self.slope_oem_filtered = 0.0  # 原厂坡度低通滤波（v2 双源）
     for _p in CC_SP.params:
       _k = _p.get("key")
       try:
@@ -301,7 +302,23 @@ class CarController(CarControllerBase, SnGCarController):
           # vEgoStopping 字段在 car.capnp 与 volkswagenMqbEvo@29 ordinal 冲突被 capnp 静默忽略 → 运行时缺失。
           # getattr 兜底 2.0 m/s（≈7.2km/h 低速起步阈值，VW ACC 起步语义），避免激活后 AttributeError 崩溃。
           starting = actuators.longControlState == LongCtrlState.pid and (CS.esp_hold_confirmation or CS.out.vEgo < getattr(self.CP, 'vEgoStopping', 2.0)) and not brake_override
-          can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
+          # ---- 坡度补偿 v2：原厂 ESP 纵向加速度主源 + IMU 复核（双源交叉校验）----
+          slope_imu = self.slope_pct
+          esp_laengs = getattr(CS, 'esp_laengsbeschl', 0.0)
+          if self.slope_comp:
+            # 原厂坡度：ESP 传感器总加速度 - 运动加速度 = 重力分量（车体坐标系，无需 IMU 标定）
+            slope_oem = (esp_laengs - CS.out.aEgo) / 9.81 * 100.0
+            # 低通滤波（ESP 100Hz，滤掉 aEgo 微分噪声）
+            self.slope_oem_filtered = 0.8 * self.slope_oem_filtered + 0.2 * slope_oem
+            if abs(self.slope_oem_filtered - slope_imu) < 3.0:
+              slope_used = self.slope_oem_filtered  # 原厂主源（车体传感器更准）
+            else:
+              # 双源不一致 → 降级：取绝对值较小者（保守，防传感器故障误补偿）
+              slope_used = slope_imu if abs(slope_imu) < abs(self.slope_oem_filtered) else self.slope_oem_filtered
+          else:
+            slope_used = slope_imu  # 开关关：保持 v1 行为（mlbcan 端 slope_comp=False 时不补偿）
+          can_sends.extend(self.CCS.create_acc_accel_control(
+self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                              acc_control, stopping, starting, CS.esp_hold_confirmation, v_ego=CS.out.vEgo,
                                                              engine_torque=getattr(CS, 'engine_torque_output', 0),
                                                              stock_esp=getattr(CS, 'acc05_stock_esp', False),
@@ -309,7 +326,7 @@ class CarController(CarControllerBase, SnGCarController):
                                                              gas_override=CS.out.gasPressed,
                                                              stock_fv=stock_fv,
                                                              stock_mom=stock_mom,
-                                                             slope_pct=self.slope_pct,
+                                                             slope_pct=slope_used,
                                                              slope_comp=self.slope_comp,
                                                              slope_comp_unlimited=self.slope_comp_unlimited))
 

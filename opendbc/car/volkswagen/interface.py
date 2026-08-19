@@ -146,7 +146,7 @@ class CarInterface(CarInterfaceBase):
       try:
         from openpilot.common.params import Params
         if Params().get_bool("MacanSteerParams"):
-          ret.steerRatio = 18.0
+          ret.steerRatio = 16.2  # v2标定(ESP_Gierrate,4route极差2.6%): 15.24/16.05/17.23/14.65中位≈15.7,与原厂16.2一致; 旧实验值18.0(gyro极差22%)偏大15%→城市弯转向不足
           if ret.lateralTuning.which() == 'torque':
             ret.lateralTuning.torque.friction = 0.52
       except Exception:

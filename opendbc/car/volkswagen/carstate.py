@@ -30,6 +30,7 @@ class CarState(CarStateBase):
     self.stock_zeitluecke = 3
     self.zeitluecke_key_last = 0
     self.curvature_meas = 0.
+    self.esp_laengsbeschl = 0.0  # 原厂 ESP 纵向加速度（ESP_02），坡度补偿 v2 原厂主源
 
   def update_button_enable(self, buttonEvents: list[structs.CarState.ButtonEvent]):
     if not self.CP.pcmCruise:
@@ -367,6 +368,11 @@ class CarState(CarStateBase):
 
   def update_mlb(self, pt_cp, cam_cp, ext_cp, alt_cp) -> tuple[structs.CarState, structs.CarStateSP]:
     ret = structs.CarState()
+    # 原厂 ESP 纵向加速度（ESP_02@257 ESP_Laengsbeschl 24|10 scale0.03125 offset-16）——坡度补偿 v2 原厂主源
+    try:
+      self.esp_laengsbeschl = pt_cp.vl["ESP_02"]["ESP_Laengsbeschl"]
+    except Exception:
+      pass
     ret_sp = structs.CarStateSP()
 
     self.parse_wheel_speeds(ret,
