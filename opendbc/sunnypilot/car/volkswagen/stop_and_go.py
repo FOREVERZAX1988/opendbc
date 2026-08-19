@@ -44,9 +44,21 @@ class SnGCarController:
     self.CP = CP
     self.CP_SP = CP_SP
     # 平台过滤：仅 Macan(MLB) 生效——其他 VW 平台即使误开开关也不触发（安全兜底）
-    self.enabled = (CP.brand == "volkswagen" and CP.carFingerprint == "PORSCHE_MACAN_MK1"
-                    and bool(CP_SP.flags & VolkswagenFlagsSP.STOP_AND_GO))
+    self._platform_ok = (CP.brand == "volkswagen" and CP.carFingerprint == "PORSCHE_MACAN_MK1")
+    # 初始 enabled：flags（card 启动时按 MacanStartStop 设置）。若 Params 可达则
+    # 以 Params 为准并定时刷新（update_stop_and_go 内每 100 帧）——中途开/关开关
+    # 无需重启 car 进程即生效（0000004f 实测根因：CP_SP.flags 开机后固定，
+    # 中途开开关 enabled 仍 False，SnG 永不触发）。
+    self.enabled = self._platform_ok and bool(CP_SP.flags & VolkswagenFlagsSP.STOP_AND_GO)
+    self._mp = None
+    try:
+      from openpilot.common.params import Params
+      self._mp = Params()
+      self.enabled = self._platform_ok and self._mp.get_bool("MacanStartStop")
+    except Exception:
+      pass  # opendbc 测试环境无 openpilot 包：保持 flags 判断
 
+    self._last_refresh_frame = -100  # 首次调用立即刷新
     self.last_standstill_frame = 0
     self.resume_frames_sent = 0
     self.confirm_frames = 0
@@ -55,6 +67,14 @@ class SnGCarController:
   def update_stop_and_go(self, CC: structs.CarControl, CS: CarStateBase, frame: int,
                             a_target: float | None = None) -> bool:
     """返回 True 表示本帧应代发 RESUME 按键帧。"""
+
+    # 每 100 帧（1s）刷新开关状态：中途开/关 MacanStartStop 立即生效，无需重启
+    if self._mp is not None and frame - self._last_refresh_frame >= 100:
+      self._last_refresh_frame = frame
+      try:
+        self.enabled = self._platform_ok and self._mp.get_bool("MacanStartStop")
+      except Exception:
+        pass
 
     if not self.enabled:
       return False
