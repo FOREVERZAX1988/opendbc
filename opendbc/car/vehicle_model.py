@@ -37,6 +37,24 @@ class VehicleModel:
     self.cF_orig: float = CP.tireStiffnessFront
     self.cR_orig: float = CP.tireStiffnessRear
     self.update_params(1.0, CP.steerRatio)
+    # 速度相关转向比（V2）：CP.steerRatioV2 = [speed(km/h)..., ratio...]（前一半速度、后一半比值）
+    # Macan 动态转向比（4f 全段 29284 样本拟合：<144km/h SR≈15.0、>144km/h SR≈18.7，PDS 随速特性实锤）
+    self._sr_v2_speeds = []
+    self._sr_v2_ratios = []
+    try:
+      v2 = [float(x) for x in CP.steerRatioV2]  # capnp List → python list（切片/迭代兼容）
+      if len(v2) >= 4 and len(v2) % 2 == 0:
+        half = len(v2) // 2
+        self._sr_v2_speeds = v2[:half]
+        self._sr_v2_ratios = v2[half:]
+    except Exception:
+      pass
+
+  def _dyn_sr(self, u: float) -> float:
+    """速度相关转向比：u(m/s) → SR，按 km/h 表线性插值；无 V2 时用固定 sR"""
+    if self._sr_v2_speeds:
+      return float(np.interp(u * 3.6, self._sr_v2_speeds, self._sr_v2_ratios))
+    return self.sR
 
   def update_params(self, stiffness_factor: float, steer_ratio: float) -> None:
     """Update the vehicle model with a new stiffness factor and steer ratio"""
@@ -74,7 +92,7 @@ class VehicleModel:
     Returns:
       Curvature factor [1/m]
     """
-    return (self.curvature_factor(u) * sa / self.sR) + self.roll_compensation(roll, u)
+    return (self.curvature_factor(u) * sa / self._dyn_sr(u)) + self.roll_compensation(roll, u)
 
   def curvature_factor(self, u: float) -> float:
     """Returns the curvature factor.
@@ -101,7 +119,7 @@ class VehicleModel:
       Steering wheel angle [rad]
     """
 
-    return (curv - self.roll_compensation(roll, u)) * self.sR * 1.0 / self.curvature_factor(u)
+    return (curv - self.roll_compensation(roll, u)) * self._dyn_sr(u) * 1.0 / self.curvature_factor(u)
 
   def roll_compensation(self, roll: float, u: float) -> float:
     """Calculates the roll-compensation to curvature
