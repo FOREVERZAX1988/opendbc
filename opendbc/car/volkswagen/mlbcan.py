@@ -116,7 +116,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # 00000042 seg3/seg6 实锤：油门超驰（gas_override）时不得因 v_ego<2 走 braking——
     # 原厂跟停中踩油门会切 st=4 并发力矩（mom 70->140/FM=1/FV=0），若 OP 因低速条件
     # 走 braking（FV=1/verz=0）则与原厂方向矛盾 → TSK_04 2->0 退出 → 松油门不加速。
-    braking = accel_eff < -0.05 or stopping or (not gas_override and v_ego < 2.0 and accel_eff <= 0)
+    braking = (accel_eff < -0.05 and not gas_override) or stopping or (not gas_override and v_ego < 2.0 and accel_eff <= 0)
   else:
     braking = False
 
