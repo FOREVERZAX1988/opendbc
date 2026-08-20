@@ -277,6 +277,8 @@ class CarController(CarControllerBase, SnGCarController):
           # 对齐原厂 st=4 超驰语义：油门接管时 ACC 不请求保持停车。
           if CS.out.gasPressed:
             stopping = False
+            if not stock_anhalten:
+              accel = max(accel, 0.1)  # 油门超驰给正力矩（0049原厂超驰 mom47-59 实测；0.1→mom≈35）
           # 跟停保持：进入 stopping 且 vEgo≈0 后保持 anh=1，防止停稳后 stopping 偶发掉 0
           # （00000039 seg7: 512.9-513.2 OP anh 掉 0 → 原厂雷达判定矛盾 st6）。
           # 起步（vEgo>0.5）或踩刹车时释放。
