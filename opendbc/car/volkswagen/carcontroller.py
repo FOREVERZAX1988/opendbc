@@ -286,11 +286,12 @@ class CarController(CarControllerBase, SnGCarController):
           # gra_stock_values 是原始 LS_01 报文（不经 OP 消费），MLB 按键在此。
           resume_btn = bool(CS.gra_stock_values.get("LS_Tip_Wiederaufnahme", 0)) or \
                        bool(CS.gra_stock_values.get("LS_Tip_Setzen", 0))
-          # 跟停保持：进入 stopping 或（纵向激活+停稳+无油门/刹车+无起步意图）时保持 anh=1。
-          # 显式条件不依赖 LoC 的 longControlState（0000004f 实锤：LoC 不卡 stopping 时
-          # 旧逻辑 anh=0 → 原厂收不到保持请求 → 停车3秒后进 OVERRIDE(4) 只认踩油门
-          # → SET/RESUME/SnG 全部无效。保持 anh=1 让原厂维持可恢复保持态）。
-          if stopping or (torque_active and CS.out.standstill and not CS.out.gasPressed and not brake_override and accel <= 0.05):
+          # 跟停保持：进入 stopping 且 vEgo≈0 后保持 anh=1，防止停稳后 stopping 偶发掉 0
+          # （00000039 seg7: 512.9-513.2 OP anh 掉 0 → 原厂雷达判定矛盾 st6）。
+          # 注意：00000049（官方 master）实测原厂停车保持全程 anh=0（用 verz=-2.0），
+          # 原厂从不用 anh 表示停车；此处保留历史 stopping 跟随逻辑但实际常发 0，
+          # 与官方 master 行为一致（d2c241a 显式发 anh=1 已回退——与原厂相反）。
+          if stopping:
             self.stopping_hold = True
           elif self.stopping_hold and (brake_override or CS.out.gasPressed or CS.out.vEgo > 0.5 or sng_resume_ready or accel > 0.05 or resume_btn):
             self.stopping_hold = False
@@ -332,7 +333,8 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                              stock_mom=stock_mom,
                                                              slope_pct=slope_used,
                                                              slope_comp=self.slope_comp,
-                                                             slope_comp_unlimited=self.slope_comp_unlimited))
+                                                             slope_comp_unlimited=self.slope_comp_unlimited,
+                                                             sng_resume_req=sng_resume_ready and CS.out.standstill))
 
       #if self.aeb_available:
       #  if self.frame % self.CCP.AEB_CONTROL_STEP == 0:
