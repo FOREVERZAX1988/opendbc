@@ -77,6 +77,11 @@ class CarController(CarControllerBase, SnGCarController):
     # 丢失时图标不闪；连续丢失超过 2s 才清除（对齐原厂"main 开+有障碍物即显示"行为）。
     self.lead_hold_expire = 0       # 单调时钟纳秒
     self.lead_hold_distance = 0
+    # SnG loes（起步确认）窗口保持（2026-08-21）：RESUME 代发上升沿起 loes=1 保持 0.6s，
+    # 不依赖 standstill（车动即停会截断确认窗口）。00000049 原厂踩油门实测 400-520ms，
+    # 0051 段19 SnG 仅 160ms → 原厂起步确认不足 → 撤力退出（cruiseMismatch）。
+    self.sng_loes_until = 0          # 单调时钟纳秒
+    self.sng_resume_ready_last = False
     self.hca_mitigation = HCAMitigation(self.CCP)
 
   @staticmethod
@@ -117,6 +122,11 @@ class CarController(CarControllerBase, SnGCarController):
         if _k == "aTarget":
           a_target = None
     sng_resume_ready = self.update_stop_and_go(CC, CS, self.frame, a_target=a_target)
+    # loes 窗口延长：RESUME 代发上升沿起保持 0.6s（对齐原厂踩油门起步确认窗口+余量），
+    # 车动（standstill→False）不再截断 loes——原厂 ACC 无油门起步完全依赖该信号确认。
+    if sng_resume_ready and not self.sng_resume_ready_last:
+      self.sng_loes_until = now_nanos + 600_000_000
+    self.sng_resume_ready_last = sng_resume_ready
 
     # **** Steering Controls ************************************************ #
 
@@ -338,7 +348,7 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                              slope_pct=slope_used,
                                                              slope_comp=self.slope_comp,
                                                              slope_comp_unlimited=self.slope_comp_unlimited,
-                                                             sng_resume_req=sng_resume_ready and CS.out.standstill))
+                                                             sng_resume_req=sng_resume_ready or now_nanos < self.sng_loes_until))
 
       #if self.aeb_available:
       #  if self.frame % self.CCP.AEB_CONTROL_STEP == 0:
