@@ -94,6 +94,17 @@ class SnGCarController:
       self.confirm_frames = 0
       return False
 
+    # 挡位限制：不在前进挡（D/S/M）不代发 RESUME——点火静止时车辆在 P/N 挡，
+    # SnG 的 aTarget 判定来自未稳定的 planner（冷启动噪声），误代发 RESUME 会让
+    # 原厂 ACC 提前激活 → 与 OP 状态冲突 → controlsMismatch（00000050 实锤：
+    # LS_01 帧 ~7.0s 与 mismatch 7.1s 时间重叠）。仅前进挡才允许起步跟停。
+    if CS.out.gearShifter not in (structs.CarState.GearShifter.drive,
+                                  structs.CarState.GearShifter.sport,
+                                  structs.CarState.GearShifter.manumatic):
+      self.resume_frames_sent = 0
+      self.confirm_frames = 0
+      return False
+
     # OP 判定可起步：优先用 planner 原始 aTarget（经 CC_SP.params 传入）而非
     # CC.actuators.accel——LoC 在停车保持态（原厂 cruise_standstill=True）
     # 卡在 stopping 状态，输出恒 ≤0（0000004d 实测 aTarget 0.21-0.45 但
