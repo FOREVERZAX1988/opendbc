@@ -4,7 +4,8 @@ from opendbc.car.volkswagen.mqbcan import (volkswagen_mqb_meb_checksum, xor_chec
 # 柔和加速（原厂ACC风格）：k_accel 上限 0.55、scale 封顶 1.8、扭矩上升斜坡 8Nm/帧(≈400Nm/s)
 #
 # 2026-08-03 原厂 ACC_05 实测校准（route 00000004--915ebf086f，59段全扫描）：
-#   - ACC_limitierte_Anfahrdyn / ACC_Loeseanforderung：原厂全程=0（此前的假设性补发已移除）
+#   - ACC_limitierte_Anfahrdyn / ACC_Loeseanforderung：00000004 扫描为0，但 00000049（官方master）
+#     实测踩油门起步时 Loeseanforderung=1（约0.7s）——起步确认信号，已按官方行为恢复代发
 #   - 力矩基线按原厂拟合：0km/h 起步=27Nm、20km/h=48-52Nm、100km/h+=180-198Nm
 #     （旧公式 2.5*v+141 低速段偏高约3倍，是起步发冲的根本原因）
 #   - 减速 ACC_Verz_anf 斜坡渐进：缓刹约-0.025/帧（00000004），紧急加深实测 0.06-0.07/帧
@@ -76,7 +77,7 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
   return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False):
   global _last_acc_moment
   commands = []
 
@@ -193,8 +194,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # 原厂59段全扫描（00000004--915ebf086f）：ACC_limitierte_Anfahrdyn 全程=0，
     # 柔和起步靠力矩渐进（_ACC_MOMENT_RAMP）+低基线（27Nm），无需限动力信号
     "ACC_limitierte_Anfahrdyn": 0,
-    # 原厂实测全程=0；刹放平顺由力矩斜坡与 verz 管理
-    "ACC_Loeseanforderung": 0,
+    # ACC_Loeseanforderung（解除请求）= 起步确认信号。
+    # 00000049（官方 master）实测：踩油门起步时 OP+原厂均置 1（约0.7s，车动后回 0）——
+    # 即"驾驶员起步确认"。SnG 自动起步时由 sng_resume_req 模拟该语义（不踩油门）。
+    "ACC_Loeseanforderung": 1 if (gas_override or sng_resume_req) else 0,
     # ACC_ax_Getriebe: tells PDK what acceleration to expect (gear selection hint).
     # DBC: [-2.016, +10.248]. Values below -2.016 WRAP to ~+10 (unsigned overflow).
     # Accel > 0.25: hint positive, capped at 1.3 (prevents high-RPM downshifts)
