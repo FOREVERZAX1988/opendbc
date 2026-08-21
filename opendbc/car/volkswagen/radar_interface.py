@@ -1,3 +1,5 @@
+import numpy as np
+
 from opendbc.can import CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.interfaces import RadarInterfaceBase
@@ -28,8 +30,18 @@ class RadarInterface(RadarInterfaceBase):
     if CP.flags & VolkswagenFlags.MEB and not self.CP.radarUnavailable:
       self.rcp = CANParser(DBC[CP.carFingerprint][Bus.radar], [("MEB_Distance_01", 25)], CanBus(CP).cam)
 
+    # Macan (MLB, 非 MEB)：原厂 ACC 模块在 bus2 上报汇总雷达信号（ACC_02.Abstandsindex 距离 + ACC_04 前车速度）。
+    # 雷达点数据不暴露在 CAN 上（ACC 模块内部消化），这里把汇总信号合成为单个标准雷达点，
+    # 供 radard 的 get_lead 走"雷达点匹配"分支（Track 卡尔曼平滑）。
+    # 标定表：00000004 原厂模式 8411 样本（2026-08-13），全量复核偏差<=4%
+    self._macan_radar = CP.carFingerprint == "PORSCHE_MACAN_MK1" and not self.CP.radarUnavailable
+    self._macan_abstands_t = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 6.0]
+    self._macan_abstands_idx = [100, 106, 122, 168, 234, 271, 363, 380, 389, 401, 420]
+
   def update(self, can_strings):
     if self.rcp is None:
+      if self._macan_radar:
+        return self._update_macan(can_strings)
       return super().update(None)
 
     self.rcp.update(can_strings)
@@ -38,6 +50,47 @@ class RadarInterface(RadarInterfaceBase):
       return None
 
     return self._update()
+
+  def _update_macan(self, can_strings):
+    """Macan: bus2 ACC_02.Abstandsindex + ACC_04 前车速度 -> 合成单雷达点。
+    轮速 BO_259 (ESP_*_Radgeschw, 12bit@0.1km/h) 解 v_ego 算相对速度。"""
+    idx = 0
+    lead_spd = 0.0
+    v_sum = 0.0
+    v_cnt = 0
+    for msg in can_strings:
+      d = msg.dat
+      if msg.address == 259 and len(d) >= 8:
+        # 四轮轮速 16|12 28|12 40|12 52|12 @1+ (0.1,0) km/h
+        v_sum += (((d[2] | (d[3] << 8)) & 0xFFF)
+                  + (((d[3] >> 4) | (d[4] << 4)) & 0xFFF)
+                  + ((d[5] | (d[6] << 8)) & 0xFFF)
+                  + (((d[6] >> 4) | (d[7] << 4)) & 0xFFF)) * 0.1
+        v_cnt += 4
+      elif msg.src == 2:
+        if msg.address == 780 and len(d) >= 7:
+          idx = (d[3] | (d[4] << 8)) & 0x3FF
+        elif msg.address == 804 and len(d) >= 7:
+          v = ((d[5] | (d[6] << 8)) & 0x3FF) * 0.32  # km/h
+          if v < 320:
+            lead_spd = v
+    if idx <= 0 or idx >= 1021:
+      return super().update(None)  # 无有效目标 -> 空雷达（视觉兜底）
+    if v_cnt == 0:
+      return super().update(None)  # 无轮速 -> 无法算相对速度，保守返回空
+    v_ego = v_sum / v_cnt * 0.2778 * self.CP.wheelSpeedFactor  # km/h -> m/s
+    # Abstandsindex -> 时距 t -> 距离（标定逆映射，低速用等效 t*5）
+    t = float(np.interp(idx, self._macan_abstands_idx, self._macan_abstands_t))
+    d_rel = t * max(v_ego, 5.0)
+    v_lead = lead_spd / 3.6  # 前车绝对速度 (m/s)
+    ret = structs.RadarData()
+    point = structs.RadarData.RadarPoint()
+    point.trackId = 1
+    point.dRel = d_rel
+    point.yRel = 0.0
+    point.vRel = v_lead - v_ego
+    ret.points = [point]
+    return ret
 
   def _update(self):
     ret = structs.RadarData()
