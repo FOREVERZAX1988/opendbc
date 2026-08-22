@@ -233,13 +233,15 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   return commands
 
 
-def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance, distance, lead_object=0, zeitluecke=4, stock_prim_anz=0):
+def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance, distance, lead_object=0, zeitluecke=4, stock_prim_anz=0, stock_status_anzeige=None, stock_texte_prim=0, stock_display_prio=None):
   # Stock radar's lead_object is accurate when working, but gets suppressed to 0 during
   # irreversible fault (status 7) even though ACC_Abstandsindex still tracks distance.
   # Fallback: if lead_object=0 but valid distance exists, the radar is faulted -- use distance.
   lead_obj = lead_object if lead_object else (1 if 0 < lead_distance < 1000 else 0)
   values = {
-    "ACC_Status_Anzeige": acc_hud_status,
+    # ACC_Status_Anzeige：2026-08-22 改透传原厂（原厂激活=3/故障=6；旧逻辑 acc_hud_status
+    # 重算，踩油门=4≠原厂3 → 状态矛盾 → st=6，00000053 seg6/7 实锤）。None 时回退旧逻辑。
+    "ACC_Status_Anzeige": acc_hud_status if stock_status_anzeige is None else stock_status_anzeige,
     # ACC_Status_Prim_Anz：原厂（00000004 实测）anz=3 激活时 primAnz=1（跟车 HUD 主状态），
     # anz=2 待机/anz=4 超驰时 primAnz=0。2026-08-22 改透传原厂值（carstate.stock_prim_anz）：
     # 旧逻辑 1 if acc_hud_status==3 else 0 在踩油门时 acc_hud_status=4(超驰)→发0，而原厂
@@ -248,11 +250,15 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
     # ACC_Display_Prio：原厂（00000004 全段 44|2 实测）只出现 2/3（36001 帧无 0/1）：
     #   prio=3 常态（93.5%，有/无目标均多）、prio=2 偶发（6.5%，集中待机有目标窗口）。
     # 保持上游 opendbc 标准行为 2/3（有目标→2，无目标→3），勿改 0/1。
-    "ACC_Display_Prio": 2 if lead_obj else 3,
+    # ACC_Display_Prio：2026-08-22 改透传原厂（原厂按 ab 判定 2/3；OP 按视觉 lead_obj 会相反）。
+    # None 时回退 OP 逻辑（其他平台不传此参数不受影响）。
+    "ACC_Display_Prio": (2 if lead_obj else 3) if stock_display_prio is None else stock_display_prio,
     "ACC_Wunschgeschw_02": set_speed if set_speed < 250 else 327.36,
     "ACC_Gesetzte_Zeitluecke": zeitluecke,  # Mirror stock radar's ZL from ext bus (responds to DIST button)
     "ACC_Abstandsindex": lead_distance,
     "ACC_Relevantes_Objekt": lead_obj,
+    # ACC_Texte_Primaeranz：2026-08-22 改透传原厂（原厂故障时=1 显示故障文本，OP 默认0 丢失→状态矛盾）
+    "ACC_Texte_Primaeranz": stock_texte_prim,
   }
 
   return packer.make_can_msg("ACC_02", bus, values)
