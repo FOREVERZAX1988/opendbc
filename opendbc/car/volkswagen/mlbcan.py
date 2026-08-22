@@ -233,7 +233,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   return commands
 
 
-def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance, distance, lead_object=0, zeitluecke=4):
+def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance, distance, lead_object=0, zeitluecke=4, stock_prim_anz=0):
   # Stock radar's lead_object is accurate when working, but gets suppressed to 0 during
   # irreversible fault (status 7) even though ACC_Abstandsindex still tracks distance.
   # Fallback: if lead_object=0 but valid distance exists, the radar is faulted -- use distance.
@@ -241,8 +241,10 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
   values = {
     "ACC_Status_Anzeige": acc_hud_status,
     # ACC_Status_Prim_Anz：原厂（00000004 实测）anz=3 激活时 primAnz=1（跟车 HUD 主状态），
-    # anz=2 待机/anz=4 超驰时 primAnz=0。OP 此前恒发 0 → 激活时仪表缺"跟车"主状态。
-    "ACC_Status_Prim_Anz": 1 if acc_hud_status == 3 else 0,
+    # anz=2 待机/anz=4 超驰时 primAnz=0。2026-08-22 改透传原厂值（carstate.stock_prim_anz）：
+    # 旧逻辑 1 if acc_hud_status==3 else 0 在踩油门时 acc_hud_status=4(超驰)→发0，而原厂
+    # st=3(激活)发1 → bus2/bus128 状态矛盾 → 原厂检出自检失败 st=6（00000053 seg6/7 实锤）。
+    "ACC_Status_Prim_Anz": stock_prim_anz,
     # ACC_Display_Prio：原厂（00000004 全段 44|2 实测）只出现 2/3（36001 帧无 0/1）：
     #   prio=3 常态（93.5%，有/无目标均多）、prio=2 偶发（6.5%，集中待机有目标窗口）。
     # 保持上游 opendbc 标准行为 2/3（有目标→2，无目标→3），勿改 0/1。
