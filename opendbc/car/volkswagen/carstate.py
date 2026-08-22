@@ -427,6 +427,11 @@ class CarState(CarStateBase):
     # 修复：透传原厂雷达的目标车距离/目标存在，驱动仪表 ACC 车距显示。
     self.stock_lead_distance = int(ext_cp.vl["ACC_02"]["ACC_Abstandsindex"])
     self.stock_lead_object = int(ext_cp.vl["ACC_02"]["ACC_Relevantes_Objekt"])
+    # 原厂 ACC_02 的 HUD 跟车主状态（ACC_Status_Prim_Anz，22|2，bus2 雷达域 src=2）：
+    # OP 代发 ACC_02 时透传原厂值——旧逻辑重算(1 if acc_hud_status==3 else 0)在踩油门时
+    # acc_hud_status 被推成4(超驰)→发0，而原厂 st=3(激活跟车)发1 → ACC_02 状态矛盾
+    # → 原厂检测"HUD状态报文被改写"→ACC自检失败 st=6（00000053 seg6/7 实锤，2026-08-22）。
+    self.stock_prim_anz = int(ext_cp.vl["ACC_02"]["ACC_Status_Prim_Anz"])
     # 原厂 ACC_04 目标车速度（km/h）：OP 代发 ACC_04 时透传，仪表显示目标车速度
     self.stock_lead_speed_kph = float(ext_cp.vl["ACC_04"]["ACC_Geschw_Zielfahrzeug"]) if self.CP.openpilotLongitudinalControl else 327.36
     ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
