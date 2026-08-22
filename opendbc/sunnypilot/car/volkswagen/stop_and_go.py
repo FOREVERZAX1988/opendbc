@@ -105,6 +105,15 @@ class SnGCarController:
       self.confirm_frames = 0
       return False
 
+    # 原厂ACC激活确认（2026-08-22）：仅原厂ACC处于active控制（bus2 ACC_05 st=3，
+    # carstate.acc05_stock_status）才代发 RESUME。刚上车/ACC未激活（st=2待机）时若OP代发
+    # RESUME，原厂ACC状态不匹配→报错（控制项不匹配；之前挡位限制只堵了P挡点火，D挡未激活
+    # 仍会误发）。停车保持时原厂st=3（ACC_AKTIV_regelt），正常SnG不受影响；st≠3不代发。
+    if getattr(CS, 'acc05_stock_status', 0) != 3:
+      self.resume_frames_sent = 0
+      self.confirm_frames = 0
+      return False
+
     # 起步目标确认（用户设计意图，2026-08-22 v3）：必须原厂雷达捕捉到前车（Abstandsindex>0）
     # 才允许代发 RESUME 起步——视觉不代发起步。依据：原厂ECU只认雷达距离信号
     # （seg9：原厂rel=0时OP视觉243≠原厂316，st=6伴随；seg14：原厂ab=0时OP视觉补位119-124，
