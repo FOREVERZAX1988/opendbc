@@ -383,14 +383,25 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
       else:
         lead_distance = getattr(CS, 'stock_lead_distance', 0)
         lead_object = getattr(CS, 'stock_lead_object', 0)
-        # 显示层（**透传原厂**）：OP 代发 ACC_02.Abstandsindex / Relevantes_Objekt 一律=原厂雷达值。
-        # 之前"视觉补位"（lead_object==0 时用 op_lead_to_index 视觉换算）导致 OP 代发值背离
-        # 原厂雷达（视觉 dRel 跳变 / 原厂过滤静止目标）——原厂 ACC 检测"仪表显示≠雷达实际"
-        # 报可逆故障6 或退 standby，全 route 退出点（00000052 seg9 312→243 vs 316、00000051
-        # 9个退出点）实锤。现在彻底透传原厂值，与原厂一致，绝不触发。
-        # 视觉意义保留在控制层（planner/MPC 的 leadOne 跟车判定），仅显示层以原厂雷达为准。
-        if lead_distance > 0:
-          lead_object = max(lead_object, 1)  # 原厂有距离值→显示目标（Relevantes_Objekt 语义）
+        op_drel = getattr(CS, 'op_lead_dRel', 0.0)
+        # 仪表盘车距显示（用户设计意图）：雷达距离有效(>0且非错误值) -> 透传原厂雷达；
+        # 雷达无信号(0或错误值) -> 用视觉换算补位，让仪表显示视觉识别的前车。
+        # 之前"lead_object==0 就走视觉换算"的 bug：原厂雷达有效(316)时也切去视觉(243)，
+        # 导致 OP 代发背离原厂（00000052 seg9、00000051 9退出点）。现改为"雷达有效才透传，
+        # 雷达无效才视觉补位"。
+        if 0 < lead_distance < 1021:  # 原厂雷达有效
+          lead_object = max(lead_object, 1)
+          self.lead_hold_expire = now_nanos + 2_000_000_000
+          self.lead_hold_distance = lead_distance
+        else:  # 雷达=0/无效 -> 视觉补位
+          if op_drel > 0:
+            lead_distance = self.op_lead_to_index(op_drel, CS.out.vEgo)
+            lead_object = 1
+            self.lead_hold_expire = now_nanos + 2_000_000_000
+            self.lead_hold_distance = lead_distance
+          elif now_nanos < self.lead_hold_expire and self.lead_hold_distance > 0:
+            lead_distance = self.lead_hold_distance
+            lead_object = 1
         acc_hud_status = self.CCS.acc_hud_status_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
         # FIXME: PQ may need to use the on-the-wire mph/kmh toggle to fix rounding errors
         # FIXME: Detect clusters with vEgoCluster offsets and apply an identical vCruiseCluster offset
