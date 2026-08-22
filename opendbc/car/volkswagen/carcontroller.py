@@ -417,7 +417,9 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
         # 内容为原厂正常模板（无故障文本），避免网关/仪表对 ACC_04 超时监测报 ACC 故障
         lead_speed_kph = getattr(CS, 'stock_lead_speed_kph', 327.36)
         acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
-        can_sends.append(self.CCS.create_acc_04_control(self.packer_pt, self.CAN.pt, lead_speed_kph, acc_control))
+        can_sends.append(self.CCS.create_acc_04_control(self.packer_pt, self.CAN.pt, lead_speed_kph, acc_control,
+                                                         stock_texte_zusatz=getattr(CS, 'stock_acc04_texte_zusatz', None),
+                                                         stock_charisma_status=getattr(CS, 'stock_acc04_charisma_status', None)))
 
     # **** Stock ACC Button Controls **************************************** #
 

@@ -264,14 +264,17 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
   return packer.make_can_msg("ACC_02", bus, values)
 
 
-def create_acc_04_control(packer, bus, lead_speed_kph=327.36, acc_control=2):
+def create_acc_04_control(packer, bus, lead_speed_kph=327.36, acc_control=2, stock_texte_zusatz=None, stock_charisma_status=None):
   # OP 代发 ACC_04（原厂雷达状态文本，~16Hz）。屏蔽 bus2->bus0 转发后，
   # 由 OP 在 bus0 保持 ACC_04 周期在线，避免网关/仪表对 ACC_04 超时监测报 ACC 故障。
   # 内容对齐原厂规则（route 00000004--915ebf086f 实测，原厂ACC纵向+OP横向）：
   #   - ACC_Texte_Zusatzanz 随 ACC_Status_ACC 变化：off=1 / 待机=2 / 激活=8 / 超驰=3
   #   - Charisma 恒定 (FahrPr=2, Status=1, Umschaltung=0)
   #   - ACC_Geschw_Zielfahrzeug：无目标=满量程 327.36（0x3FF），有目标=真实前车速度
-  texte_zusatz = {0: 1, 2: 2, 3: 8, 4: 3}.get(acc_control, 0)
+  # ACC_Texte_Zusatzanz / ACC_Charisma_Status：2026-08-22 改透传原厂（00000053 seg6 实锤：
+  # 踩油门 acc_control=4→texte=3 而原厂 st=3→texte=8；原厂故障 texte=0/Charisma=2 而 OP
+  # 正常模板=2/1 → 显示矛盾）。None 时回退旧映射（其他平台不传不受影响）。
+  texte_zusatz = {0: 1, 2: 2, 3: 8, 4: 3}.get(acc_control, 0) if stock_texte_zusatz is None else stock_texte_zusatz
   values = {
     "ACC_Texte_Zusatzanz": texte_zusatz,
     "ACC_Status_Zusatzanz": 0,
@@ -280,7 +283,7 @@ def create_acc_04_control(packer, bus, lead_speed_kph=327.36, acc_control=2):
     "ACC_Warnhinweis": 0,
     "ACC_Geschw_Zielfahrzeug": lead_speed_kph,
     "ACC_Charisma_FahrPr": 2,
-    "ACC_Charisma_Status": 1,
+    "ACC_Charisma_Status": 1 if stock_charisma_status is None else stock_charisma_status,
     "ACC_Charisma_Umschaltung": 0,
   }
   return packer.make_can_msg("ACC_04", bus, values)
