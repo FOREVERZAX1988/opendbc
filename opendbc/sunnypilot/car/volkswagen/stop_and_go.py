@@ -105,14 +105,14 @@ class SnGCarController:
       self.confirm_frames = 0
       return False
 
-    # 起步目标确认（用户设计意图）：需 原厂雷达有距离输出(Abstandsindex>0) 或 视觉确认
-    # 前车距离>阈值(5m)，才允许代发 RESUME 起步。原厂ACC起步瞬间雷达往往=0（静止过滤/空旷），
-    # 跟车起步后雷达才捕捉（00000004扫：起步后Abstandsindex 101-442≈5-30m）。故雷达无信号时，
-    # 用视觉确认前车距离>5m 才视觉补位起步——避免视觉噪点/过远误触发。原起步判定
-    # （挡位/aTarget>0.15/5帧确认等）仍须满足，不误判。
+    # 起步目标确认（用户设计意图，2026-08-22 v3）：必须原厂雷达捕捉到前车（Abstandsindex>0）
+    # 才允许代发 RESUME 起步——视觉不代发起步。依据：原厂ECU只认雷达距离信号
+    # （seg9：原厂rel=0时OP视觉243≠原厂316，st=6伴随；seg14：原厂ab=0时OP视觉补位119-124，
+    # 原厂0.9s后自检报st=6）。前车静止时原厂雷达过滤（ab=0），等前车动、雷达捕捉（ab>0）
+    # 才代发——对齐原厂"雷达距离信号稳定有效才允许起步"。原厂停车距离≈ab250（≈10.6m），
+    # 若ab<250起步仍触发st=6（待路试验证），可把阈值从>0收紧到>=250。
     radar_dist = getattr(CS, 'stock_lead_distance', 0)
-    vis_dist = getattr(CS, 'op_lead_dRel', 0.0)
-    if not (radar_dist > 0 or vis_dist > 5.0):
+    if radar_dist <= 0:
       self.resume_frames_sent = 0
       self.confirm_frames = 0
       return False
