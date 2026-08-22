@@ -432,6 +432,14 @@ class CarState(CarStateBase):
     # acc_hud_status 被推成4(超驰)→发0，而原厂 st=3(激活跟车)发1 → ACC_02 状态矛盾
     # → 原厂检测"HUD状态报文被改写"→ACC自检失败 st=6（00000053 seg6/7 实锤，2026-08-22）。
     self.stock_prim_anz = int(ext_cp.vl["ACC_02"]["ACC_Status_Prim_Anz"])
+    # 原厂 ACC_02 其余 HUD 状态字段（bus2 雷达域 src=2）：OP 代发 ACC_02 时透传，避免
+    # 重算/默认0 ≠ 原厂 → ACC_02 状态矛盾 → st=6（00000053 seg0/6/7 实锤，2026-08-22）：
+    # - ACC_Status_Anzeige(61|3)：原厂激活=3/故障=6，旧逻辑用 acc_hud_status 重算（踩油门=4）
+    # - ACC_Texte_Primaeranz(48|7)：原厂故障时=1（故障文本），OP 默认0 丢失
+    # - ACC_Display_Prio(44|2)：原厂按 ab 判定 2/3，OP 按视觉 lead_obj → 相反
+    self.stock_status_anzeige = int(ext_cp.vl["ACC_02"]["ACC_Status_Anzeige"])
+    self.stock_texte_prim = int(ext_cp.vl["ACC_02"]["ACC_Texte_Primaeranz"])
+    self.stock_display_prio = int(ext_cp.vl["ACC_02"]["ACC_Display_Prio"])
     # 原厂 ACC_04 目标车速度（km/h）：OP 代发 ACC_04 时透传，仪表显示目标车速度
     self.stock_lead_speed_kph = float(ext_cp.vl["ACC_04"]["ACC_Geschw_Zielfahrzeug"]) if self.CP.openpilotLongitudinalControl else 327.36
     ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS

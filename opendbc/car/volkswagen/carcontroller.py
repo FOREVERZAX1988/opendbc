@@ -409,7 +409,10 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
         can_sends.append(self.CCS.create_acc_hud_control(self.packer_pt, self.CAN.pt, acc_hud_status, set_speed,
                                                          lead_distance, hud_control.leadDistanceBars, lead_object,
                                                          zeitluecke=getattr(CS, 'stock_zeitluecke', 4),
-                                                         stock_prim_anz=getattr(CS, 'stock_prim_anz', 0)))
+                                                         stock_prim_anz=getattr(CS, 'stock_prim_anz', 0),
+                                                         stock_status_anzeige=getattr(CS, 'stock_status_anzeige', None),
+                                                         stock_texte_prim=getattr(CS, 'stock_texte_prim', 0),
+                                                         stock_display_prio=getattr(CS, 'stock_display_prio', None)))
         # OP 代发 ACC_04（原厂雷达状态文本，16Hz）：屏蔽 bus2->bus0 转发后由 OP 保持总线活跃，
         # 内容为原厂正常模板（无故障文本），避免网关/仪表对 ACC_04 超时监测报 ACC 故障
         lead_speed_kph = getattr(CS, 'stock_lead_speed_kph', 327.36)
