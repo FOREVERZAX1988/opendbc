@@ -50,15 +50,16 @@ class SnGCarController:
     # 无需重启 car 进程即生效（0000004f 实测根因：CP_SP.flags 开机后固定，
     # 中途开开关 enabled 仍 False，SnG 永不触发）。
     self.enabled = self._platform_ok and bool(CP_SP.flags & VolkswagenFlagsSP.STOP_AND_GO)
-    # 起步安全距离开关（MacanStartStopDistance）：开=需雷达/视觉确认前车距离才自动起步（安全）；
-    # 关=V1 纯意图起步（拥堵防加塞）。默认开（与历史 v2 行为一致）。仅 SnG 开启时生效。
-    self._distance_enabled = True
+    # 起步安全距离（MacanStartStopDistance，INT 米；0=Off/V1纯意图起步，3~10=需前车距离>阈值）：
+    # 开（>0）时：需 原厂雷达距离(ab) 或 视觉前车距离 换算后 > 阈值才起步（防误起步）。
+    # 关（0）：V1 纯意图起步（仅 aTarget>0.15+5帧确认）——拥堵防加塞。仅 SnG 开启时生效。
+    self._distance_m = 5  # 默认 5 米（与历史 v2 视觉>5m 行为一致）
     self._mp = None
     try:
       from openpilot.common.params import Params
       self._mp = Params()
       self.enabled = self._platform_ok and self._mp.get_bool("MacanStartStop")
-      self._distance_enabled = self._mp.get_bool("MacanStartStopDistance")
+      self._distance_m = int(self._mp.get("MacanStartStopDistance") or 5)
     except Exception:
       pass  # opendbc 测试环境无 openpilot 包：保持 flags 判断
 
@@ -77,7 +78,7 @@ class SnGCarController:
       self._last_refresh_frame = frame
       try:
         self.enabled = self._platform_ok and self._mp.get_bool("MacanStartStop")
-        self._distance_enabled = self._mp.get_bool("MacanStartStopDistance")
+        self._distance_m = int(self._mp.get("MacanStartStopDistance") or 5)
       except Exception:
         pass
 
@@ -119,16 +120,19 @@ class SnGCarController:
       self.confirm_frames = 0
       return False
 
-    # 起步目标确认（由 MacanStartStopDistance 开关控制）：
-    # - 开（默认）：需 原厂雷达有距离(ab>0) 或 视觉确认前车>5m 才起步——防静止误起步
-    # - 关：V1 纯意图起步（仅 aTarget>0.15+5帧确认，无距离条件）——拥堵路段保持紧凑
-    #   跟车、防加塞（用户2026-08-22需求）。大前提（挡位/无油门刹车/st==3）仍须满足。
-    # 说明：v3"必须雷达ab>0"曾收紧此条件，但 00000053 seg7 实测 OP 未代发 RESUME 仍
-    # st=6，证明 st=6 主因是 ACC_02 Prim_Anz 不一致，与起步距离条件无关——故改开关可调。
-    if self._distance_enabled:
-      radar_dist = getattr(CS, 'stock_lead_distance', 0)
-      vis_dist = getattr(CS, 'op_lead_dRel', 0.0)
-      if not (radar_dist > 0 or vis_dist > 5.0):
+    # 起步目标确认（MacanStartStopDistance 可调车距，米）：
+    # - 0=Off：V1 纯意图起步（仅 aTarget>0.15+5帧确认，无距离条件）——拥堵防加塞
+    # - 3~10米：需 原厂雷达距离(ab) 或 视觉前车距离 换算后 > 阈值才起步——防误起步
+    # 大前提（挡位/无油门刹车/st==3）仍须满足。说明：v3"必须雷达ab>0"曾收紧此条件，但
+    # 00000053 seg7 实测 OP 未代发 RESUME 仍 st=6（主因是 ACC_02 Prim_Anz 不一致），
+    # 与起步距离条件无关——故改为可调车距（用户2026-08-22需求：tizi 0/3-10米、mici 3/5/10）。
+    if self._distance_m > 0:
+      radar_dist = getattr(CS, 'stock_lead_distance', 0)  # 原厂 ACC_Abstandsindex（0-1021 索引）
+      vis_dist = getattr(CS, 'op_lead_dRel', 0.0)          # 视觉前车距离（米）
+      # ab→米换算：实车标定 ab250≈10.6m → 0.0424 m/ab（00000004/0052 路试配对数据）
+      radar_ok = radar_dist * 0.0424 > self._distance_m
+      vis_ok = vis_dist > self._distance_m
+      if not (radar_ok or vis_ok):
         self.resume_frames_sent = 0
         self.confirm_frames = 0
         return False
