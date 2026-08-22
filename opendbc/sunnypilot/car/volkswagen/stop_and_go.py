@@ -105,6 +105,17 @@ class SnGCarController:
       self.confirm_frames = 0
       return False
 
+    # 原厂雷达确认（2026-08-21 修复）：前车必须已被原厂雷达捕捉（stock_lead_object==1）
+    # 才代发 RESUME 起步。前车静止时原厂雷达过滤（Relevantes_Objekt=0），若视觉提前判定
+    # 起步就代发 RESUME，原厂 ACC＂无目标却收到起步信号＂→报可逆故障6/退 standby
+    # （00000052 seg9、892-895s 实锤）。前车起步（运动）后雷达捕捉到（Relevantes_Objekt=1）
+    # →才允许代发——对齐原厂＂确认目标再起步＂。视觉意义保留在起步意图判定（aTarget），
+    # 仅＂代发动手＂前等原厂雷达点头。
+    if getattr(CS, 'stock_lead_object', 0) == 0:
+      self.resume_frames_sent = 0
+      self.confirm_frames = 0
+      return False
+
     # OP 判定可起步：优先用 planner 原始 aTarget（经 CC_SP.params 传入）而非
     # CC.actuators.accel——LoC 在停车保持态（原厂 cruise_standstill=True）
     # 卡在 stopping 状态，输出恒 ≤0（0000004d 实测 aTarget 0.21-0.45 但

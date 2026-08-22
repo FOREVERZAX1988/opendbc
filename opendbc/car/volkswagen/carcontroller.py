@@ -383,26 +383,14 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
       else:
         lead_distance = getattr(CS, 'stock_lead_distance', 0)
         lead_object = getattr(CS, 'stock_lead_object', 0)
-        # 车距显示路线A：原厂雷达无目标（lead_object==0）但 OP 识别到前车时，
-        # 用 OP 的 leadOne.dRel 换算成 ACC_Abstandsindex 补位驱动仪表前车图标。
-        # 纯显示层（ACC_02 显示报文），不参与 ACC_05 控制链路，无安全风险。
-        op_drel = getattr(CS, 'op_lead_dRel', 0.0)
-        if lead_object == 0:
-          if op_drel > 0:
-            # 视觉补位生效：换算 Abstandsindex + 开启 2s 保持窗口（防 leadOne 断续闪屏）
-            lead_distance = self.op_lead_to_index(op_drel, CS.out.vEgo)
-            lead_object = 1
-            self.lead_hold_expire = now_nanos + 2_000_000_000
-            self.lead_hold_distance = lead_distance
-          elif now_nanos < self.lead_hold_expire and self.lead_hold_distance > 0:
-            # hold：视觉目标短暂丢失（<2s），保持上次补位值显示，图标不闪
-            lead_distance = self.lead_hold_distance
-            lead_object = 1
-        elif lead_distance > 0:
-          # 雷达有目标：同步刷新 hold 窗口（用雷达值），雷达丢失后平滑过渡到 hold 值，
-          # 避免回退显示很久以前的旧补位值
-          self.lead_hold_expire = now_nanos + 2_000_000_000
-          self.lead_hold_distance = lead_distance
+        # 显示层（**透传原厂**）：OP 代发 ACC_02.Abstandsindex / Relevantes_Objekt 一律=原厂雷达值。
+        # 之前"视觉补位"（lead_object==0 时用 op_lead_to_index 视觉换算）导致 OP 代发值背离
+        # 原厂雷达（视觉 dRel 跳变 / 原厂过滤静止目标）——原厂 ACC 检测"仪表显示≠雷达实际"
+        # 报可逆故障6 或退 standby，全 route 退出点（00000052 seg9 312→243 vs 316、00000051
+        # 9个退出点）实锤。现在彻底透传原厂值，与原厂一致，绝不触发。
+        # 视觉意义保留在控制层（planner/MPC 的 leadOne 跟车判定），仅显示层以原厂雷达为准。
+        if lead_distance > 0:
+          lead_object = max(lead_object, 1)  # 原厂有距离值→显示目标（Relevantes_Objekt 语义）
         acc_hud_status = self.CCS.acc_hud_status_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
         # FIXME: PQ may need to use the on-the-wire mph/kmh toggle to fix rounding errors
         # FIXME: Detect clusters with vEgoCluster offsets and apply an identical vCruiseCluster offset
