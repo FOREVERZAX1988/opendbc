@@ -105,13 +105,14 @@ class SnGCarController:
       self.confirm_frames = 0
       return False
 
-    # 原厂雷达确认（2026-08-21 修复）：前车必须已被原厂雷达捕捉（stock_lead_object==1）
-    # 才代发 RESUME 起步。前车静止时原厂雷达过滤（Relevantes_Objekt=0），若视觉提前判定
-    # 起步就代发 RESUME，原厂 ACC＂无目标却收到起步信号＂→报可逆故障6/退 standby
-    # （00000052 seg9、892-895s 实锤）。前车起步（运动）后雷达捕捉到（Relevantes_Objekt=1）
-    # →才允许代发——对齐原厂＂确认目标再起步＂。视觉意义保留在起步意图判定（aTarget），
-    # 仅＂代发动手＂前等原厂雷达点头。
-    if getattr(CS, 'stock_lead_object', 0) == 0:
+    # 起步目标确认（用户设计意图）：需 原厂雷达有距离输出(Abstandsindex>0) 或 视觉确认
+    # 前车距离>阈值(5m)，才允许代发 RESUME 起步。原厂ACC起步瞬间雷达往往=0（静止过滤/空旷），
+    # 跟车起步后雷达才捕捉（00000004扫：起步后Abstandsindex 101-442≈5-30m）。故雷达无信号时，
+    # 用视觉确认前车距离>5m 才视觉补位起步——避免视觉噪点/过远误触发。原起步判定
+    # （挡位/aTarget>0.15/5帧确认等）仍须满足，不误判。
+    radar_dist = getattr(CS, 'stock_lead_distance', 0)
+    vis_dist = getattr(CS, 'op_lead_dRel', 0.0)
+    if not (radar_dist > 0 or vis_dist > 5.0):
       self.resume_frames_sent = 0
       self.confirm_frames = 0
       return False
