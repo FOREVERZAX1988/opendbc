@@ -50,11 +50,15 @@ class SnGCarController:
     # 无需重启 car 进程即生效（0000004f 实测根因：CP_SP.flags 开机后固定，
     # 中途开开关 enabled 仍 False，SnG 永不触发）。
     self.enabled = self._platform_ok and bool(CP_SP.flags & VolkswagenFlagsSP.STOP_AND_GO)
+    # 起步安全距离开关（MacanStartStopDistance）：开=需雷达/视觉确认前车距离才自动起步（安全）；
+    # 关=V1 纯意图起步（拥堵防加塞）。默认开（与历史 v2 行为一致）。仅 SnG 开启时生效。
+    self._distance_enabled = True
     self._mp = None
     try:
       from openpilot.common.params import Params
       self._mp = Params()
       self.enabled = self._platform_ok and self._mp.get_bool("MacanStartStop")
+      self._distance_enabled = self._mp.get_bool("MacanStartStopDistance")
     except Exception:
       pass  # opendbc 测试环境无 openpilot 包：保持 flags 判断
 
@@ -73,6 +77,7 @@ class SnGCarController:
       self._last_refresh_frame = frame
       try:
         self.enabled = self._platform_ok and self._mp.get_bool("MacanStartStop")
+        self._distance_enabled = self._mp.get_bool("MacanStartStopDistance")
       except Exception:
         pass
 
@@ -114,16 +119,19 @@ class SnGCarController:
       self.confirm_frames = 0
       return False
 
-    # 起步目标确认（2026-08-22 回退v2：原厂雷达>0 或 视觉>5m 二选一即可起步）。
-    # v3"必须雷达ab>0"取消——00000053 seg7 实测：OP按v3条件未代发RESUME仍触发st=6，
-    # 证明st=6主因是 ACC_02 Prim_Anz 不一致（原厂st=3发1、OP代发0），与RESUME代发无关，
-    # 故恢复 v2 宽松条件（与用户确认的SnG行为一致：雷达或视觉捕捉到前车即可起步）。
-    radar_dist = getattr(CS, 'stock_lead_distance', 0)
-    vis_dist = getattr(CS, 'op_lead_dRel', 0.0)
-    if not (radar_dist > 0 or vis_dist > 5.0):
-      self.resume_frames_sent = 0
-      self.confirm_frames = 0
-      return False
+    # 起步目标确认（由 MacanStartStopDistance 开关控制）：
+    # - 开（默认）：需 原厂雷达有距离(ab>0) 或 视觉确认前车>5m 才起步——防静止误起步
+    # - 关：V1 纯意图起步（仅 aTarget>0.15+5帧确认，无距离条件）——拥堵路段保持紧凑
+    #   跟车、防加塞（用户2026-08-22需求）。大前提（挡位/无油门刹车/st==3）仍须满足。
+    # 说明：v3"必须雷达ab>0"曾收紧此条件，但 00000053 seg7 实测 OP 未代发 RESUME 仍
+    # st=6，证明 st=6 主因是 ACC_02 Prim_Anz 不一致，与起步距离条件无关——故改开关可调。
+    if self._distance_enabled:
+      radar_dist = getattr(CS, 'stock_lead_distance', 0)
+      vis_dist = getattr(CS, 'op_lead_dRel', 0.0)
+      if not (radar_dist > 0 or vis_dist > 5.0):
+        self.resume_frames_sent = 0
+        self.confirm_frames = 0
+        return False
 
     # OP 判定可起步：优先用 planner 原始 aTarget（经 CC_SP.params 传入）而非
     # CC.actuators.accel——LoC 在停车保持态（原厂 cruise_standstill=True）
