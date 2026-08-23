@@ -202,6 +202,12 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     elif accel > 0.05:
       # 真正加速请求才提示变速箱（原厂巡航 axG=0，仅加速/起步爬升）
       ax_target = min(0.01 * acc_moment, 1.3)
+    elif acc_control == 4 and not gas_override and v_ego > 5.0:
+      # 超驰滑行（st=4 且司机松油门且车速>18km/h）：发负值提示变速箱降挡。
+      # 原厂 4 个 route 确诊（00000002/04/05/49）：st=4 时 axG 负值占比 71-85%，
+      # 渐进值 -0.024~-1.08（0.024 步进加深），语义="正在减速/滑行，准备降挡"。
+      # 踩油门超驰（gas_override=True）仍走上方加速分支（加速意图，axG 正）。
+      ax_target = -0.3  # 渐进由 _last_ax_ge 缓爬状态机自动完成
     else:
       ax_target = 0.0  # 巡航/匀速：不干扰变速箱
   else:
