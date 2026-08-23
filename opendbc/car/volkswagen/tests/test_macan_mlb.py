@@ -80,16 +80,24 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     修复后：踩油门绝不 braking → mom≥27 基线（斜坡收敛后），loes=1。"""
     for slope in (-1.0, -2.0):
       r = run_frames(15, v_ego=0.0, accel=0.1, gas_override=True,
-                     slope_pct=slope, slope_comp=True)
+                     slope_pct=slope, slope_comp=True, sng_resume_req=True)
       self.assertGreater(r['mom'], 0, f"下坡{slope}% 踩油门必须发力矩，实际 mom={r['mom']}")
       self.assertEqual(r['loes'], 1, "踩油门超驰应发 loes=1 起步确认")
       self.assertEqual(r['fv'], 0, "超驰应关减速通道 fv=0")
 
   def test_gas_override_flat(self):
     """踩油门平路：loes=1 + 力矩斜坡收敛后 ≥27（27基线+0.1*85=35）"""
-    r = run_frames(15, v_ego=0.0, accel=0.1, gas_override=True)
+    r = run_frames(15, v_ego=0.0, accel=0.1, gas_override=True, sng_resume_req=True)
     self.assertEqual(r['loes'], 1)
     self.assertGreaterEqual(r['mom'], 27)
+
+  def test_gas_override_no_stock_loes(self):
+    """踩油门但原厂 loes=0（carcontroller 跟随原厂失败/未发）→ OP 不发 loes。
+    事件化（2026-08-23）：loes 不再跟 gas_override 持续（旧 bug seg00 28.8s），
+    只由 sng_resume_req（carcontroller 按原厂 loes/起步窗口计算）驱动。"""
+    r = run_frames(15, v_ego=0.0, accel=0.1, gas_override=True, sng_resume_req=False)
+    self.assertEqual(r['loes'], 0, "原厂未确认起步时 OP 不得发 loes（不跟油门持续）")
+    self.assertGreater(r['mom'], 0, "力矩仍应发出（超驰不刹车）")
 
   def test_sng_resume(self):
     """SnG 自动起步（1b4915d）：sng_resume_req 模拟踩油门语义 → loes=1"""
