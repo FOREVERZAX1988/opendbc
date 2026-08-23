@@ -307,7 +307,12 @@ class CarController(CarControllerBase, SnGCarController):
           # （1b4915d 以'原厂 anh=0'回退 d2c241a，其依据为 56|1 错位解析，已修正）。
           if stopping or (torque_active and CS.out.standstill and not CS.out.gasPressed and not brake_override and accel <= 0.05):
             self.stopping_hold = True
-          elif self.stopping_hold and (brake_override or CS.out.gasPressed or CS.out.vEgo > 0.5 or sng_resume_ready or accel > 0.05 or resume_btn):
+          elif self.stopping_hold and (brake_override or CS.out.gasPressed or CS.out.vEgo > 0.5 or sng_resume_ready or accel > 0.05 or resume_btn or not getattr(CS, 'acc05_stock_anhalten', False)):
+            # 2026-08-23 st=6 修复：原厂已不请求停车保持（acc05_stock_anhalten=False，如
+            # 前车远去/起步原厂发布 loes=1/mom=58 时）OP 也同步释放 stopping_hold——
+            # 避免"原厂已起步、OP 还发刹车帧（verz=-2/anh=1）"方向矛盾 → st=6
+            # （00000054 seg18 实锤）。只对齐停车保持时机，OP 的 accel/verz/mom 仍由
+            # OP 视觉/planner 决定（安全，不透传原厂加速意图）。
             self.stopping_hold = False
           stopping = stopping or self.stopping_hold
           # SnG 自动起步/手动按键起步：强制解除停车保持请求+请求正力矩。
