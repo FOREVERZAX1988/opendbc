@@ -77,7 +77,7 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
   return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False, mirror_stock=False, stock_loes=False, stock_ssi=False, stock_ax=0.0, stock_anhalten=False, stock_verz=0.0, stock_fm=False):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False):
   global _last_acc_moment
   commands = []
 
@@ -184,30 +184,6 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   #   Cruise/Accel: ACC_Verz_anf=0, ACC_Freigabe_Verzanf=0, ACC_ax_Getriebe=positive, torque enabled
   #   Braking:      ACC_Verz_anf=negative, ACC_Freigabe_Verzanf=1, ACC_ax_Getriebe=negative, torque=0
   #   Disabled:     ACC_Verz_anf=3.01, all others=0
-  # 镜像模式（00000054 seg18 st=7 修复，2026-08-23）：OP 未激活但原厂 ACC 仍激活
-  # （st∈(3,4)，如 LKAS 故障致 OP 退出而原厂保持）时，完整透传原厂 ACC_05 请求——
-  # 执行器继续执行原厂意图，避免"OP 待机帧 vs 原厂激活帧"反向矛盾 4 秒 → st=7 DTC。
-  if mirror_stock:
-    acc_05_values = {
-      "ACC_Status_ACC": acc_control,
-      "ACC_Verz_anf": stock_verz,
-      "ACC_Freigabe_Verzanf": stock_fv,
-      "ACC_Freigabe_Momentenanf": stock_fm,
-      "ACC_Momentenanforderung": stock_mom,
-      "ACC_Loeseanforderung": stock_loes,
-      "ACC_StartStopp_Info": stock_ssi,
-      "ACC_ax_Getriebe": stock_ax,
-      "ACC_Beeinflussung_ESP": stock_esp,
-      "ACC_Anhalten": stock_anhalten,
-      "ACC_zul_Regelabw": 0.0,
-      "ACC_limitierte_Anfahrdyn": 0,
-      "ACC_Vorbefuellung_Bremsanlage": 0,
-      "ACC_Betaetigung_EPB": esp_hold,
-      "ACC_KD_Fehler": 1,
-    }
-    commands.append(packer.make_can_msg("ACC_05", bus, acc_05_values))
-    return commands
-
   acc_05_values = {
     "ACC_Status_ACC": acc_control,
     "ACC_Verz_anf": verz,

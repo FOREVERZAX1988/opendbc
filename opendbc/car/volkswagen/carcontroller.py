@@ -336,31 +336,6 @@ class CarController(CarControllerBase, SnGCarController):
               slope_used = slope_imu if abs(slope_imu) < abs(self.slope_oem_filtered) else self.slope_oem_filtered
           else:
             slope_used = slope_imu  # 开关关：保持 v1 行为（mlbcan 端 slope_comp=False 时不补偿）
-          # 镜像模式（00000054 seg18 st=7 修复，2026-08-23）：OP 未激活（LKAS 故障等）但
-        # 原厂 ACC 仍激活（st∈(3,4)）时，完整透传原厂 ACC_05——执行器继续执行原厂意图，
-        # 避免 OP 待机帧 vs 原厂激活帧反向矛盾 → st=7/DTC。OP 正常控制时走原逻辑。
-        if not torque_active and getattr(CS, 'acc05_stock_status', 0) in (3, 4):
-          can_sends.extend(self.CCS.create_acc_accel_control(
-            self.packer_pt, self.CAN.pt, CS.acc_type, False, 0.0, CS.acc05_stock_status,
-            False, False, CS.esp_hold_confirmation, v_ego=CS.out.vEgo,
-            engine_torque=getattr(CS, 'engine_torque_output', 0),
-            stock_esp=getattr(CS, 'acc05_stock_esp', False),
-            stock_follow=False,
-            gas_override=CS.out.gasPressed,
-            stock_fv=getattr(CS, 'acc05_stock_fv', False),
-            stock_mom=getattr(CS, 'acc05_stock_mom', 0.0),
-            slope_pct=slope_used,
-            slope_comp=self.slope_comp,
-            slope_comp_unlimited=self.slope_comp_unlimited,
-            sng_resume_req=False,
-            mirror_stock=True,
-            stock_loes=getattr(CS, 'stock_loes', False),
-            stock_ssi=getattr(CS, 'stock_ssi', False),
-            stock_ax=getattr(CS, 'stock_ax', 0.0),
-            stock_anhalten=getattr(CS, 'acc05_stock_anhalten', False),
-            stock_verz=getattr(CS, 'acc05_stock_verz', 0.0),
-            stock_fm=getattr(CS, 'acc05_stock_fm', False)))
-        else:
           can_sends.extend(self.CCS.create_acc_accel_control(
 self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                              acc_control, stopping, starting, CS.esp_hold_confirmation, v_ego=CS.out.vEgo,
