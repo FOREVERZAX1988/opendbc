@@ -384,6 +384,10 @@ class CarState(CarStateBase):
     )
 
     ret.gasPressed = pt_cp.vl["Motor_03"]["MO_Fahrpedalrohwert_01"] > 0
+    # 踏板位置（单位%，MO_Fahrpedalrohwert_01 x0.4）：原厂超驰确认阈值约5-8%（00000002 实测
+    # 1781.279 st=4 时踏板5.6%、2043.582 时7.6%），carcontroller 用它替代 gasPressed(>0) 判定超驰，
+    # 消除「OP 在踏板1.2%就切 st=4 vs 原厂未确认超驰」矛盾窗口（00000056 682.109 st6 实锤）。
+    self.pedal_value = pt_cp.vl["Motor_03"]["MO_Fahrpedalrohwert_01"]
     ret.gearShifter = self.parse_gear_shifter(self.CCP.shifter_values.get(alt_cp.vl["Getriebe_03"]["GE_Waehlhebel"], None))
 
     # TODO: We don't have a true mainswitch state yet, might need stateful tracking on LS_01 if momentary-press is a thing

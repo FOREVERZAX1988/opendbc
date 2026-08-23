@@ -179,13 +179,16 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
       verz = target_verz
     _last_accel_cmd = verz
   else:
-    verz = 0 if acc_enabled else 3.01
+    # 待机/关闭/故障：verz=0.0（对齐原厂）。00000002(67段)+00000056 全 route 实测：原厂
+    # st=0/2/6 时 verz 全 0.0，原厂 verz 全域 [-2.0,+1.58] 从无 3.01。旧代码 3.01（raw2046
+    # 饱和值）是自创占位，ECU 可能做值域检查判异常，且与原厂"待机=中性0"语义偏离——已修正。
+    verz = 0.0
     _last_accel_cmd = 0.0
 
   # Stock ACC signal behavior observed from Cabana:
   #   Cruise/Accel: ACC_Verz_anf=0, ACC_Freigabe_Verzanf=0, ACC_ax_Getriebe=positive, torque enabled
   #   Braking:      ACC_Verz_anf=negative, ACC_Freigabe_Verzanf=1, ACC_ax_Getriebe=negative, torque=0
-  #   Disabled:     ACC_Verz_anf=3.01, all others=0
+  #   Disabled:     ACC_Verz_anf=0, all others=0
   # ACC_ax_Getriebe（变速箱预期加速度提示）：2026-08-23 拟合原厂。
   # 原厂实测（route 00000002 seg14 + 00000055 seg05）：
   #  - 停车保持：axG 0→0.55 缓爬约 1s 后稳定（rate≈0.005/帧 @100Hz）

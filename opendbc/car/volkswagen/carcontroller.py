@@ -200,6 +200,12 @@ class CarController(CarControllerBase, SnGCarController):
     # **** Acceleration Controls ******************************************** #
 
     if self.CP.openpilotLongitudinalControl:
+      # 原厂超驰踏板阈值（MLB Macan）：踏板位置>5% 才确认超驰。原厂 st=4 切换实测阈值 5.6-7.6%
+      # （00000002 1781.279/2043.582），快踩/慢踩都等踏板爬过阈值；OP 用 gasPressed(>0) 在 1.2%
+      # 就切 -> 「OP已超驰 vs 原厂未确认」矛盾窗口 -> st=6（00000056 682.109 实锤）。
+      # 非 MLB 平台（无 pedal_value）回退 gasPressed 布尔，行为不变。
+      pedal_value = getattr(CS, 'pedal_value', None)
+      gas_override_stock = (pedal_value > 5.0) if pedal_value is not None else CS.out.gasPressed
       if self.frame % self.CCP.ACC_CONTROL_STEP == 0:
         stopping = actuators.longControlState == LongCtrlState.stopping
 
@@ -238,8 +244,8 @@ class CarController(CarControllerBase, SnGCarController):
           # 正常激活时原厂 src=2 st=3（实测一致），仅在原厂雷达撤力/退出时触发。
           if long_active and getattr(CS, 'acc05_stock_status', 3) not in (3, 4):
             long_active = False
-          gas_override = CS.out.gasPressed and CS.out.cruiseState.available and not brake_override
-          acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
+          gas_override = gas_override_stock and CS.out.cruiseState.available and not brake_override
+          acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, gas_override_stock)
           # OVERRIDE(4) 时保持巡航力矩（原厂 st=4 力矩≈st=3，仅状态字切 4）；accel=0 → 巡航基线。
           # 力矩许可只跟 long_active（激活态），不跟 gas_override（00000004 seg2 实锤：待机+踩油门
           # 原厂 ACC_05 全程 st=2/fm=0/mom=0，ACC 不发力矩，动力完全由驾驶员油门主导；
@@ -248,7 +254,7 @@ class CarController(CarControllerBase, SnGCarController):
           # 激活中踩油门 long_active 保持 True（gas 不改 long_active），力矩照发 → st=4 超驰不受影响。
           torque_active = long_active
           # 油门超驰：gas 时 accel 强制 0 → 力矩=巡航基线，驾驶员主导加速；松油门立即恢复 planner 控制
-          accel = float(np.clip(0.0 if CS.out.gasPressed else actuators.accel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if torque_active else 0)
+          accel = float(np.clip(0.0 if gas_override_stock else actuators.accel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if torque_active else 0)
           # 原厂意图仲裁（00000037/00000038 根因修复）：OP 代发请求不能与原厂雷达矛盾。
           # 原厂在请求减速（verz<0）或停车（anh=1）时，OP 跟随原厂意图（最多同深度减速），
           # 绝不允许比原厂激进（正加速）——否则雷达自检失败报 st=6 → ECU 写 DTC 锁死 ACC。
@@ -420,7 +426,7 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
           elif now_nanos < self.lead_hold_expire and self.lead_hold_distance > 0:
             lead_distance = self.lead_hold_distance
             lead_object = 1
-        acc_hud_status = self.CCS.acc_hud_status_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
+        acc_hud_status = self.CCS.acc_hud_status_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, gas_override_stock)
         # FIXME: PQ may need to use the on-the-wire mph/kmh toggle to fix rounding errors
         # FIXME: Detect clusters with vEgoCluster offsets and apply an identical vCruiseCluster offset
         set_speed = hud_control.setSpeed * CV.MS_TO_KPH
@@ -434,7 +440,7 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
         # OP 代发 ACC_04（原厂雷达状态文本，16Hz）：屏蔽 bus2->bus0 转发后由 OP 保持总线活跃，
         # 内容为原厂正常模板（无故障文本），避免网关/仪表对 ACC_04 超时监测报 ACC 故障
         lead_speed_kph = getattr(CS, 'stock_lead_speed_kph', 327.36)
-        acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, CS.out.gasPressed)
+        acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, gas_override_stock)
         can_sends.append(self.CCS.create_acc_04_control(self.packer_pt, self.CAN.pt, lead_speed_kph, acc_control,
                                                          stock_texte_zusatz=getattr(CS, 'stock_acc04_texte_zusatz', None),
                                                          stock_charisma_status=getattr(CS, 'stock_acc04_charisma_status', None)))

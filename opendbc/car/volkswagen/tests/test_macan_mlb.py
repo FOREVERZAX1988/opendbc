@@ -25,8 +25,9 @@ def parse_acc05(d):
   anh = (d[7] >> 6) & 0x1      # ACC_Anhalten 62|1（Vector__XXX，0049实测原厂停车保持=1）
   mom = d[2] | ((d[3] & 0x03) << 8)             # ACC_Momentenanforderung 16|10
   raw_v = d[4] | ((d[5] & 0x07) << 8)
-  if raw_v & 0x400:
-    raw_v -= 0x800
+  # ACC_Verz_anf 32|11@1+ 是**无符号**（DBC vw_mlb.dbc:90）——不要按有符号处理！
+  # （旧代码 if raw_v & 0x400: raw_v -= 0x800 是有符号误读：raw1444(verz=0)会被判成-604→-10.24；
+  #  3.01 时代 raw2046 被掩盖。正确：raw×0.005-7.22，verz=0→raw1444、保持-2.0→raw1044）
   verz = round(raw_v * 0.005 - 7.22, 2)         # ACC_Verz_anf 32|11
   fm = (d[1] >> 4) & 0x1       # ACC_Freigabe_Momentenanf 12|1
   fv = (d[1] >> 5) & 0x1       # ACC_Freigabe_Verzanf 13|1
@@ -70,12 +71,13 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
   def test_park_hold(self):
     """停车保持：mom=0（不发力矩）、anh=0（原厂不用anh）、loes=0（无起步确认）、
     保持力 verz=-2.0（镜像原厂保持力度，斜坡收敛后）"""
-    r = run_frames(15, v_ego=0.0, accel=-0.56, stopping=True)
+    r = run_frames(30, v_ego=0.0, accel=-0.56, stopping=True)
     self.assertEqual(r['mom'], 0)
     self.assertEqual(r['anh'], 1, "停车保持应发 anh=1（62|1，0049原厂实测）")
     self.assertEqual(r['loes'], 0)
+    # verz 斜坡 -0.07/帧，到 -2.0 需 29 帧——30帧收敛后断言
     self.assertLessEqual(r['verz'], -2.0, f"停车保持应发深度 verz，实际 {r['verz']}")
-    self.assertAlmostEqual(r['axg'], 0.075, places=2, msg=f"停车保持 axG 应缓爬(15帧*0.005=0.075)，实际 {r['axg']}（对齐原厂 0→0.55 缓爬，非旧 1.63）")
+    self.assertAlmostEqual(r['axg'], 0.14, places=2, msg=f"停车保持 axG 应缓爬(30帧≈0.14)，实际 {r['axg']}（对齐原厂 0→0.55 缓爬，非旧 1.63）")
 
   def test_gas_override_downhill_mild(self):
     """踩油门+缓下坡（7158f13 核心回归）：旧bug是 braking 第一项漏修 gas_override，
@@ -109,6 +111,14 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     self.assertGreater(r['axg'], 0.05, f"起步 axG 应随 mom 爬升，实际 {r['axg']}（旧代码恒 0）")
     # mom≈35（0.1*85+27）→ 目标 0.01*35=0.35，60帧*0.005=0.30，未到目标，应在 0.3 附近
     self.assertLess(r['axg'], 0.4, f"起步 axG 不应超目标 0.35，实际 {r['axg']}")
+
+  def test_standby_verz_zero(self):
+    """待机（acc_enabled=False）时 verz=0.0——对齐原厂（原厂 st=0/2/6 verz 全 0，
+    00000002+00000056 双 route 实测；旧代码 3.01 是自创饱和占位，已修正）。"""
+    r = make_acc(acc_enabled=False)
+    self.assertEqual(r['verz'], 0.0, f"待机 verz 应=0（对齐原厂），实际 {r['verz']}（旧代码发 3.01 饱和占位）")
+    self.assertEqual(r['mom'], 0, "待机不应发力矩")
+    self.assertEqual(r['st'], 2, "待机 st 应为 2")
 
   def test_sng_resume(self):
     """SnG 自动起步（1b4915d）：sng_resume_req 模拟踩油门语义 → loes=1"""
@@ -144,8 +154,9 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     """braking 时 verz 斜坡渐进：首帧浅（-0.07起步），收敛后到目标"""
     r1 = make_acc(v_ego=5.0, accel=-0.3)
     self.assertEqual(r1['mom'], 0)
-    # 首帧 verz 是哨兵/无效值（-10.31，与原厂 0049 哨兵一致）——斜坡从状态机内部开始
-    self.assertLess(r1['verz'], -2.0, "首帧 verz 应为哨兵/深值（非有效浅值）")
+    # 首帧 verz = -0.07（斜坡起点，valid 浅值）。旧断言"哨兵深值<-2.0"基于测试解析的
+    # 有符号误读（-0.07 被读成 -10.31）；DBC 32|11@1+ 为无符号，修正后如实读取。
+    self.assertAlmostEqual(r1['verz'], -0.07, places=2, msg=f"首帧 verz 应为斜坡起点 -0.07，实际 {r1['verz']}")
     r15 = run_frames(15, v_ego=5.0, accel=-0.3)
     self.assertLessEqual(r15['verz'], -0.25, "收敛后 verz 接近 accel 深度")
 
