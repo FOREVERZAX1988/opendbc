@@ -31,7 +31,8 @@ def parse_acc05(d):
   fm = (d[1] >> 4) & 0x1       # ACC_Freigabe_Momentenanf 12|1
   fv = (d[1] >> 5) & 0x1       # ACC_Freigabe_Verzanf 13|1
   loes = (d[5] >> 3) & 0x1     # ACC_Loeseanforderung 43|1
-  return dict(st=st, anh=anh, mom=mom, verz=verz, fm=fm, fv=fv, loes=loes)
+  axg = round(((d[6] | ((d[7] & 0x1) << 8)) & 0x1FF) * 0.024 - 2.016, 3)  # ACC_ax_Getriebe 48|9
+  return dict(st=st, anh=anh, mom=mom, verz=verz, fm=fm, fv=fv, loes=loes, axg=axg)
 
 
 def make_acc(**kw):
@@ -64,6 +65,7 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     # 消除模块级全局状态污染（斜坡从 0 起步）
     mlbcan._last_acc_moment = 0.0
     mlbcan._last_accel_cmd = 0.0
+    mlbcan._last_ax_ge = 0.0
 
   def test_park_hold(self):
     """停车保持：mom=0（不发力矩）、anh=0（原厂不用anh）、loes=0（无起步确认）、
@@ -73,6 +75,7 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     self.assertEqual(r['anh'], 1, "停车保持应发 anh=1（62|1，0049原厂实测）")
     self.assertEqual(r['loes'], 0)
     self.assertLessEqual(r['verz'], -2.0, f"停车保持应发深度 verz，实际 {r['verz']}")
+    self.assertAlmostEqual(r['axg'], 0.075, places=2, msg=f"停车保持 axG 应缓爬(15帧*0.005=0.075)，实际 {r['axg']}（对齐原厂 0→0.55 缓爬，非旧 1.63）")
 
   def test_gas_override_downhill_mild(self):
     """踩油门+缓下坡（7158f13 核心回归）：旧bug是 braking 第一项漏修 gas_override，
@@ -98,6 +101,14 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     r = run_frames(15, v_ego=0.0, accel=0.1, gas_override=True, sng_resume_req=False)
     self.assertEqual(r['loes'], 0, "原厂未确认起步时 OP 不得发 loes（不跟油门持续）")
     self.assertGreater(r['mom'], 0, "力矩仍应发出（超驰不刹车）")
+
+  def test_ax_ge_launch_ramp(self):
+    """起步 axG 随 mom 缓爬（原厂拟合 0.01*mom）：SnG 起步 60 帧后 axG 应>0 且爬向目标。
+    旧代码起步 axG 骤降 0（accel=0.1<0.25 死区被吞）→ 变速箱误判未加速 → 过早升挡。"""
+    r = run_frames(60, v_ego=0.0, accel=0.1, sng_resume_req=True)
+    self.assertGreater(r['axg'], 0.05, f"起步 axG 应随 mom 爬升，实际 {r['axg']}（旧代码恒 0）")
+    # mom≈35（0.1*85+27）→ 目标 0.01*35=0.35，60帧*0.005=0.30，未到目标，应在 0.3 附近
+    self.assertLess(r['axg'], 0.4, f"起步 axG 不应超目标 0.35，实际 {r['axg']}")
 
   def test_sng_resume(self):
     """SnG 自动起步（1b4915d）：sng_resume_req 模拟踩油门语义 → loes=1"""

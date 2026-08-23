@@ -16,6 +16,7 @@ _ACC_MOMENT_RAMP_DOWN = 3.0  # 撤力跟随斜坡（50Hz≈150Nm/s）：00000042
 _ACC_SCALE_MAX = 1.8
 _last_acc_moment = 0.0
 _last_accel_cmd = 0.0  # 减速请求斜坡状态（原厂 verz 渐进式加深）
+_last_ax_ge = 0.0  # ACC_ax_Getriebe 缓爬状态（2026-08-23 拟合原厂，rate 0.005/帧）
 
 # TODO: Parameterize the hca control type (5 vs 7) and consolidate with MQB (and PQ?)
 def create_steering_control(packer, bus, apply_steer, lkas_enabled):
@@ -79,6 +80,7 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
 
 def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False):
   global _last_acc_moment
+  global _last_ax_ge
   commands = []
 
   # Macan 坡度补偿（2026-08-19 重新实施）：slope_pct 由 carcontroller 经参数传入（非 CS 变量）。
@@ -184,6 +186,28 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   #   Cruise/Accel: ACC_Verz_anf=0, ACC_Freigabe_Verzanf=0, ACC_ax_Getriebe=positive, torque enabled
   #   Braking:      ACC_Verz_anf=negative, ACC_Freigabe_Verzanf=1, ACC_ax_Getriebe=negative, torque=0
   #   Disabled:     ACC_Verz_anf=3.01, all others=0
+  # ACC_ax_Getriebe（变速箱预期加速度提示）：2026-08-23 拟合原厂。
+  # 原厂实测（route 00000002 seg14 + 00000055 seg05）：
+  #  - 停车保持：axG 0→0.55 缓爬约 1s 后稳定（rate≈0.005/帧 @100Hz）
+  #  - 起步/加速：随 mom 缓爬（seg05 拟合 axG≈0.01*mom：mom60→0.55、mom120→1.2）
+  #  - 巡航：0.0（原厂 94% 时间），待机：0.0
+  #  - 减速：负值透传（保留旧逻辑，速度相关 clamp 到 -2.016）
+  # 注：旧注释"00000039 seg7 实锤原厂 axG=+1.63"被 00000002（67段完整原厂）推翻——
+  # 那次大概率看的是 OP 自己代发的帧。原厂停车保持 axG 实际是 0→0.55 缓爬。
+  if acc_enabled:
+    if stopping:
+      ax_target = 0.55
+    elif braking:
+      ax_target = max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))
+    else:
+      ax_target = min(0.01 * acc_moment, 1.3)
+  else:
+    ax_target = 0.0
+  if _last_ax_ge < ax_target:
+    _last_ax_ge = min(_last_ax_ge + 0.005, ax_target)
+  else:
+    _last_ax_ge = max(_last_ax_ge - 0.005, ax_target)
+  ax_ge = round(_last_ax_ge, 3)
   acc_05_values = {
     "ACC_Status_ACC": acc_control,
     "ACC_Verz_anf": verz,
@@ -204,19 +228,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # 车动前回 0（500-620ms）。verz>=0 兜底：loes=1 绝不与刹车请求共存（loes+braking 也是矛盾帧）。
     # gas_override 独立条件移除——踩油门由 carcontroller 跟随原厂 loes 控制（不跟油门持续）。
     "ACC_Loeseanforderung": 1 if (acc_enabled and not stopping and verz >= 0.0 and sng_resume_req) else 0,
-    # ACC_ax_Getriebe: tells PDK what acceleration to expect (gear selection hint).
-    # DBC: [-2.016, +10.248]. Values below -2.016 WRAP to ~+10 (unsigned overflow).
-    # Accel > 0.25: hint positive, capped at 1.3 (prevents high-RPM downshifts)
-    # Cruise/mild decel: 0 (no gear hunting)
-    # Engine braking (accel < -0.25): mild negative hint, capped at -0.5
-    # Hydraulic braking: speed-dependent negative, clamped to DBC min -2.016
-    # 00000039 seg7 实锤：原厂跟停保持（vEgo=0, anh=1）axG=+1.63（1挡怠速拖滞蠕行），
-    # 旧逻辑 braking 时发 max(accel, -0.6...)≈-0.60 负值 → 与原厂方向矛盾 → 雷达 st6。
-    # 修复：stopping（跟停/停车保持）时 axG 按原厂 +1.63 正蠕行；普通 braking 保持负值。
-    "ACC_ax_Getriebe": (1.63 if stopping else
-                         ((min(accel, 1.3) if accel > 0.25 else
-                           (max(accel, -0.5) if accel < -0.25 else 0)) if not braking else
-                          max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6)))) if acc_enabled else 0,
+    "ACC_ax_Getriebe": ax_ge,
     "ACC_Vorbefuellung_Bremsanlage": 1 if braking else 0,
     # 00000039 seg7 实锤：原厂跟停全程 ESP=0（ESP_VerzTSK=0，靠1挡怠速拖滞），
     # 旧逻辑 stopping 时发 ESP=1 → 雷达自检异常 → st6。仅 esp_hold 或硬刹车(<-1.0) 才请求 ESP。
