@@ -199,8 +199,11 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
       ax_target = 0.55
     elif braking:
       ax_target = max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))
-    else:
+    elif accel > 0.05:
+      # 真正加速请求才提示变速箱（原厂巡航 axG=0，仅加速/起步爬升）
       ax_target = min(0.01 * acc_moment, 1.3)
+    else:
+      ax_target = 0.0  # 巡航/匀速：不干扰变速箱
   else:
     ax_target = 0.0
   if _last_ax_ge < ax_target:
