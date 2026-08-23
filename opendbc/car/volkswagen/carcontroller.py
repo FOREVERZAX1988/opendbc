@@ -81,6 +81,7 @@ class CarController(CarControllerBase, SnGCarController):
     # 不依赖 standstill（车动即停会截断确认窗口）。00000049 原厂踩油门实测 400-520ms，
     # 0051 段19 SnG 仅 160ms → 原厂起步确认不足 → 撤力退出（cruiseMismatch）。
     self.sng_loes_until = 0          # 单调时钟纳秒
+    self.sng_loes_start = 0          # loes 窗口起点（事件化回收基准）
     self.sng_resume_ready_last = False
     self.hca_mitigation = HCAMitigation(self.CCP)
 
@@ -125,6 +126,7 @@ class CarController(CarControllerBase, SnGCarController):
     # loes 窗口延长：RESUME 代发上升沿起保持 0.6s（对齐原厂踩油门起步确认窗口+余量），
     # 车动（standstill→False）不再截断 loes——原厂 ACC 无油门起步完全依赖该信号确认。
     if sng_resume_ready and not self.sng_resume_ready_last:
+      self.sng_loes_start = now_nanos
       self.sng_loes_until = now_nanos + 600_000_000
     self.sng_resume_ready_last = sng_resume_ready
 
@@ -341,6 +343,17 @@ class CarController(CarControllerBase, SnGCarController):
               slope_used = slope_imu if abs(slope_imu) < abs(self.slope_oem_filtered) else self.slope_oem_filtered
           else:
             slope_used = slope_imu  # 开关关：保持 v1 行为（mlbcan 端 slope_comp=False 时不补偿）
+          # ---- loes 事件化（2026-08-23 对齐原厂）：loes=1 只在"解除保持→起步力矩建立"窗口
+          # 持续 500-620ms（原厂 route 00000002 seg14/15 实证），车动前即回 0，loes 期间 verz 恒=0。
+          # SnG 起步：sng_resume_ready 上升沿起窗口（600ms 兜底），提前回收 = 车动(vEgo>0.5)
+          #   或原厂 loes 已回 0 且已发≥300ms（跟原厂节奏，不再靠固定窗口）。
+          # 踩油门：跟随原厂 loes（原厂发 OP 发、原厂回 OP 回）——不再跟油门持续（旧 bug seg00 28.8s）。
+          stock_loes = getattr(CS, 'acc05_stock_loes', False)
+          if CS.out.gasPressed:
+            loes_active = stock_loes
+          else:
+            loes_early_release = CS.out.vEgo > 0.5 or (not stock_loes and now_nanos - self.sng_loes_start > 300_000_000)
+            loes_active = sng_resume_ready or (now_nanos < self.sng_loes_until and not loes_early_release)
           can_sends.extend(self.CCS.create_acc_accel_control(
 self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                              acc_control, stopping, starting, CS.esp_hold_confirmation, v_ego=CS.out.vEgo,
@@ -353,7 +366,7 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                              slope_pct=slope_used,
                                                              slope_comp=self.slope_comp,
                                                              slope_comp_unlimited=self.slope_comp_unlimited,
-                                                             sng_resume_req=sng_resume_ready or now_nanos < self.sng_loes_until))
+                                                             sng_resume_req=loes_active))
 
       #if self.aeb_available:
       #  if self.frame % self.CCP.AEB_CONTROL_STEP == 0:

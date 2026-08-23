@@ -200,7 +200,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # 2026-08-23 修复（00000054 seg18 st=6 实锤）：loes=1 不能与停车保持帧（verz=-2/anh=1）
     # 同时出现——"请求解除但保持刹车"自相矛盾 → 原厂自检失败 st=6。仅在 OP 激活
     # （acc_enabled）且非停车保持（not stopping）时发；OP 待机时绝不发（st=7 也涉及）。
-    "ACC_Loeseanforderung": 1 if (acc_enabled and not stopping and (gas_override or sng_resume_req)) else 0,
+    # 2026-08-23 事件化（对齐原厂 route 00000002）：原厂 loes=1 期间 verz 恒=0/mom>0，
+    # 车动前回 0（500-620ms）。verz>=0 兜底：loes=1 绝不与刹车请求共存（loes+braking 也是矛盾帧）。
+    # gas_override 独立条件移除——踩油门由 carcontroller 跟随原厂 loes 控制（不跟油门持续）。
+    "ACC_Loeseanforderung": 1 if (acc_enabled and not stopping and verz >= 0.0 and sng_resume_req) else 0,
     # ACC_ax_Getriebe: tells PDK what acceleration to expect (gear selection hint).
     # DBC: [-2.016, +10.248]. Values below -2.016 WRAP to ~+10 (unsigned overflow).
     # Accel > 0.25: hint positive, capped at 1.3 (prevents high-RPM downshifts)

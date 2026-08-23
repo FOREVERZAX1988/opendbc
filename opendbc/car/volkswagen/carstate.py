@@ -20,6 +20,7 @@ class CarState(CarStateBase):
     # 原厂 ACC_05 状态（bus2 雷达域 src=2），update_mlb 每帧刷新。
     # 默认 3（激活）避免 MLB 首帧前 carcontroller 读到 None 误降级。
     self.acc05_stock_status = 3
+    self.acc05_stock_loes = False
     self.upscale_lead_car_signal = False
     self.eps_stock_values = False
     self.acc_type = 0
@@ -409,6 +410,7 @@ class CarState(CarStateBase):
     # 723f0b8f 只仲裁 verz/anh 拦不住该场景；此处透传 mom 供 carcontroller 做撤力仲裁。
     self.acc05_stock_mom = float(ext_cp.vl["ACC_05"]["ACC_Momentenanforderung"])
     self.acc05_stock_anhalten = bool(ext_cp.vl["ACC_05"]["ACC_Anhalten"])
+    self.acc05_stock_loes = bool(ext_cp.vl["ACC_05"]["ACC_Loeseanforderung"])
     # 原厂 ACC_05 是否请求 ESP 介入（ACC_Beeinflussung_ESP，bus2 雷达域 src=2）：
     # 0000003f 实锤——原厂跟停（Verz=-2/Anh=1）全程 ESP=0（靠1挡怠速拖滞）；
     # OP 旧逻辑在仲裁把 accel 压到 stock_verz(-2) 后误触发 accel<-1 的 ESP 条件
