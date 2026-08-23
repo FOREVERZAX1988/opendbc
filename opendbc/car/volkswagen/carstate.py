@@ -445,6 +445,13 @@ class CarState(CarStateBase):
     # texte=0/Charisma_Status=2 而 OP 模板=2/1 → 显示矛盾。透传原厂值消除（同 ACC_02 模式）。
     self.stock_acc04_texte_zusatz = int(ext_cp.vl["ACC_04"]["ACC_Texte_Zusatzanz"])
     self.stock_acc04_charisma_status = int(ext_cp.vl["ACC_04"]["ACC_Charisma_Status"])
+    # 原厂 ACC_05 剩余字段透传（00000054 seg18 st=7 修复，2026-08-23）：OP 未激活但原厂
+    # st∈(3,4)（LKAS 故障等导致 OP 退出而原厂 ACC 保持）时，OP 代发应镜像原厂 ACC_05，
+    # 让执行器继续执行原厂意图——否则 OP 待机帧(st=2/verz=3.01)vs 原厂激活帧(st=3/mom=111)
+    # 反向矛盾 4 秒 → 原厂 st=7 不可逆/DTC 锁死。loes/ssi/ax 为镜像所需补充字段。
+    self.stock_loes = bool(ext_cp.vl["ACC_05"]["ACC_Loeseanforderung"])
+    self.stock_ssi = bool(ext_cp.vl["ACC_05"]["ACC_StartStopp_Info"])
+    self.stock_ax = float(ext_cp.vl["ACC_05"]["ACC_ax_Getriebe"])
     # 原厂 ACC_04 目标车速度（km/h）：OP 代发 ACC_04 时透传，仪表显示目标车速度
     self.stock_lead_speed_kph = float(ext_cp.vl["ACC_04"]["ACC_Geschw_Zielfahrzeug"]) if self.CP.openpilotLongitudinalControl else 327.36
     ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
