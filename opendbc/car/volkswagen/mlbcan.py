@@ -185,8 +185,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # 1065 对照（自动起步成功）：OP 目标 0.6 → mom 78 自然 ≥60 通过校验。
     # max 跟随原厂爬升曲线：938 场景 OP=max(自己40,原厂56→102)=原厂曲线；1065 场景
     # OP 自己 78>原厂 60 用自己——两场景都通过力矩一致性校验。
-    # 注：v_ego≤3 起步期方案A上限豁免，此下限不会与上限冲突。
-    if sng_resume_req and stock_mom > 0:
+    # 注：v_ego≤3 起步期方案A上限豁免，此下限不会与上限冲突；
+    # 显式 v_ego<=3.0 保证与方案A（v_ego>3 上限）在代码层面完全互斥
+    # （sng_resume_req 窗口 0.6s 内 v_ego 物理上也到不了 3.0）。
+    if sng_resume_req and stock_mom > 0 and v_ego <= 3.0:
       acc_moment = max(acc_moment, int(stock_mom))
     _last_acc_moment = float(acc_moment)
   else:
