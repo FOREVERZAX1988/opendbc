@@ -178,6 +178,16 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
         acc_moment = min(acc_moment, int(max(stock_mom, 200.0)))   # 选项2：放开给小坡空间
       else:
         acc_moment = min(acc_moment, int(stock_mom))                # 选项1：原厂限制
+    # 方案B：SnG 起步窗口 mom 下限=原厂力矩（2026-08-24，治 st6#2 力矩矛盾）。
+    # 00000056 938.191 实锤：OP 起步 accel 目标低（0.15）→ mom 目标 40 → 斜坡爬到 40 停
+    # → 40<60（原厂"撤力"阈值，见 stock_follow 条件 stock_mom<60）被 ECU 解读为撤力，
+    # 而原厂自己在发力矩（mom 56→102 爬升）→ "激活却撤力"矛盾 → st6。
+    # 1065 对照（自动起步成功）：OP 目标 0.6 → mom 78 自然 ≥60 通过校验。
+    # max 跟随原厂爬升曲线：938 场景 OP=max(自己40,原厂56→102)=原厂曲线；1065 场景
+    # OP 自己 78>原厂 60 用自己——两场景都通过力矩一致性校验。
+    # 注：v_ego≤3 起步期方案A上限豁免，此下限不会与上限冲突。
+    if sng_resume_req and stock_mom > 0:
+      acc_moment = max(acc_moment, int(stock_mom))
     _last_acc_moment = float(acc_moment)
   else:
     acc_moment = 0

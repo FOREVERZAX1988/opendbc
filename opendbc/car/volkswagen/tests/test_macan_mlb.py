@@ -158,6 +158,21 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     r = make_acc(acc_enabled=True, slope_comp=False, gas_override=True, accel=-0.5, v_ego=15.0)  # 超驰
     self.assertEqual(r['verz'], 0.0, f"开关关超驰 verz 应=0，实际 {r['verz']}")
 
+  def test_sng_mom_floor(self):
+    """SnG 起步窗口 mom 下限=stock_mom（00000056 938.191 卡40<60 撤力矛盾修复）：
+    OP 起步 accel 目标低（0.15）→ mom 目标 40 → 斜坡爬到 40 停 → 40<60 被 ECU 当撤力
+    vs 原厂发力矩 100+ → st6。max(自己算的, stock_mom) 让 OP 跟随原厂爬升曲线。"""
+    # 模拟 938：OP 目标 40（accel=0.15），原厂 mom 56→88 爬升（起步窗口内）
+    seq = []
+    for sm in [56, 64, 72, 80, 88]:
+        r = make_acc(acc_enabled=True, sng_resume_req=True, stock_mom=sm, accel=0.15, v_ego=1.0)
+        seq.append(r['mom'])
+    self.assertGreaterEqual(seq[0], 56, f"首帧 mom 应≥原厂56（跟随爬升），实际 {seq[0]}")
+    self.assertGreaterEqual(seq[-1], 88, f"末帧 mom 应≥原厂88，实际 {seq[-1]}")
+    # 非起步窗口（sng_resume_req=False）：不强制下限（保持 OP 目标，斜坡起步）
+    r2 = make_acc(acc_enabled=True, sng_resume_req=False, stock_mom=100, accel=0.15, v_ego=1.0)
+    self.assertLess(r2['mom'], 60, f"非起步窗口不强制 mom 下限，实际 {r2['mom']}")
+
   def test_sng_resume(self):
     """SnG 自动起步（1b4915d）：sng_resume_req 模拟踩油门语义 → loes=1"""
     r = make_acc(v_ego=0.0, accel=0.1, sng_resume_req=True)
