@@ -72,15 +72,16 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     mlbcan._ovr_slope_step = 0
 
   def test_park_hold(self):
-    """停车保持：mom=0（不发力矩）、anh=0（原厂不用anh）、loes=0（无起步确认）、
-    保持力 verz=-2.0（镜像原厂保持力度，斜坡收敛后）"""
+    """停车保持：mom=0（不发力矩）、anh=1（62|1，0049原厂实测保持帧anh=1）、
+    loes=0（无起步确认）、保持力 verz=-2.0（镜像原厂）、axG=0.0（00000002 纯原厂
+    35599静止帧98.3%严格=0；旧0.55来自OP代发场景误拟合，已修正）"""
     r = run_frames(30, v_ego=0.0, accel=-0.56, stopping=True)
     self.assertEqual(r['mom'], 0)
     self.assertEqual(r['anh'], 1, "停车保持应发 anh=1（62|1，0049原厂实测）")
     self.assertEqual(r['loes'], 0)
     # verz 斜坡 -0.07/帧，到 -2.0 需 29 帧——30帧收敛后断言
     self.assertLessEqual(r['verz'], -2.0, f"停车保持应发深度 verz，实际 {r['verz']}")
-    self.assertAlmostEqual(r['axg'], 0.14, places=2, msg=f"停车保持 axG 应缓爬(30帧≈0.14)，实际 {r['axg']}")
+    self.assertEqual(r['axg'], 0.0, f"停车保持 axG 应=0.0（对齐原厂稳态），实际 {r['axg']}")
 
   def test_gas_override_downhill_mild(self):
     """踩油门+缓下坡（7158f13 核心回归）：旧bug是 braking 第一项漏修 gas_override，
