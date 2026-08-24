@@ -327,7 +327,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   return commands
 
 
-def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance, distance, lead_object=0, zeitluecke=4, stock_prim_anz=0, stock_status_anzeige=None, stock_texte_prim=0, stock_display_prio=None):
+def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance, distance, lead_object=0, zeitluecke=4, stock_prim_anz=0, stock_status_anzeige=None, stock_texte_prim=0, stock_display_prio=None, stock_wunschgeschw=None):
   # Stock radar's lead_object is accurate when working, but gets suppressed to 0 during
   # irreversible fault (status 7) even though ACC_Abstandsindex still tracks distance.
   # Fallback: if lead_object=0 but valid distance exists, the radar is faulted -- use distance.
@@ -347,7 +347,11 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
     # ACC_Display_Prio：2026-08-22 改透传原厂（原厂按 ab 判定 2/3；OP 按视觉 lead_obj 会相反）。
     # None 时回退 OP 逻辑（其他平台不传此参数不受影响）。
     "ACC_Display_Prio": (2 if lead_obj else 3) if stock_display_prio is None else stock_display_prio,
-    "ACC_Wunschgeschw_02": set_speed if set_speed < 250 else 327.36,
+    # ACC_Wunschgeschw_02：2026-08-25 改透传原厂（stock_wunschgeschw）。原厂行为
+    # （00000002 纯原厂全量）：st=0 才清空为 327；st=2 待机 77% 帧保留上次设定值显示；
+    # st=3/4 恒显示当前设定。旧逻辑 OP 自算 setSpeed → 待机期残留 OP 值最长 60s、
+    # 激活期与原厂差 -3.8km/h（0058段10 实证）。None 回退旧逻辑（其他平台不受影响）。
+    "ACC_Wunschgeschw_02": (set_speed if set_speed < 250 else 327.36) if stock_wunschgeschw is None else stock_wunschgeschw,
     "ACC_Gesetzte_Zeitluecke": zeitluecke,  # Mirror stock radar's ZL from ext bus (responds to DIST button)
     "ACC_Abstandsindex": lead_distance,
     "ACC_Relevantes_Objekt": lead_obj,

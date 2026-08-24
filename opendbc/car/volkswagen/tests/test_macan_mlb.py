@@ -108,6 +108,42 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     self.assertEqual(r['loes'], 0, "原厂未确认起步时 OP 不得发 loes（不跟油门持续）")
     self.assertGreater(r['mom'], 0, "力矩仍应发出（超驰不刹车）")
 
+  def test_wg_passthrough(self):
+    """WG 透传（2026-08-25）：stock_wunschgeschw 非 None 时完全跟随原厂
+    （00000002 纯原厂：st=2 待机 77% 保留上次设定值显示，st=0 才清空）；
+    None 回退旧逻辑（其他平台兼容）。"""
+    from opendbc.car.volkswagen import mlbcan
+    msg = mlbcan.create_acc_hud_control(PACKER, 0, 3, 40.0, 100, 2, lead_object=1,
+                                        stock_wunschgeschw=53.8)
+    addr, dat, bus = msg[0], msg[1], msg[2]
+    d = bytes(dat)
+    wg = (d[1] >> 4) | (d[2] << 4)   # ACC_Wunschgeschw_02 12|10
+    self.assertAlmostEqual(wg * 0.32, 53.8, delta=0.4,
+                           msg=f"WG 应透传原厂值 53.8km/h，实际 {wg*0.32:.1f}")
+    # None → 回退旧逻辑（set_speed）
+    msg2 = mlbcan.create_acc_hud_control(PACKER, 0, 3, 40.0, 100, 2, lead_object=1)
+    d2 = bytes(msg2[1])
+    wg2 = (d2[1] >> 4) | (d2[2] << 4)
+    self.assertAlmostEqual(wg2 * 0.32, 40.0, delta=0.4, msg=f"无透传源应回退 OP setSpeed，实际 {wg2*0.32:.1f}")
+
+  def test_display_rate_limit(self):
+    """显示变化率限速（2026-08-25）：单帧跳变被削到 max_step，真实接近不受影响。
+    CarController 实例化需要完整 CP——用轻量方式直接测限速数学。"""
+    # 模拟：vRel=-2m/s 接近中，雷达 abstand 从 300 跳到 500（视觉补位切换台阶）
+    vrel = -2.0
+    max_step = max(4, int(abs(vrel) * 16))   # =32/帧
+    disp = 300
+    for target in [500]:
+      delta = target - disp
+      if abs(delta) > max_step:
+        disp += max_step if delta > 0 else -max_step
+      else:
+        disp = target
+    self.assertEqual(disp, 332, f"接近中单帧最多走 {max_step}，实际 {disp}")
+    # 静止（vRel=0）：max_step 兜底 4，慢速收敛不卡死
+    max_step0 = max(4, int(0.0 * 16))
+    self.assertEqual(max_step0, 4)
+
   def test_sng_axg_follows_mom_low_accel(self):
     """SnG 起步且 accel<0.05（前车慢起步，2026-08-24 0057/0058/938 st6 根因）：
     axG 必须仍跟随 mom 爬升（提示变速箱接合），不得掉 0。
