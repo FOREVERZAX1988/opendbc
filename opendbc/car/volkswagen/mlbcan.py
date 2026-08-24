@@ -188,7 +188,16 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # 待机/关闭/故障：verz=0.0（对齐原厂）。00000002(67段)+00000056 全 route 实测：原厂
     # st=0/2/6 时 verz 全 0.0，原厂 verz 全域 [-2.0,+1.58] 从无 3.01。旧代码 3.01（raw2046
     # 饱和值）是自创占位，ECU 可能做值域检查判异常，且与原厂"待机=中性0"语义偏离——已修正。
-    verz = 0.0
+    # 2026-08-24 坡度补偿扩展：MacanSlopeComp 开启且激活中上坡（slope_pct>0）时，
+    # verz 发正值 = "加速声明"（对齐原厂）。00000002 拟合：verz_positive ≈ 4.2*sinθ
+    # （坡度6%→+0.26、8%→+0.35、10%→+0.42，R²~0.95），上限 1.0 防过大。
+    # 原厂语义（00000002 全 route 实证）：verz 是双向加速度请求（负=减速/0=巡航/正=加速
+    # 声明+上坡补偿），正值期间 mom 同步发力矩（巡航）或 mom=0 交棒（超驰过渡）。开关关
+    # =完全现状（verz=0）；mom 的 accel_eff 坡度补偿保留（上坡加力矩）。
+    if acc_enabled and slope_comp and slope_pct > 0:
+      verz = round(min(4.2 * math.sin(math.atan(slope_pct / 100.0)), 1.0), 3)
+    else:
+      verz = 0.0
     _last_accel_cmd = 0.0
 
   # Stock ACC signal behavior observed from Cabana:

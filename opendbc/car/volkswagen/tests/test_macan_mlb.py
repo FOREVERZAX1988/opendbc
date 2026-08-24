@@ -120,6 +120,20 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     self.assertEqual(r['mom'], 0, "待机不应发力矩")
     self.assertEqual(r['st'], 2, "待机 st 应为 2")
 
+  def test_slope_comp_verz_positive(self):
+    """MacanSlopeComp 开启+上坡：verz 发正值=加速声明（00000002 拟合 4.2*sinθ）。
+    开关关=verz=0（现状）。坡度6%→4.2*0.06≈0.25。"""
+    # 开关开 + 上坡 6% + 巡航（accel=0）
+    r = make_acc(acc_enabled=True, slope_comp=True, slope_pct=6.0, accel=0.0, v_ego=15.0)
+    self.assertGreater(r['verz'], 0.2, f"上坡6% verz 应≈+0.25（加速声明），实际 {r['verz']}")
+    self.assertLess(r['verz'], 0.4, f"上坡6% verz 不应超 0.4，实际 {r['verz']}")
+    # 开关关（默认）：verz=0
+    r2 = make_acc(acc_enabled=True, slope_comp=False, slope_pct=6.0, accel=0.0, v_ego=15.0)
+    self.assertEqual(r2['verz'], 0.0, f"开关关 verz 应=0，实际 {r2['verz']}")
+    # 下坡（slope_pct<0）+ 非 braking：verz=0（减速走 braking 分支）
+    r3 = make_acc(acc_enabled=True, slope_comp=True, slope_pct=-6.0, accel=0.0, v_ego=15.0)
+    self.assertLessEqual(r3['verz'], 0.05, f"下坡不应发正值，实际 {r3['verz']}")
+
   def test_sng_resume(self):
     """SnG 自动起步（1b4915d）：sng_resume_req 模拟踩油门语义 → loes=1"""
     r = make_acc(v_ego=0.0, accel=0.1, sng_resume_req=True)
