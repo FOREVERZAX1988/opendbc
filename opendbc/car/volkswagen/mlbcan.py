@@ -241,21 +241,30 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   #   Cruise/Accel: ACC_Verz_anf=0, ACC_Freigabe_Verzanf=0, ACC_ax_Getriebe=positive, torque enabled
   #   Braking:      ACC_Verz_anf=negative, ACC_Freigabe_Verzanf=1, ACC_ax_Getriebe=negative, torque=0
   #   Disabled:     ACC_Verz_anf=0, all others=0
-  # ACC_ax_Getriebe（变速箱预期加速度提示）：2026-08-23 拟合原厂。
-  # 原厂实测（route 00000002 seg14 + 00000055 seg05）：
-  #  - 停车保持：axG 0→0.55 缓爬约 1s 后稳定（rate≈0.005/帧 @100Hz）
-  #  - 起步/加速：随 mom 缓爬（seg05 拟合 axG≈0.01*mom：mom60→0.55、mom120→1.2）
+  # ACC_ax_Getriebe（变速箱预期加速度提示）：2026-08-23 拟合 + 2026-08-24 修正。
+  # 原厂实测（route 00000002 67段全量）：
+  #  - 停车保持：axG=0.0（保持帧 5040 个中 93% 为 0；旧 0.55 拟合来自 00000055 seg05
+  #    OP 代发场景，非纯原厂行为——0057 段7 原厂 src2 保持期 +1.992 同样是
+  #    OP 代发场景下原厂计算值，纯原厂保持期为 0.0）
+  #  - 起步/加速：随 mom 缓爬（axG≈0.01*mom：00000002 loes 起步 0.144→1.248 与
+  #    mom 49→114 同步爬升）
   #  - 巡航：0.0（原厂 94% 时间），待机：0.0
   #  - 减速：负值透传（保留旧逻辑，速度相关 clamp 到 -2.016）
   # 注：旧注释"00000039 seg7 实锤原厂 axG=+1.63"被 00000002（67段完整原厂）推翻——
-  # 那次大概率看的是 OP 自己代发的帧。原厂停车保持 axG 实际是 0→0.55 缓爬。
+  # 那次大概率看的是 OP 自己代发的帧。
   if acc_enabled:
     if stopping:
       ax_target = 0.55
     elif braking:
       ax_target = max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))
-    elif accel > 0.05:
-      # 真正加速请求才提示变速箱（原厂巡航 axG=0，仅加速/起步爬升）
+    elif accel > 0.05 or sng_resume_req:
+      # 真正加速请求才提示变速箱（原厂巡航 axG=0，仅加速/起步爬升）。
+      # 2026-08-24 修复（0057段7/0058段2/938 st6 实锤）：SnG 起步窗口即使 accel 低
+      # （前车慢起步 <0.05m/s²）也强制 axG=0.01*mom 提示变速箱接合——原厂自动起步
+      # axG 持续爬升（00000002 实测 0.144→1.248 与 mom 同步），旧代码 accel≤0.05 走
+      # else → axG 掉 0 → 变速箱脱开 → 扭矩不传递 → 车不动（转速恒定 800）→ 原厂 st6。
+      # axG 跟随 mom（0.01*mom）：前车起步又停 → stock_mom 掉 0 → mom 掉 → axG 自动
+      # 归 0，不会空转提示加速（碰撞防护仍在 planner/MPC 层 + braking 分支优先）。
       ax_target = min(0.01 * acc_moment, 1.3)
     elif acc_control == 4 and not gas_override and v_ego > 5.0:
       # 超驰滑行（st=4 且司机松油门且车速>18km/h）：发负值提示变速箱降挡。

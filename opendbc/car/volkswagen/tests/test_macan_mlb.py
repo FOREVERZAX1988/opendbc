@@ -107,6 +107,22 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     self.assertEqual(r['loes'], 0, "原厂未确认起步时 OP 不得发 loes（不跟油门持续）")
     self.assertGreater(r['mom'], 0, "力矩仍应发出（超驰不刹车）")
 
+  def test_sng_axg_follows_mom_low_accel(self):
+    """SnG 起步且 accel<0.05（前车慢起步，2026-08-24 0057/0058/938 st6 根因）：
+    axG 必须仍跟随 mom 爬升（提示变速箱接合），不得掉 0。
+    00000002 原厂实测：起步 axG 持续爬升 0.144→1.248 与 mom 同步；
+    旧代码 accel<=0.05 走 else → ax_target=0 → axG 掉 0 → 变速箱脱开 → 车不动 → 原厂 st6。
+    修复：accel>0.05 or sng_resume_req → 起步窗口 axG=0.01*mom=0.65（65基线）爬升。
+    前车又停 → mom 掉 0 → axG 自动归 0（防"空转提示加速"）。"""
+    r = run_frames(200, v_ego=0.0, accel=0.01, sng_resume_req=True, stock_mom=60.0)
+    self.assertGreater(r['axg'], 0.6, f"起步窗口低 accel 时 axG 应爬向 0.65，实际 {r['axg']}（旧代码恒 0→st6）")
+    self.assertGreaterEqual(r['mom'], 65, f"起步窗口 mom 应≥65 基线，实际 {r['mom']}")
+    # 前车起步又停（sng 窗口内 accel 转负 → braking 分支优先）→ verz 刹车 + axG 掉负，
+    # 绝不保持加速提示（防"空转提示加速"；碰撞防护在 planner/MPC + braking 优先）
+    r3 = run_frames(200, v_ego=0.0, accel=-0.1, sng_resume_req=True, stock_mom=0.0)
+    self.assertLess(r3['axg'], 0.0, f"前车又停：braking 优先，axG 应转负/归 0，实际 {r3['axg']}")
+    self.assertLess(r3['verz'], 0.0, f"前车又停应发刹车 verz，实际 {r3['verz']}")
+
   def test_ax_ge_launch_ramp(self):
     """起步 axG 随 mom 缓爬（原厂拟合 0.01*mom）：SnG 起步 60 帧后 axG 应>0 且爬向目标。
     旧代码起步 axG 骤降 0（accel=0.1<0.25 死区被吞）→ 变速箱误判未加速 → 过早升挡。"""
