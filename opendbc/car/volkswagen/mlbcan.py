@@ -178,18 +178,17 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
         acc_moment = min(acc_moment, int(max(stock_mom, 200.0)))   # 选项2：放开给小坡空间
       else:
         acc_moment = min(acc_moment, int(stock_mom))                # 选项1：原厂限制
-    # 方案B：SnG 起步窗口 mom 下限=原厂力矩（2026-08-24，治 st6#2 力矩矛盾）。
-    # 00000056 938.191 实锤：OP 起步 accel 目标低（0.15）→ mom 目标 40 → 斜坡爬到 40 停
-    # → 40<60（原厂"撤力"阈值，见 stock_follow 条件 stock_mom<60）被 ECU 解读为撤力，
-    # 而原厂自己在发力矩（mom 56→102 爬升）→ "激活却撤力"矛盾 → st6。
-    # 1065 对照（自动起步成功）：OP 目标 0.6 → mom 78 自然 ≥60 通过校验。
-    # max 跟随原厂爬升曲线：938 场景 OP=max(自己40,原厂56→102)=原厂曲线；1065 场景
-    # OP 自己 78>原厂 60 用自己——两场景都通过力矩一致性校验。
-    # 注：v_ego≤3 起步期方案A上限豁免，此下限不会与上限冲突；
-    # 显式 v_ego<=3.0 保证与方案A（v_ego>3 上限）在代码层面完全互斥
-    # （sng_resume_req 窗口 0.6s 内 v_ego 物理上也到不了 3.0）。
-    if sng_resume_req and stock_mom > 0 and v_ego <= 3.0:
-      acc_moment = max(acc_moment, int(stock_mom))
+    # 方案B：SnG 起步窗口 mom 下限=起步基线 65（2026-08-24，治 st6#2 "车没动"）。
+    # 00000056 实测（330 vs 938 对照）：330s 成功案例 OP mom=23-35（比原厂 87-184 低
+    # 4-5 倍！）但 vEgo 动了（0→0.3→1.0）→ 原厂放行；938s 失败 OP mom=40 且 vEgo 全程
+    # 0.0（车纹丝不动）→ 原厂判"起步请求未响应"→ st6。**判据是"车动不动"不是 mom 差距**。
+    # 修复：起步窗口 mom 下限=65（ECU 发力矩阈值 60 之上、原厂起步基线 57-87 下沿）——
+    # 响应快（车能克服静止摩擦立即动，原厂放行）+ 柔和（比原厂 87-100+ 低 25%，爬升靠
+    # +8/帧斜坡慢慢加，用户需求"稳稳的慢慢起步，安全第一"；后续成熟可逐级上调 75/85）。
+    # 注：v_ego<=3.0 与方案A（v_ego>3 上限）代码层面完全互斥（sng_resume_req 窗口
+    # 0.6s 内 v_ego 物理上也到不了 3.0）。
+    if sng_resume_req and v_ego <= 3.0:
+      acc_moment = max(acc_moment, 65)
     _last_acc_moment = float(acc_moment)
   else:
     acc_moment = 0
