@@ -187,7 +187,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # +8/帧斜坡慢慢加，用户需求"稳稳的慢慢起步，安全第一"；后续成熟可逐级上调 75/85）。
     # 注：v_ego<=3.0 与方案A（v_ego>3 上限）代码层面完全互斥（sng_resume_req 窗口
     # 0.6s 内 v_ego 物理上也到不了 3.0）。
-    if sng_resume_req and v_ego <= 3.0:
+    if sng_resume_req and stock_mom > 0 and v_ego <= 3.0:
       acc_moment = max(acc_moment, 65)
     _last_acc_moment = float(acc_moment)
   else:
