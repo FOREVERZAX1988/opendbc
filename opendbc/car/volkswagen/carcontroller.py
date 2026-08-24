@@ -274,6 +274,12 @@ class CarController(CarControllerBase, SnGCarController):
             if stock_anhalten:
               accel = min(accel, -1.0)
             elif stock_verz < 0:
+              # min 在负值域取**更深**的一方 = OP 刹车深度永远取最深（安全设计）：
+              #   原厂没识别静止目标（verz=0）→ 本分支不执行 → OP 自主深刹 ✓
+              #   原厂浅刹 -0.36 / OP 想深刹 -0.5 → min(-0.5,-0.36)=-0.5 → OP 保持深刹 ✓
+              #   OP 浅 / 原厂深 → OP 被压到原厂深度 ✓（刹车从不比原厂浅）
+              # 绝不可改 max——原厂未识别静止车辆时 OP 会失去刹车能力（致命事故 bug）。
+              # 848 案例 OP -0.42 vs 原厂 -0.36（OP 深 0.06）是预期行为（取更深），非 bug。
               accel = min(accel, stock_verz)
           # 撤力跟随（00000041 seg5/seg7 实锤补丁）：原厂力矩归零（mom<60）或切减速通道
           # （fv=1）时，OP 必须让代发帧完全镜像原厂（mom=0、FM=0、FV/verz 跟随原厂）。

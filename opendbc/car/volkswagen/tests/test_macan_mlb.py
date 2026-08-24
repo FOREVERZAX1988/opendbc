@@ -77,7 +77,7 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     self.assertEqual(r['loes'], 0)
     # verz 斜坡 -0.07/帧，到 -2.0 需 29 帧——30帧收敛后断言
     self.assertLessEqual(r['verz'], -2.0, f"停车保持应发深度 verz，实际 {r['verz']}")
-    self.assertAlmostEqual(r['axg'], 0.14, places=2, msg=f"停车保持 axG 应缓爬(30帧≈0.14)，实际 {r['axg']}（对齐原厂 0→0.55 缓爬，非旧 1.63）")
+    self.assertAlmostEqual(r['axg'], 0.14, places=2, msg=f"停车保持 axG 应缓爬(30帧≈0.14)，实际 {r['axg']}")
 
   def test_gas_override_downhill_mild(self):
     """踩油门+缓下坡（7158f13 核心回归）：旧bug是 braking 第一项漏修 gas_override，
@@ -151,12 +151,15 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     self.assertEqual(r['fm'], 0)
 
   def test_braking_verz_ramp(self):
-    """braking 时 verz 斜坡渐进：首帧浅（-0.07起步），收敛后到目标"""
+    """braking verz：急刹（delta>0.15）瞬间跳深对齐原厂；缓刹渐进"""
     r1 = make_acc(v_ego=5.0, accel=-0.3)
     self.assertEqual(r1['mom'], 0)
-    # 首帧 verz = -0.07（斜坡起点，valid 浅值）。旧断言"哨兵深值<-2.0"基于测试解析的
-    # 有符号误读（-0.07 被读成 -10.31）；DBC 32|11@1+ 为无符号，修正后如实读取。
-    self.assertAlmostEqual(r1['verz'], -0.07, places=2, msg=f"首帧 verz 应为斜坡起点 -0.07，实际 {r1['verz']}")
+    # 急刹（delta=0.3>0.15）：一帧到位 -0.3（原厂急刹 1.49/2.0 也是瞬间跳，00000002 全量统计）
+    self.assertAlmostEqual(r1['verz'], -0.3, places=2, msg=f"急刹应瞬间跳深对齐原厂，实际 {r1['verz']}")
+    # 缓刹（delta≤0.15）：渐进 -0.07/帧（先重置斜坡状态，避免 r1 遗留 -0.3 影响）
+    mlbcan._last_accel_cmd = 0.0
+    r2 = make_acc(v_ego=5.0, accel=-0.1)
+    self.assertAlmostEqual(r2['verz'], -0.07, places=2, msg=f"缓刹首帧应渐进 -0.07，实际 {r2['verz']}")
     r15 = run_frames(15, v_ego=5.0, accel=-0.3)
     self.assertLessEqual(r15['verz'], -0.25, "收敛后 verz 接近 accel 深度")
 

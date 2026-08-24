@@ -174,7 +174,13 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     target_verz = -2.0 if stopping else max(accel_eff, -2.2)  # 原厂实测最深-2.215
     global _last_accel_cmd
     if target_verz < _last_accel_cmd:
-      verz = max(target_verz, _last_accel_cmd - 0.07)  # 原厂实测 0.06-0.07/帧（0000004c seg22/23/25 紧急加深）
+      delta = _last_accel_cmd - target_verz
+      if delta > 0.15:
+        # 急刹：对齐原厂瞬间跳深（00000002 全量统计：原厂急刹 1.49/2.0 一帧到位，
+        # 无 0.07 中间阶梯；旧代码 0.07/帧追深把急刹拉成 ~210ms 斜坡 → 刹车响应慢）。
+        verz = target_verz
+      else:
+        verz = max(target_verz, _last_accel_cmd - 0.07)  # 缓刹渐进（对齐原厂平滑微调）
     else:
       verz = target_verz
     _last_accel_cmd = verz
