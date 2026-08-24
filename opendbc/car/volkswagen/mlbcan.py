@@ -252,9 +252,12 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   #  - 减速：负值透传（保留旧逻辑，速度相关 clamp 到 -2.016）
   # 注：旧注释"00000039 seg7 实锤原厂 axG=+1.63"被 00000002（67段完整原厂）推翻——
   # 那次大概率看的是 OP 自己代发的帧。
+  # 注：停车保持 axG=0.0 对齐原厂（2026-08-25 终审：00000002 纯原厂 35599 静止帧
+  # 98.3% axG 严格=0，非零仅刹停衰减尾巴/起步瞬间/保持微调；旧 0.55 来自
+  # 00000055 seg05 OP 代发场景误拟合）。
   if acc_enabled:
     if stopping:
-      ax_target = 0.55
+      ax_target = 0.0
     elif braking:
       ax_target = max(accel, max(-2.016, -0.6 - 0.08 * v_ego * 3.6))
     elif accel > 0.05 or sng_resume_req:
