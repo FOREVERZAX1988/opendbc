@@ -28,7 +28,7 @@ def parse_acc05(d):
   # ACC_Verz_anf 32|11@1+ 是**无符号**（DBC vw_mlb.dbc:90）——不要按有符号处理！
   # （旧代码 if raw_v & 0x400: raw_v -= 0x800 是有符号误读：raw1444(verz=0)会被判成-604→-10.24；
   #  3.01 时代 raw2046 被掩盖。正确：raw×0.005-7.22，verz=0→raw1444、保持-2.0→raw1044）
-  verz = round(raw_v * 0.005 - 7.22, 2)         # ACC_Verz_anf 32|11
+  verz = round(raw_v * 0.005 - 7.22, 3)         # ACC_Verz_anf 32|11（0.005网格，3位精度；round2 会把 0.025 浮点偏差放大成 0.03）
   fm = (d[1] >> 4) & 0x1       # ACC_Freigabe_Momentenanf 12|1
   fv = (d[1] >> 5) & 0x1       # ACC_Freigabe_Verzanf 13|1
   loes = (d[5] >> 3) & 0x1     # ACC_Loeseanforderung 43|1
@@ -67,6 +67,9 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     mlbcan._last_acc_moment = 0.0
     mlbcan._last_accel_cmd = 0.0
     mlbcan._last_ax_ge = 0.0
+    mlbcan._prev_braking = False
+    mlbcan._ovr_slope_active = False
+    mlbcan._ovr_slope_step = 0
 
   def test_park_hold(self):
     """停车保持：mom=0（不发力矩）、anh=0（原厂不用anh）、loes=0（无起步确认）、
@@ -133,6 +136,27 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     # 下坡（slope_pct<0）+ 非 braking：verz=0（减速走 braking 分支）
     r3 = make_acc(acc_enabled=True, slope_comp=True, slope_pct=-6.0, accel=0.0, v_ego=15.0)
     self.assertLessEqual(r3['verz'], 0.05, f"下坡不应发正值，实际 {r3['verz']}")
+
+  def test_slope_comp_override_positive_ramp(self):
+    """减速中踩油门切超驰：MacanSlopeComp 开→verz 爬正斜坡（对齐原厂 2043 窗口
+    序列 0.025→0.205→0.385→0.565→0.745→0.925→1.105→1.285→归0，9帧=180ms）；
+    开关关→verz 直接归0（现状）。"""
+    # 帧1：减速中（未踩油门）→ braking → verz 负值
+    r1 = make_acc(acc_enabled=True, slope_comp=True, gas_override=False, accel=-0.5, v_ego=15.0)
+    self.assertLess(r1['verz'], 0, f"减速帧 verz 应为负，实际 {r1['verz']}")
+    # 帧2-10：踩油门切超驰 → 斜坡爬正序列
+    seq = [make_acc(acc_enabled=True, slope_comp=True, gas_override=True, accel=-0.5, v_ego=15.0)['verz'] for _ in range(9)]
+    exp = [0.025, 0.205, 0.385, 0.565, 0.745, 0.925, 1.105, 1.285, 0.0]
+    self.assertEqual(seq, exp, f"超驰斜坡序列 {seq} != 原厂 {exp}")
+    # 斜坡结束后保持 0
+    r_last = make_acc(acc_enabled=True, slope_comp=True, gas_override=True, accel=-0.5, v_ego=15.0)
+    self.assertEqual(r_last['verz'], 0.0, f"斜坡结束应归0，实际 {r_last['verz']}")
+
+  def test_slope_comp_override_off_direct_zero(self):
+    """开关关：减速→超驰 verz 直接归0（现状，00000056 31次实证原厂容忍）"""
+    make_acc(acc_enabled=True, slope_comp=False, gas_override=False, accel=-0.5, v_ego=15.0)  # 减速帧
+    r = make_acc(acc_enabled=True, slope_comp=False, gas_override=True, accel=-0.5, v_ego=15.0)  # 超驰
+    self.assertEqual(r['verz'], 0.0, f"开关关超驰 verz 应=0，实际 {r['verz']}")
 
   def test_sng_resume(self):
     """SnG 自动起步（1b4915d）：sng_resume_req 模拟踩油门语义 → loes=1"""
