@@ -17,6 +17,12 @@ _ACC_SCALE_MAX = 1.8
 _last_acc_moment = 0.0
 _last_accel_cmd = 0.0  # 减速请求斜坡状态（原厂 verz 渐进式加深）
 _last_ax_ge = 0.0  # ACC_ax_Getriebe 缓爬状态（2026-08-23 拟合原厂，rate 0.005/帧）
+# 超驰斜坡状态（2026-08-24 对齐原厂）：减速中驾驶员踩油门切超驰时，原厂发"加速声明"
+# 斜坡（verz 爬正 +1.285/180ms 再归0，00000002 31次减速→超驰事件每次必发，2043 窗口
+# 序列 0.025→0.205→0.385→...→1.285→0）。受 MacanSlopeComp 开关控制：关=直接归0（现状）。
+_prev_braking = False       # 上一帧 braking 状态（减速→超驰上升沿检测）
+_ovr_slope_active = False   # 超驰斜坡进行中
+_ovr_slope_step = 0         # 剩余步数（9→1：0.025→1.285→归0，9帧=180ms）
 
 # TODO: Parameterize the hca control type (5 vs 7) and consolidate with MQB (and PQ?)
 def create_steering_control(packer, bus, apply_steer, lkas_enabled):
@@ -122,6 +128,17 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   else:
     braking = False
 
+  # 超驰斜坡触发（2026-08-24 对齐原厂）：上一帧 braking（减速中）→ 当前帧被 gas_override
+  # 抑制（踩油门切超驰）→ 原厂发 verz 爬正斜坡（加速声明仪式，31次减速→超驰实证每次必发，
+  # 峰值+1.285/180ms）。MacanSlopeComp 开关控制：开=发斜坡；关=直接归0（现状，31次实证
+  # 原厂容忍）。斜坡期间若 braking 重新成立（踩刹车/松油门后目标减速），下一帧走 braking
+  # 分支自然退出斜坡。
+  global _prev_braking, _ovr_slope_active, _ovr_slope_step
+  if slope_comp and not braking and _prev_braking and gas_override and not _ovr_slope_active:
+    _ovr_slope_active = True
+    _ovr_slope_step = 9
+  _prev_braking = braking
+
   # 撤力跟随优先（00000041 修复）：原厂撤力/减速（stock_follow=True）时，OP 代发帧必须完全
   # 镜像原厂——力矩归零、力矩通道关闭（FM=0）。即使 accel=0（非 braking 分支），
   # 也绝不允许发出巡航基线力矩（6.3*v+15），否则与原厂 mom=0 方向矛盾 → 雷达 st6 →
@@ -194,7 +211,16 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # 原厂语义（00000002 全 route 实证）：verz 是双向加速度请求（负=减速/0=巡航/正=加速
     # 声明+上坡补偿），正值期间 mom 同步发力矩（巡航）或 mom=0 交棒（超驰过渡）。开关关
     # =完全现状（verz=0）；mom 的 accel_eff 坡度补偿保留（上坡加力矩）。
-    if acc_enabled and slope_comp and slope_pct > 0:
+    if _ovr_slope_active:
+      # 超驰斜坡序列（对齐原厂 2043 窗口）：0.025 → 每帧+0.18 → 峰值1.285 → 归0
+      if _ovr_slope_step >= 2:
+        verz = round(0.025 + 0.18 * (9 - _ovr_slope_step), 3)
+      else:
+        verz = 0.0  # step=1：归0收尾（mom 接管发力）
+      _ovr_slope_step -= 1
+      if _ovr_slope_step <= 0:
+        _ovr_slope_active = False
+    elif acc_enabled and slope_comp and slope_pct > 0:
       verz = round(min(4.2 * math.sin(math.atan(slope_pct / 100.0)), 1.0), 3)
     else:
       verz = 0.0
