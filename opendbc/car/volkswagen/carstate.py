@@ -446,6 +446,7 @@ class CarState(CarStateBase):
     self.stock_status_anzeige = int(ext_cp.vl["ACC_02"]["ACC_Status_Anzeige"])
     self.stock_texte_prim = int(ext_cp.vl["ACC_02"]["ACC_Texte_Primaeranz"])
     self.stock_display_prio = int(ext_cp.vl["ACC_02"]["ACC_Display_Prio"])
+    self.stock_wunschgeschw = float(ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"])
     # ACC_04 显示字段透传（00000053 seg6 实锤，2026-08-22）：OP 代发 ACC_04 用"正常模板"
     # +acc_control 映射，踩油门时 acc_control=4→texte=3 而原厂 st=3→texte=8；原厂故障时
     # texte=0/Charisma_Status=2 而 OP 模板=2/1 → 显示矛盾。透传原厂值消除（同 ACC_02 模式）。

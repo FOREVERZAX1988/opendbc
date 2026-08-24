@@ -77,6 +77,11 @@ class CarController(CarControllerBase, SnGCarController):
     # 丢失时图标不闪；连续丢失超过 2s 才清除（对齐原厂"main 开+有障碍物即显示"行为）。
     self.lead_hold_expire = 0       # 单调时钟纳秒
     self.lead_hold_distance = 0
+    # 仪表距离显示平滑（2026-08-25）：迟滞防源切换抖动 + 变化率限速防跳变。
+    # 依据（0058 前5段 357k 帧）：融合后帧间 |Δabstand| p90=801cm vs 视觉 p90=398cm
+    # ——A2 硬切换台阶直接透传到仪表；仅动显示路径，控制路径（MPC 卡尔曼）不受影响。
+    self.disp_abstand = None        # 当前显示的 abstand（原厂单位 1-1021）
+    self.disp_src_radar = False     # 当前显示源是否雷达（迟滞状态）
     # SnG loes（起步确认）窗口保持（2026-08-21）：RESUME 代发上升沿起 loes=1 保持 0.6s，
     # 不依赖 standstill（车动即停会截断确认窗口）。00000049 原厂踩油门实测 400-520ms，
     # 0051 段19 SnG 仅 160ms → 原厂起步确认不足 → 撤力退出（cruiseMismatch）。
@@ -419,19 +424,50 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
         # 之前"lead_object==0 就走视觉换算"的 bug：原厂雷达有效(316)时也切去视觉(243)，
         # 导致 OP 代发背离原厂（00000052 seg9、00000051 9退出点）。现改为"雷达有效才透传，
         # 雷达无效才视觉补位"。
-        if 0 < lead_distance < 1021:  # 原厂雷达有效
+        # ---- 显示源选择 + 迟滞（2026-08-25）：进视觉补位阈值 30%、退出阈值 20%，
+        # 防两源在边界来回切（0058 实测 28.2% 帧 Abstandsindex 大差异即此抖动）。
+        radar_valid = 0 < lead_distance < 1021
+        vis_raw = self.op_lead_to_index(op_drel, CS.out.vEgo) if op_drel > 0 else 0
+        if radar_valid and not self.disp_src_radar:
+          # 视觉源中：仅当视觉也明显偏离（>30%）才切回雷达（迟滞进入条件）
+          if vis_raw == 0 or abs(lead_distance - vis_raw) > 0.30 * max(vis_raw, 1):
+            self.disp_src_radar = True
+        elif not radar_valid:
+          self.disp_src_radar = False
+        use_radar = radar_valid and self.disp_src_radar
+        if use_radar:
+          raw_abstand = lead_distance
+        elif op_drel > 0:
+          raw_abstand = vis_raw
+        elif now_nanos < self.lead_hold_expire and self.lead_hold_distance > 0:
+          raw_abstand = self.lead_hold_distance   # 保持窗（2s）：两源都无目标
+        else:
+          raw_abstand = 0
+
+        if use_radar:
           lead_object = max(lead_object, 1)
           self.lead_hold_expire = now_nanos + 2_000_000_000
           self.lead_hold_distance = lead_distance
-        else:  # 雷达=0/无效 -> 视觉补位
-          if op_drel > 0:
-            lead_distance = self.op_lead_to_index(op_drel, CS.out.vEgo)
-            lead_object = 1
-            self.lead_hold_expire = now_nanos + 2_000_000_000
-            self.lead_hold_distance = lead_distance
-          elif now_nanos < self.lead_hold_expire and self.lead_hold_distance > 0:
-            lead_distance = self.lead_hold_distance
-            lead_object = 1
+        elif op_drel > 0:
+          lead_object = 1
+          self.lead_hold_expire = now_nanos + 2_000_000_000
+          self.lead_hold_distance = lead_distance
+        elif now_nanos < self.lead_hold_expire and self.lead_hold_distance > 0:
+          lead_object = 1
+
+        # ---- 显示变化率限速（每帧最大变化 = 相对速度 × 步长，物理上限；
+        # 瞬态跳变被削平，真实接近/远离不受影响）。ACC_HUD_STEP=6 → 16Hz。
+        max_step = max(4, int(abs(getattr(CS, 'op_lead_vRel', 0.0)) * 16 * (self.CCP.ACC_HUD_STEP / self.CCP.ACC_CONTROL_STEP)))
+        if self.disp_abstand is None or raw_abstand == 0:
+          self.disp_abstand = raw_abstand
+        else:
+          delta = raw_abstand - self.disp_abstand
+          if abs(delta) > max_step:
+            delta = max_step if delta > 0 else -max_step
+            self.disp_abstand += delta
+          else:
+            self.disp_abstand = raw_abstand
+        lead_distance = max(1, min(1021, int(self.disp_abstand)))
         acc_hud_status = self.CCS.acc_hud_status_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, gas_override_stock)
         # FIXME: PQ may need to use the on-the-wire mph/kmh toggle to fix rounding errors
         # FIXME: Detect clusters with vEgoCluster offsets and apply an identical vCruiseCluster offset
@@ -442,7 +478,8 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                          stock_prim_anz=getattr(CS, 'stock_prim_anz', 0),
                                                          stock_status_anzeige=getattr(CS, 'stock_status_anzeige', None),
                                                          stock_texte_prim=getattr(CS, 'stock_texte_prim', 0),
-                                                         stock_display_prio=getattr(CS, 'stock_display_prio', None)))
+                                                         stock_display_prio=getattr(CS, 'stock_display_prio', None),
+                                                         stock_wunschgeschw=getattr(CS, 'stock_wunschgeschw', None)))
         # OP 代发 ACC_04（原厂雷达状态文本，16Hz）：屏蔽 bus2->bus0 转发后由 OP 保持总线活跃，
         # 内容为原厂正常模板（无故障文本），避免网关/仪表对 ACC_04 超时监测报 ACC 故障
         lead_speed_kph = getattr(CS, 'stock_lead_speed_kph', 327.36)
