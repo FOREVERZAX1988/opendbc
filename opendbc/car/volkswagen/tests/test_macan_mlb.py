@@ -159,19 +159,19 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     self.assertEqual(r['verz'], 0.0, f"开关关超驰 verz 应=0，实际 {r['verz']}")
 
   def test_sng_mom_floor(self):
-    """SnG 起步窗口 mom 下限=stock_mom（00000056 938.191 卡40<60 撤力矛盾修复）：
-    OP 起步 accel 目标低（0.15）→ mom 目标 40 → 斜坡爬到 40 停 → 40<60 被 ECU 当撤力
-    vs 原厂发力矩 100+ → st6。max(自己算的, stock_mom) 让 OP 跟随原厂爬升曲线。"""
-    # 模拟 938：OP 目标 40（accel=0.15），原厂 mom 56→88 爬升（起步窗口内）
-    seq = []
-    for sm in [56, 64, 72, 80, 88]:
-        r = make_acc(acc_enabled=True, sng_resume_req=True, stock_mom=sm, accel=0.15, v_ego=1.0)
-        seq.append(r['mom'])
-    self.assertGreaterEqual(seq[0], 56, f"首帧 mom 应≥原厂56（跟随爬升），实际 {seq[0]}")
-    self.assertGreaterEqual(seq[-1], 88, f"末帧 mom 应≥原厂88，实际 {seq[-1]}")
-    # 非起步窗口（sng_resume_req=False）：不强制下限（保持 OP 目标，斜坡起步）
-    r2 = make_acc(acc_enabled=True, sng_resume_req=False, stock_mom=100, accel=0.15, v_ego=1.0)
-    self.assertLess(r2['mom'], 60, f"非起步窗口不强制 mom 下限，实际 {r2['mom']}")
+    """SnG 起步窗口 mom 下限=起步基线65（治 938 "车没动" st6 + 用户需求响应快/柔和）。
+    00000056 实测：330s 成功 OP mom=23-35 但车动了→放行；938s 失败 OP mom=40 且
+    vEgo=0（车没动）→st6。判据是"车动不动"不是 mom 差距——65（ECU发力矩阈值60之上、
+    原厂基线57-87下沿）保证车能立即动（响应快）又比原厂柔和。"""
+    # 起步窗口：mom 立即≥65（车能动基线，不卡 40）
+    r = make_acc(acc_enabled=True, sng_resume_req=True, accel=0.15, v_ego=1.0)
+    self.assertGreaterEqual(r['mom'], 65, f"起步窗口 mom 应≥65（车动基线），实际 {r['mom']}")
+    # 起步窗口内连续多帧保持 ≥65（不因目标低回落到 40）
+    seq = [make_acc(acc_enabled=True, sng_resume_req=True, accel=0.15, v_ego=1.0)['mom'] for _ in range(5)]
+    self.assertTrue(all(m >= 65 for m in seq), f"起步窗口全程 mom 应≥65，实际 {seq}")
+    # 非起步窗口：不强制（保持 OP 目标，斜坡起步）
+    r2 = make_acc(acc_enabled=True, sng_resume_req=False, accel=0.15, v_ego=1.0)
+    self.assertLess(r2['mom'], 65, f"非起步窗口不强制 65 基线，实际 {r2['mom']}")
 
   def test_sng_resume(self):
     """SnG 自动起步（1b4915d）：sng_resume_req 模拟踩油门语义 → loes=1"""
