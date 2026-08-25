@@ -28,7 +28,16 @@ class CarState(CarStateBase):
     # 车距档位（ACC_02 ACC_Gesetzte_Zeitluecke，37|3）：原厂共 4 档，ZL 值=格数
     # （1=最近/1格 ... 4=最远/4格），默认 3 格（用户确认：每次上车默认 3 格，习惯按+到 4 格）。
     # 由 LS_Verstellung_Zeitluecke(20|2) 按键增减，OP 代发 ACC_02 时传给仪表。
+    # 2026-08-25 开机同步：原厂 ECU 点火重置 3 格但 OP 风格带记忆——初始档位从
+    # LongitudinalPersonality 反推（与 selfdrived._zeitluecke 同源 {2:4, 1:3, 0:1}），
+    # 保证仪表首启即显示记忆档位，消除"仪表3格 vs OP 从容"错位。缺失/异常回落 3 格（原厂行为）。
     self.stock_zeitluecke = 3
+    try:
+      from openpilot.common.params import Params
+      _zl_personality = Params().get("LongitudinalPersonality", return_default=True)
+      self.stock_zeitluecke = {2: 4, 1: 3, 0: 1}.get(_zl_personality, 3)
+    except Exception:
+      pass
     self.zeitluecke_key_last = 0
     self.curvature_meas = 0.
     self.esp_laengsbeschl = 0.0  # 原厂 ESP 纵向加速度（ESP_02），坡度补偿 v2 原厂主源
