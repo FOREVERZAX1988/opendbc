@@ -41,13 +41,18 @@ def create_lka_hud_control(packer, bus, ldw_stock_values, enabled, steering_pres
   return mqb_create_lka_hud_control(packer, bus, ldw_stock_values, enabled, steering_pressed, hud_alert, hud_control)
 
 
-def create_acc_buttons_control(packer, bus, gra_stock_values, cancel=False, resume=False, set_increase=False, set_decrease=False):
+def create_acc_buttons_control(packer, bus, gra_stock_values, cancel=False, resume=False, set_increase=False, set_decrease=False,
+                               distance_increase=False, distance_decrease=False):
   values = {s: gra_stock_values[s] for s in [
     "LS_Hauptschalter",
     "LS_Typ_Hauptschalter",
     "LS_Codierung",
     "LS_Tip_Stufe_2",
   ]}
+
+  # 距离键（DIST +/-）：值1=拉近-1格、值2=拉远+1格（20|2）。开机档位同步
+  # （MacanStartupGapSync）与物理按键转发共用此函数，0=无按键。
+  zeitluecke_val = 2 if distance_increase else (1 if distance_decrease else 0)
 
   values.update({
     "COUNTER": (gra_stock_values["COUNTER"] + 1) % 16,
@@ -56,6 +61,7 @@ def create_acc_buttons_control(packer, bus, gra_stock_values, cancel=False, resu
     "LS_Tip_Setzen": set_increase,    # SET: forward push on stalk (with LS_Tip_Hoch for speed increase)
     "LS_Tip_Hoch": set_increase,      # UP tip: speed increase (+1 mph per short press)
     "LS_Tip_Runter": set_decrease,    # DOWN tip: speed decrease (-1 mph per short press)
+    "LS_Verstellung_Zeitluecke": zeitluecke_val,
   })
 
   return packer.make_can_msg("LS_01", bus, values)
