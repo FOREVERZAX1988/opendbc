@@ -143,7 +143,17 @@ class CarControllerParams:
       self.hca_status_values = can_define.dv["LH_EPS_03"]["EPS_HCA_Status"]
 
       if CP.flags & VolkswagenFlags.MLB:
-        self.STEER_DRIVER_ALLOWANCE = 60  # Driver intervention threshold 0.6 Nm
+        # 干预灵敏度默认 60 cNm（0.6 Nm，全VW平台最低）。Macan 用户反馈"方向盘打到一半
+        # 不打了"——力矩传感器直行零偏≈-0.25Nm + 虚握≈0.35Nm 即触发干预压制。
+        # MacanSteerBiasComp 开启时可用 MacanSteerAllowance 三档覆盖（60/80/100 cNm，
+        # 对齐 MQB=100/PQ=80 成熟值）。仅在 Macan 生效，其他 MLB 车不受影响。
+        self.STEER_DRIVER_ALLOWANCE = 60
+        try:
+          from openpilot.common.params import Params
+          if CP.carFingerprint == "PORSCHE_MACAN_MK1" and Params().get_bool("MacanSteerBiasComp"):
+            self.STEER_DRIVER_ALLOWANCE = int(Params().get("MacanSteerAllowance", return_default=True) or 60)
+        except Exception:
+          pass
         self.STEER_DELTA_UP = 9  # Max HCA reached in 0.66s (STEER_MAX / (50Hz * 0.66))
         self.STEER_DELTA_DOWN = 10  # Min HCA reached in 0.60s (STEER_MAX / (50Hz * 0.60))
 

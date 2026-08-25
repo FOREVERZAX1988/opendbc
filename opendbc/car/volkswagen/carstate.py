@@ -43,6 +43,17 @@ class CarState(CarStateBase):
         self.stock_zeitluecke = {2: 4, 1: 3, 0: 1}.get(_zl_personality, 3)
     except Exception:
       pass
+    # 方向盘零偏补偿（MacanSteerBiasComp，默认关）：直行+未干预时慢速EMA学习
+    # EPS 力矩传感器零偏（实测≈-0.25Nm），从 steeringTorque 扣除——虚握/轻搭手
+    # 不再被误判为驾驶员干预（route00000058 满舵帧 pressed 97% 实锤）。
+    # 学习上限=当前干预阈值：超过即视为真实驾驶员输入，立即停止学习。
+    self._steer_bias = 0.0
+    self._steer_bias_comp = False
+    try:
+      from openpilot.common.params import Params
+      self._steer_bias_comp = (CP.carFingerprint == "PORSCHE_MACAN_MK1") and Params().get_bool("MacanSteerBiasComp")
+    except Exception:
+      pass
     self.zeitluecke_key_last = 0
     self.curvature_meas = 0.
     self.esp_laengsbeschl = 0.0  # 原厂 ESP 纵向加速度（ESP_02），坡度补偿 v2 原厂主源
@@ -553,7 +564,18 @@ class CarState(CarStateBase):
   def parse_mlb_mqb_steering_state(self, ret, pt_cp, drive_mode=True):
     ret.steeringAngleDeg = pt_cp.vl["LWI_01"]["LWI_Lenkradwinkel"] * (1, -1)[int(pt_cp.vl["LWI_01"]["LWI_VZ_Lenkradwinkel"])]
     ret.steeringRateDeg = pt_cp.vl["LWI_01"]["LWI_Lenkradw_Geschw"] * (1, -1)[int(pt_cp.vl["LWI_01"]["LWI_VZ_Lenkradw_Geschw"])]
-    ret.steeringTorque = pt_cp.vl["LH_EPS_03"]["EPS_Lenkmoment"] * (1, -1)[int(pt_cp.vl["LH_EPS_03"]["EPS_VZ_Lenkmoment"])]
+    raw_torque = pt_cp.vl["LH_EPS_03"]["EPS_Lenkmoment"] * (1, -1)[int(pt_cp.vl["LH_EPS_03"]["EPS_VZ_Lenkmoment"])]
+    if self._steer_bias_comp:
+      # 零偏学习条件：直行（角度<3°、角速度<3°/s、车速>5m/s 排除停车原地打方向）
+      # + 未干预（|raw|<阈值：学习上限即干预阈值，越区立即视为驾驶员输入停止学习）。
+      # EMA 时间常数≈1s（0.02/帧@100Hz），clamp ±50cNm 防异常漂移。弯道中不学习，
+      # 保留已学零偏；bias 吸收的是传感器恒定偏置+虚握静态力矩，真实干预立即停止吸收。
+      if ret.vEgo > 5.0 and abs(ret.steeringAngleDeg) < 3.0 and abs(ret.steeringRateDeg) < 3.0 \
+         and abs(raw_torque) < self.CCP.STEER_DRIVER_ALLOWANCE:
+        self._steer_bias = min(50.0, max(-50.0, self._steer_bias + 0.02 * (raw_torque - self._steer_bias)))
+      ret.steeringTorque = raw_torque - self._steer_bias
+    else:
+      ret.steeringTorque = raw_torque
     ret.steeringPressed = abs(ret.steeringTorque) > self.CCP.STEER_DRIVER_ALLOWANCE
 
     hca_status = self.CCP.hca_status_values.get(pt_cp.vl["LH_EPS_03"]["EPS_HCA_Status"])
