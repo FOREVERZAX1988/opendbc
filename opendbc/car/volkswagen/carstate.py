@@ -408,7 +408,14 @@ class CarState(CarStateBase):
       pt_cp.vl["ESP_03"]["ESP_HR_Radgeschw"],
     )
 
-    ret.gasPressed = pt_cp.vl["Motor_03"]["MO_Fahrpedalrohwert_01"] > 0
+    # 点火初期（onroad 启动后 25s 内）不采信踏板信号：005e/005f 点火初期 ECU 踏板信号
+    # 间歇性毛刺（005e=190尖峰0.1s、005f=16→39爬升19s；0058/0060/0061=干净）→ gasPressed
+    # 误报 → stop_and_go.py:92 阻断 SnG 起步代发 → 用户"起步被压制"感。点火初期 OP 未启用
+    # （cruiseOn=0）时 gasPressed 无控制意义，窗口抑制零风险（2026-08-26 四段数据实锤）。
+    if self.frame > 2500:
+      ret.gasPressed = pt_cp.vl["Motor_03"]["MO_Fahrpedalrohwert_01"] > 0
+    else:
+      ret.gasPressed = False
     # 踏板位置（单位%，MO_Fahrpedalrohwert_01 x0.4）：原厂超驰确认阈值约5-8%（00000002 实测
     # 1781.279 st=4 时踏板5.6%、2043.582 时7.6%），carcontroller 用它替代 gasPressed(>0) 判定超驰，
     # 消除「OP 在踏板1.2%就切 st=4 vs 原厂未确认超驰」矛盾窗口（00000056 682.109 st6 实锤）。
