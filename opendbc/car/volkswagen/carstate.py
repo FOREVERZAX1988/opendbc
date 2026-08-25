@@ -34,8 +34,13 @@ class CarState(CarStateBase):
     self.stock_zeitluecke = 3
     try:
       from openpilot.common.params import Params
-      _zl_personality = Params().get("LongitudinalPersonality", return_default=True)
-      self.stock_zeitluecke = {2: 4, 1: 3, 0: 1}.get(_zl_personality, 3)
+      _mp = Params()
+      # 同步方向开关（MacanStartupGapSync）：开=OP主导——从风格记忆反推档位
+      # （发 DIST 脉冲让原厂 ACC 对齐）；关=车辆主导——跟随原厂点火默认 3 格，
+      # 不覆盖车辆（OP 风格由 selfdrived 重置为标准）。
+      if _mp.get_bool("MacanStartupGapSync"):
+        _zl_personality = _mp.get("LongitudinalPersonality", return_default=True)
+        self.stock_zeitluecke = {2: 4, 1: 3, 0: 1}.get(_zl_personality, 3)
     except Exception:
       pass
     self.zeitluecke_key_last = 0
