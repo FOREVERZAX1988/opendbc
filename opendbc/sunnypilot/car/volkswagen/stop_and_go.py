@@ -173,3 +173,75 @@ class SnGCarController:
       can_sends.append(CCS.create_acc_buttons_control(packer, bus, CS.gra_stock_values, resume=True))
 
     return can_sends
+
+
+class StartupGapSyncCarController:
+  """Macan (MLB) 开机距离档位同步：
+
+  原厂 ACC ECU 每次点火把内部距离档重置为 3 格，而 OP 的驾驶风格带记忆
+  （LongitudinalPersonality：从容=4格/标准=3格/激进=1格）。OP 代发 ACC_02 时
+  仪表显示由 CS.stock_zeitluecke 驱动（已与记忆同步），但原厂 ACC 内部仍是 3 格
+  ——OP 退出/降级时原厂将以 3 格（标准）接管，与用户记忆不符。
+
+  本模块在停车+ACC 待机（主开关 ON 未激活）时，代发 LS_01 距离键脉冲到
+  CAN.ext（bus2 雷达侧），让原厂内部档位与记忆对齐。仅在停车时发送
+  （行驶/激活中禁止——会改变实际跟车距离）。每次 onroad 会话只同步一次。
+  """
+
+  def __init__(self, CP: structs.CarParams, CP_SP: structs.CarParamsSP):
+    self._platform_ok = (CP.brand == "volkswagen" and CP.carFingerprint == "PORSCHE_MACAN_MK1")
+    self.enabled = False
+    self._mp = None
+    try:
+      from openpilot.common.params import Params
+      self._mp = Params()
+      self.enabled = self._platform_ok and self._mp.get_bool("MacanStartupGapSync")
+    except Exception:
+      pass  # opendbc 测试环境无 openpilot 包：保持关闭
+
+    # 同步状态机（实例随 onroad 会话重建，天然每次点火重置）
+    self._synced = False       # 本次会话已完成同步
+    self._pending = 0          # 剩余待发脉冲数
+    self._send_increase = False  # True=拉远(+1格)/False=拉近(-1格)
+    self._last_send_frame = -30
+
+  def create_startup_gap_sync(self, CCS, packer, bus, CS: CarStateBase, frame: int) -> list[CanData]:
+    """返回应代发的 LS_01 距离键帧（可能为空）。仅停车+待机时发送。"""
+    can_sends = []
+    if not self.enabled or self._synced:
+      return can_sends
+
+    # 安全硬条件：停车 + ACC 待机（主开关 ON 且未激活）。
+    # 点火初期/行驶中/ACC 激活中一律不触发（行驶中改档会改变跟车距离）。
+    if not CS.out.standstill or not CS.out.cruiseState.available or CS.out.cruiseState.enabled:
+      return can_sends
+
+    # 首次满足条件：计算目标档位（与 selfdrived._zeitluecke / carstate.stock_zeitluecke 同源）
+    if self._pending == 0:
+      personality = 1
+      if self._mp is not None:
+        try:
+          personality = self._mp.get("LongitudinalPersonality", return_default=True)
+        except Exception:
+          pass
+      target = {2: 4, 1: 3, 0: 1}.get(personality, 3)
+      delta = target - 3  # 原厂点火默认 3 格
+      if delta == 0:
+        self._synced = True  # 记忆即默认，无需同步
+        return can_sends
+      self._pending = abs(delta)
+      self._send_increase = delta > 0
+
+    # 脉冲间隔 ~300ms（控制帧率 100Hz → 30 帧）。距离键是瞬时按键，
+    # 间隔发送模拟用户多次按键（3→1 需按 2 次拉近；3→4 按 1 次拉远）。
+    if frame - self._last_send_frame < 30:
+      return can_sends
+
+    can_sends.append(CCS.create_acc_buttons_control(packer, bus, CS.gra_stock_values,
+                                                    distance_increase=self._send_increase,
+                                                    distance_decrease=not self._send_increase))
+    self._pending -= 1
+    self._last_send_frame = frame
+    if self._pending <= 0:
+      self._synced = True
+    return can_sends

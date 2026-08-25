@@ -6,7 +6,7 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.volkswagen import mebcan, mlbcan, mqbcan, pqcan
 from opendbc.car.volkswagen.values import CanBus, CarControllerParams, VolkswagenFlags
-from opendbc.sunnypilot.car.volkswagen.stop_and_go import SnGCarController
+from opendbc.sunnypilot.car.volkswagen.stop_and_go import SnGCarController, StartupGapSyncCarController
 
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
 LongCtrlState = structs.CarControl.Actuators.LongControlState
@@ -85,6 +85,7 @@ class CarController(CarControllerBase, SnGCarController):
     # SnG loes（起步确认）窗口保持（2026-08-21）：RESUME 代发上升沿起 loes=1 保持 0.6s，
     # 不依赖 standstill（车动即停会截断确认窗口）。00000049 原厂踩油门实测 400-520ms，
     # 0051 段19 SnG 仅 160ms → 原厂起步确认不足 → 撤力退出（cruiseMismatch）。
+    self.gap_sync = StartupGapSyncCarController(CP, CP_SP)  # 开机距离档同步
     self.sng_loes_until = 0          # 单调时钟纳秒
     self.sng_loes_start = 0          # loes 窗口起点（事件化回收基准）
     self.sng_resume_ready_last = False
@@ -510,6 +511,10 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
     # OP 代发 LS_01 RESUME 按键帧解除原厂 anh 保持（00000047 根因修复）********* #
     can_sends.extend(self.create_stop_and_go(self.CCS, self.packer_pt, self.CAN.ext, CC, CS, self.frame,
                                              resume_ready=sng_resume_ready))
+
+    # 开机距离档位同步：停车+待机时代发 DIST +/- 脉冲，让原厂 ACC 内部档位
+    # 与 OP 记忆对齐（MacanStartupGapSync，默认关；仅 MLB 生效，行驶/激活中禁止）
+    can_sends.extend(self.gap_sync.create_startup_gap_sync(self.CCS, self.packer_pt, self.CAN.ext, CS, self.frame))
 
     new_actuators = actuators.as_builder()
     new_actuators.torque = self.apply_torque_last / self.CCP.STEER_MAX
