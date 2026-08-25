@@ -458,9 +458,17 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
 
         # ---- 显示变化率限速（每帧最大变化 = 相对速度 × 步长，物理上限；
         # 瞬态跳变被削平，真实接近/远离不受影响）。ACC_HUD_STEP=6 → 16Hz。
+        # 2026-08-26 修复：无目标时 raw_abstand=0 必须透传 0（无前车语义）——
+        # 此前 max(1,...) 钳位把 0 变成 1（最近档），叠加 mlbcan 的
+        # "0<ab<1000 即 Relevantes_Objekt=1" 兜底 → 无车时仪表恒显示
+        # "一辆车在最近位置"。仅在有目标时做平滑限速与 1..1021 clamp。
         max_step = max(4, int(abs(getattr(CS, 'op_lead_vRel', 0.0)) * 16 * (self.CCP.ACC_HUD_STEP / self.CCP.ACC_CONTROL_STEP)))
-        if self.disp_abstand is None or raw_abstand == 0:
+        if raw_abstand == 0:
+          self.disp_abstand = None   # 复位平滑状态，下次出现目标从头开始
+          lead_distance = 0          # 透传"无前车"
+        elif self.disp_abstand is None:
           self.disp_abstand = raw_abstand
+          lead_distance = max(1, min(1021, int(raw_abstand)))
         else:
           delta = raw_abstand - self.disp_abstand
           if abs(delta) > max_step:
@@ -468,7 +476,7 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
             self.disp_abstand += delta
           else:
             self.disp_abstand = raw_abstand
-        lead_distance = max(1, min(1021, int(self.disp_abstand)))
+          lead_distance = max(1, min(1021, int(self.disp_abstand)))
         acc_hud_status = self.CCS.acc_hud_status_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, gas_override_stock)
         # FIXME: PQ may need to use the on-the-wire mph/kmh toggle to fix rounding errors
         # FIXME: Detect clusters with vEgoCluster offsets and apply an identical vCruiseCluster offset
