@@ -151,7 +151,10 @@ class CarControllerParams:
         try:
           from openpilot.common.params import Params
           if CP.carFingerprint == "PORSCHE_MACAN_MK1" and Params().get_bool("MacanSteerBiasComp"):
-            self.STEER_DRIVER_ALLOWANCE = int(Params().get("MacanSteerAllowance", return_default=True) or 60)
+            # 三档：0=仅零偏补偿（不动 ALLOWANCE，保持默认 60）/ 60 / 80 cNm
+            allowance = int(Params().get("MacanSteerAllowance", return_default=True) or 0)
+            if allowance > 0:
+              self.STEER_DRIVER_ALLOWANCE = allowance
         except Exception:
           pass
         self.STEER_DELTA_UP = 9  # Max HCA reached in 0.66s (STEER_MAX / (50Hz * 0.66))
