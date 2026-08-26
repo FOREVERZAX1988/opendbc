@@ -126,6 +126,26 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     wg2 = (d2[1] >> 4) | (d2[2] << 4)
     self.assertAlmostEqual(wg2 * 0.32, 40.0, delta=0.4, msg=f"无透传源应回退 OP setSpeed，实际 {wg2*0.32:.1f}")
 
+  def test_hud_no_contradiction_frame(self):
+    """HUD 矛盾帧回归（2026-08-26 修复）：无目标时 create_acc_hud_control
+    不得输出 ab=0 + relev=1（仪表显示"一辆很近的车"幻觉，00000061 seg0 实测 67 帧）。
+    根因：raw_abstand==0 分支只清了 lead_distance，漏清 lead_object——原厂无目标
+    占位(ab=1021/relev=1)经 stock_lead_object 透传后，ab=0 与 lead_object=1 组合
+    让 mlbcan 兜底逻辑 (0<ab<1000 即 relev=1) 输出矛盾帧。"""
+    from opendbc.car.volkswagen import mlbcan
+    # 修复后语义：lead_object=0 + lead_distance=0 → relev 必须=0（无目标）
+    msg = mlbcan.create_acc_hud_control(PACKER, 0, 3, 40.0, 0, 0, lead_object=0)
+    d = bytes(msg[1])
+    ab = (d[3] | ((d[4] & 0x3) << 8))
+    rv = (d[5] >> 6) & 0x3
+    self.assertEqual(ab, 0, f"无目标时 abstand 应为 0，实际 {ab}")
+    self.assertEqual(rv, 0, f"无目标时 relev 应为 0（矛盾帧！），实际 {rv}")
+    # 对照：有目标时必须 relev=1
+    msg2 = mlbcan.create_acc_hud_control(PACKER, 0, 3, 40.0, 300, 0, lead_object=1)
+    d2 = bytes(msg2[1])
+    rv2 = (d2[5] >> 6) & 0x3
+    self.assertEqual(rv2, 1, f"有目标时 relev 应为 1，实际 {rv2}")
+
   def test_display_rate_limit(self):
     """显示变化率限速（2026-08-25）：单帧跳变被削到 max_step，真实接近不受影响。
     CarController 实例化需要完整 CP——用轻量方式直接测限速数学。"""
