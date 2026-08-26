@@ -466,6 +466,8 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
         if raw_abstand == 0:
           self.disp_abstand = None   # 复位平滑状态，下次出现目标从头开始
           lead_distance = 0          # 透传"无前车"
+          lead_object = 0            # 2026-08-26 修复：无有效距离必须同步清目标标志，
+                                     # 否则原厂无目标占位(ab=1021/relev=1)透传导致 ab=0/relev=1 矛盾帧
         elif self.disp_abstand is None:
           self.disp_abstand = raw_abstand
           lead_distance = max(1, min(1021, int(raw_abstand)))
