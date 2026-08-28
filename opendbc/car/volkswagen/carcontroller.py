@@ -48,9 +48,16 @@ class CarController(CarControllerBase, SnGCarController):
       self._mp = Params()
       self.slope_comp = self._mp.get_bool("MacanSlopeComp")
       self.slope_comp_unlimited = self._mp.get_bool("MacanSlopeCompUnlimited")
-      # 2026-08-29: 65-5/65-11 实锤修复开关（默认关，开一版试一版）
-      self.macan_axg_comp = self._mp.get_bool("MacanAxGComp")       # SnG起步axG跳过无效区(0.15)
-      self.macan_verz_follow = self._mp.get_bool("MacanVerzFollow") # 踩油门时跟随原厂减速verz
+      # 2026-08-29: 65-5/65-11 实锤修复（本轮默认开，开一版试一版）
+      # Params key 未注册 → 默认开启；注册后按注册值（后续做成正式开关）
+      try:
+        self.macan_axg_comp = self._mp.get_bool("MacanAxGComp")       # SnG起步axG跳过无效区(0.15)
+      except Exception:
+        self.macan_axg_comp = True
+      try:
+        self.macan_verz_follow = self._mp.get_bool("MacanVerzFollow") # 踩油门跟随原厂减速verz
+      except Exception:
+        self.macan_verz_follow = True
     except Exception:
       self.slope_comp = False
       self.slope_comp_unlimited = False
