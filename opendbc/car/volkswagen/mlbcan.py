@@ -90,7 +90,7 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
   return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False, stock_verz=0.0, verz_follow=False, axg_comp=False):
   global _last_acc_moment
   global _last_ax_ge
   commands = []
@@ -290,10 +290,21 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   else:
     _last_ax_ge = max(_last_ax_ge - 0.005, ax_target)
   ax_ge = round(_last_ax_ge, 3)
+  # 2026-08-29 修复（65-5 实锤）：SnG 起步窗口 axG 缓爬 0.005/帧太慢——st6 前只爬到
+  # 0.05（无效区，原厂起步即 0.144+）→ 变速箱不接合 → 车不动 → st6。MacanAxGComp
+  # 开关开启时，sng_resume_req 起步窗口 axG 直接给有效下限（参考原厂 0.144），跳过无效区。
+  # 只动 axG（变速箱预告），不碰 mom——实际加速体感不变。
+  if axg_comp and sng_resume_req and ax_ge < 0.15:
+    ax_ge = 0.15
+    _last_ax_ge = 0.15
+  # verz 跟随原厂（2026-08-29，65-11 实锤）：gas_override 时 braking 被抑制 verz=0，
+  # 原厂却 verz<0 → 矛盾。跟随：verz 取原厂值（上限 -2.2 对齐原厂最深）。
+  if verz_follow and stock_verz < -0.05 and verz > stock_verz:
+    verz = max(stock_verz, -2.2)
   acc_05_values = {
     "ACC_Status_ACC": acc_control,
     "ACC_Verz_anf": verz,
-    "ACC_Freigabe_Verzanf": 1 if (braking or (acc_enabled and stock_fv and not gas_override)) else 0,
+    "ACC_Freigabe_Verzanf": 1 if (braking or verz < -0.05 or (acc_enabled and stock_fv and not gas_override)) else 0,
     "ACC_Freigabe_Momentenanf": 1 if (acc_enabled and not braking and not stock_follow) else 0,
     "ACC_Momentenanforderung": acc_moment,
     "ACC_zul_Regelabw": 0.0,  # 原厂实测：激活巡航时=0（00000005--4 route 130帧 status=3），保持原厂一致
@@ -328,6 +339,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # （route 0000002e seg5 463.3s accFaulted 实锤）。与原厂逐字节对齐：恒 1。
     "ACC_KD_Fehler": 1,
   }
+  # 2026-08-29 修复（65-11 实锤）：gas_override 时 braking=False → verz=0，但原厂仍发
+  # verz<0（前车近要减速）→ OP verz=0 与原厂 -1.17 矛盾帧 → st6。MacanVerzFollow 开启时
+  # 跟随原厂减速请求（ECU 层仲裁驾驶员油门 vs 减速请求——与原厂一致即不矛盾）。
+  # 注意：跟随 verz 时 FV（减速许可）也必须=1（见 ACC_Freigabe_Verzanf 条件 verz<0）。
   commands.append(packer.make_can_msg("ACC_05", bus, acc_05_values))
 
   return commands
