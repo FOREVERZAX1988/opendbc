@@ -423,31 +423,31 @@ class CarState(CarStateBase):
     # OP 必须同步降级，否则「OP st=3 + 原厂已退出」矛盾窗口会让 ECU 写 DTC 锁死 ACC
     # （00000033 seg0: 309.68s 原厂 Mom146→0、309.86s st3→2，OP 仍 st=3 → 310.19s accFaulted）。
     # 正常激活时原厂 src=2 st=3（287-307s 实测一致），仅原厂退出时触发降级。
-    self.acc05_stock_status = int(ext_cp.vl["ACC_05"]["ACC_Status_ACC"])
+    self.acc05_stock_status = int(cam_cp.vl["ACC_05"]["ACC_Status_ACC"])
     # 原厂 ACC_05 减速/停车意图（bus2 雷达域 src=2）：00000037/00000038 根因修复——
     # OP 代发加速请求与原厂雷达自身减速/停车请求矛盾 1.3~5s → 雷达自检失败报 st=6 →
     # ECU 写 DTC 锁死 ACC。OP 激活期间若原厂在请求减速（ACC_Verz_anf<0）或停车
     # （ACC_Anhalten=1），carcontroller 仲裁逻辑将禁止 OP 正加速，只能比原厂保守。
-    self.acc05_stock_verz = float(ext_cp.vl["ACC_05"]["ACC_Verz_anf"])
+    self.acc05_stock_verz = float(cam_cp.vl["ACC_05"]["ACC_Verz_anf"])
     # 原厂力矩请求（ACC_Momentenanforderung，10bit 0-1021）：00000038 实锤——雷达的减速意图
     # 有两种表达：verz<0/anh=1（停车请求）与 mom 下降/归零（撤动力）。00000038@688.4s 雷达
     # mom 114→26→0 持续撤力，OP 无视继续拉 92→152 猛加速 → 雷达自检失败 st=6 → DTC 锁死。
     # 723f0b8f 只仲裁 verz/anh 拦不住该场景；此处透传 mom 供 carcontroller 做撤力仲裁。
-    self.acc05_stock_mom = float(ext_cp.vl["ACC_05"]["ACC_Momentenanforderung"])
-    self.acc05_stock_anhalten = bool(ext_cp.vl["ACC_05"]["ACC_Anhalten"])
-    self.acc05_stock_loes = bool(ext_cp.vl["ACC_05"]["ACC_Loeseanforderung"])
+    self.acc05_stock_mom = float(cam_cp.vl["ACC_05"]["ACC_Momentenanforderung"])
+    self.acc05_stock_anhalten = bool(cam_cp.vl["ACC_05"]["ACC_Anhalten"])
+    self.acc05_stock_loes = bool(cam_cp.vl["ACC_05"]["ACC_Loeseanforderung"])
     # 原厂 ACC_05 是否请求 ESP 介入（ACC_Beeinflussung_ESP，bus2 雷达域 src=2）：
     # 0000003f 实锤——原厂跟停（Verz=-2/Anh=1）全程 ESP=0（靠1挡怠速拖滞）；
     # OP 旧逻辑在仲裁把 accel 压到 stock_verz(-2) 后误触发 accel<-1 的 ESP 条件
     # → OP 代发 ESP=1 与原厂 ESP=0 矛盾（白耗液压预充，存在雷达 st6 锁死隐患）。
     # 修复：透传原厂 ESP 位，完全复刻原厂行为。
-    self.acc05_stock_esp = bool(ext_cp.vl["ACC_05"]["ACC_Beeinflussung_ESP"])
+    self.acc05_stock_esp = bool(cam_cp.vl["ACC_05"]["ACC_Beeinflussung_ESP"])
     # 原厂 ACC_05 力矩/减速通道许可（ACC_Freigabe_Momentenanf / ACC_Freigabe_Verzanf）：
     # 00000041 seg7 实锤——原厂撤力（mom 118→0）后切 FV=1 减速通道（verz 缓降到 -0.06），
     # 旧仲裁只盯 verz<-0.15（从未触发），OP 继续发 FM=1 力矩 → 方向性矛盾 → 雷达 st6 →
     # TSK_04 st02 1→0 → controlsMismatch。透传通道位供 carcontroller 做「撤力跟随」。
-    self.acc05_stock_fm = bool(ext_cp.vl["ACC_05"]["ACC_Freigabe_Momentenanf"])
-    self.acc05_stock_fv = bool(ext_cp.vl["ACC_05"]["ACC_Freigabe_Verzanf"])
+    self.acc05_stock_fm = bool(cam_cp.vl["ACC_05"]["ACC_Freigabe_Momentenanf"])
+    self.acc05_stock_fv = bool(cam_cp.vl["ACC_05"]["ACC_Freigabe_Verzanf"])
     # 原厂 ACC_02 目标车显示字段（bus2 雷达域 src=2）：OP 代发 ACC_02 到 bus0 时若
     # ACC_Abstandsindex/ACC_Relevantes_Objekt 恒 0，仪表盘永远显示「无目标」——
     # 即使 OP/雷达已捕捉到前车也不显示车距图标/三档距离（00000037/38 路试反馈）。
@@ -601,6 +601,15 @@ class CarState(CarStateBase):
     if not CP.flags & VolkswagenFlags.MLB:
       pt_messages += [
         ("Blinkmodi_02", 1)  # From J519 BCM (sent at 1Hz when no lights active, 50Hz when active)
+      ]
+    if CP.flags & VolkswagenFlags.MLB:
+      # 2026-08-28: 原厂 ACC_05 在 bus2（雷达域 src=2）。acc05_stock_*（st/loes/verz/mom/
+      # anh/fv/fm/esp）是 carcontroller 仲裁与同步降级的依据，必须读到原厂真实帧——
+      # 此前 ext_cp 读不到（fwdCamera→bus0 无 ACC_05 / 或读到 OP 自己代发帧），
+      # 同步检查形同虚设 → OP 单方面代发 st=4 与原厂 st=0 矛盾 → 仪表报 ACC/PAS
+      # 需要服务（62-26 段实锤，2026-08-28）。固定从 bus2（cam_cp）读原厂帧。
+      cam_messages += [
+        ("ACC_05", 100),
       ]
     if CP.flags & VolkswagenFlags.STOCK_HCA_PRESENT:
       cam_messages += [
