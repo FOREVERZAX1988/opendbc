@@ -43,7 +43,8 @@ def make_acc(**kw):
                   engine_torque=0.0, stock_esp=False, stock_follow=False,
                   gas_override=False, stock_fv=False, stock_mom=1021.0,
                   slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False,
-                  sng_resume_req=False)
+                  sng_resume_req=False,
+                  stock_verz=0.0, verz_follow=False, axg_comp=False, stock_axg=0.0)
   defaults.update(kw)
   msgs = mlbcan.create_acc_accel_control(PACKER, 0, **defaults)
   for addr, dat, bus in msgs:
@@ -211,22 +212,38 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     self.assertLessEqual(r3['verz'], 0.05, f"下坡不应发正值，实际 {r3['verz']}")
 
   def test_slope_comp_override_positive_ramp(self):
-    """减速中踩油门切超驰：MacanSlopeComp 开→verz 爬正斜坡（对齐原厂 2043 窗口
-    序列 0.025→0.205→0.385→0.565→0.745→0.925→1.105→1.285→归0，9帧=180ms）；
-    开关关→verz 直接归0（现状）。"""
+    """超驰透传（2026-08-29 adc8dabc，取代 0824 模拟斜坡）：减速中踩油门切超驰时
+    verz/axG 直接透传原厂值（clamp[-2.2,1.0]）——原厂超驰本身会发 verz 爬正斜坡
+    0.025→1.285（2043 窗口实证），OP 跟随 stock_verz 原值，不再自行模拟。
+    原厂 verz=0（未发值）→ 透传 0。"""
     # 帧1：减速中（未踩油门）→ braking → verz 负值
     r1 = make_acc(acc_enabled=True, slope_comp=True, gas_override=False, accel=-0.5, v_ego=15.0)
     self.assertLess(r1['verz'], 0, f"减速帧 verz 应为负，实际 {r1['verz']}")
-    # 帧2-10：踩油门切超驰 → 斜坡爬正序列
-    seq = [make_acc(acc_enabled=True, slope_comp=True, gas_override=True, accel=-0.5, v_ego=15.0)['verz'] for _ in range(9)]
-    exp = [0.025, 0.205, 0.385, 0.565, 0.745, 0.925, 1.105, 1.285, 0.0]
-    self.assertEqual(seq, exp, f"超驰斜坡序列 {seq} != 原厂 {exp}")
-    # 斜坡结束后保持 0
-    r_last = make_acc(acc_enabled=True, slope_comp=True, gas_override=True, accel=-0.5, v_ego=15.0)
-    self.assertEqual(r_last['verz'], 0.0, f"斜坡结束应归0，实际 {r_last['verz']}")
+    # 帧2-10：踩油门切超驰 → 透传原厂 verz 序列（模拟原厂斜坡 0.025→1.285→归0）。
+    # 钳制边界：原厂峰值 1.105/1.285 被 clamp 上限 1.0 压到 1.0（当前设计）。
+    # 注：4e/4f 离线验证 38 窗口钳制帧=0（原厂超驰 verz 未超 1.0），>1.0 场景未覆盖，
+    # 差值 0.285<0.3 矛盾阈值，但严格透传语义是否放开上限待路试评估（2043 窗口实测峰值）。
+    stock_seq = [0.025, 0.205, 0.385, 0.565, 0.745, 0.925, 1.105, 1.285, 0.0]
+    seq = [make_acc(acc_enabled=True, slope_comp=True, gas_override=True, accel=-0.5,
+                    v_ego=15.0, stock_verz=v)['verz'] for v in stock_seq]
+    exp = [0.025, 0.205, 0.385, 0.565, 0.745, 0.925, 1.0, 1.0, 0.0]
+    self.assertEqual(seq, exp, f"超驰透传(钳制1.0)序列 {seq} != 期望 {exp}")
+    # 原厂 verz=0（未发值）→ 透传 0，不再发模拟斜坡
+    r_zero = make_acc(acc_enabled=True, slope_comp=True, gas_override=True, accel=-0.5,
+                      v_ego=15.0, stock_verz=0.0)
+    self.assertEqual(r_zero['verz'], 0.0, f"原厂 verz=0 应透传 0，实际 {r_zero['verz']}")
+    # axG 同步透传（0829 核心：消除 OP帧≠雷达请求 执行反馈矛盾）
+    r_axg = make_acc(acc_enabled=True, slope_comp=True, gas_override=True, accel=-0.5,
+                     v_ego=15.0, stock_axg=1.0)
+    self.assertAlmostEqual(r_axg['axg'], 1.0, delta=0.03, msg=f"axG 应透传≈1.0，实际 {r_axg['axg']}")
+    # clamp 上下界：stock_verz 越界 → [−2.2, 1.0]
+    r_hi = make_acc(acc_enabled=True, gas_override=True, accel=-0.5, v_ego=15.0, stock_verz=1.5)
+    self.assertEqual(r_hi['verz'], 1.0, f"stock_verz=1.5 应钳到 1.0，实际 {r_hi['verz']}")
+    r_lo = make_acc(acc_enabled=True, gas_override=True, accel=-0.5, v_ego=15.0, stock_verz=-2.5)
+    self.assertEqual(r_lo['verz'], -2.2, f"stock_verz=-2.5 应钳到 -2.2，实际 {r_lo['verz']}")
 
   def test_slope_comp_override_off_direct_zero(self):
-    """开关关：减速→超驰 verz 直接归0（现状，00000056 31次实证原厂容忍）"""
+    """原厂 verz=0（未发值）超驰：透传 0（00000056 31次实证原厂容忍；0829 起为透传语义）"""
     make_acc(acc_enabled=True, slope_comp=False, gas_override=False, accel=-0.5, v_ego=15.0)  # 减速帧
     r = make_acc(acc_enabled=True, slope_comp=False, gas_override=True, accel=-0.5, v_ego=15.0)  # 超驰
     self.assertEqual(r['verz'], 0.0, f"开关关超驰 verz 应=0，实际 {r['verz']}")
