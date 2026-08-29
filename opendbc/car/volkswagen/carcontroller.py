@@ -12,28 +12,6 @@ VisualAlert = structs.CarControl.HUDControl.VisualAlert
 LongCtrlState = structs.CarControl.Actuators.LongControlState
 
 
-class HCAMitigation:
-  """
-  Manages HCA fault mitigations for VW/Audi EPS racks:
-    * Reduces torque by 1 for a single frame after commanding the same torque value for too long
-  """
-
-  def __init__(self, CCP):
-    self._max_same_torque_frames = CCP.STEER_TIME_STUCK_TORQUE / (DT_CTRL * CCP.STEER_STEP)
-    self._same_torque_frames = 0
-
-  def update(self, apply_torque, apply_torque_last):
-    if apply_torque != 0 and apply_torque_last == apply_torque:
-      self._same_torque_frames += 1
-      if self._same_torque_frames > self._max_same_torque_frames:
-        apply_torque -= (1, -1)[apply_torque < 0]
-        self._same_torque_frames = 0
-    else:
-      self._same_torque_frames = 0
-
-    return apply_torque
-
-
 class CarController(CarControllerBase, SnGCarController):
   def __init__(self, dbc_names, CP, CP_SP):
     super().__init__(dbc_names, CP, CP_SP)
@@ -99,7 +77,17 @@ class CarController(CarControllerBase, SnGCarController):
     self.sng_loes_until = 0          # 单调时钟纳秒
     self.sng_loes_start = 0          # loes 窗口起点（事件化回收基准）
     self.sng_resume_ready_last = False
-    self.hca_mitigation = HCAMitigation(self.CCP)
+    self.eps_timer_soft_disable_alert = False
+    self.hca_frame_timer_running = 0
+    self.hca_frame_same_torque = 0
+
+    # EPS timer reset workaround for MLB platforms (Porsche Macan, Audi, etc.)
+    # MQB racks reset the timer after a single frame of HCA disabled.
+    # MLB racks need > 1 second to reset; we try to reset when
+    # engaged for a long time and torque output is currently low.
+    self.eps_timer_workaround = bool(CP.flags & VolkswagenFlags.MLB)
+    self.hca_frame_timer_resetting = 0
+    self.hca_frame_low_torque = 0
 
   @staticmethod
   def op_lead_to_index(drel, vego):
@@ -185,18 +173,61 @@ class CarController(CarControllerBase, SnGCarController):
         self.steering_power_last = steering_power
 
       else:
+        #   * Don't steer unless HCA is in state 3 "ready" or 5 "active"
+        #   * Don't steer at standstill
+        #   * Don't send > 3.00 Newton-meters torque
+        #   * Don't send the same torque for > 6 seconds
+        #   * Don't send uninterrupted steering for > 360 seconds
+        # MQB racks reset the uninterrupted steering timer after a single frame
+        # of HCA disabled; this is done whenever output happens to be zero.
+        # MLB racks need > 1 second to reset; try to reset if engaged for a long
+        # time and torque output is currently low. Resets are aborted early if
+        # torque demand rises. Long resets, completed or not, need apply_torque
+        # reset to 0 on exit due to rate limit safety.
+
         if CC.latActive:
           new_torque = int(round(actuators.torque * self.CCP.STEER_MAX))
           apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last, CS.out.steeringTorque, self.CCP)
+          self.hca_frame_timer_running += self.CCP.STEER_STEP
+          if self.apply_torque_last == apply_torque:
+            self.hca_frame_same_torque += self.CCP.STEER_STEP
+            if self.hca_frame_same_torque > self.CCP.STEER_TIME_STUCK_TORQUE / DT_CTRL:
+              apply_torque -= (1, -1)[apply_torque < 0]
+              self.hca_frame_same_torque = 0
+          else:
+            self.hca_frame_same_torque = 0
+          hca_enabled = abs(apply_torque) > 0
 
-        apply_torque = self.hca_mitigation.update(apply_torque, self.apply_torque_last)
-        hca_enabled = apply_torque != 0
+          # EPS timer reset workaround for MLB platforms
+          if self.eps_timer_workaround and self.hca_frame_timer_running >= self.CCP.STEER_TIME_BM / DT_CTRL:
+            if abs(apply_torque) <= self.CCP.STEER_LOW_TORQUE:
+              self.hca_frame_low_torque += self.CCP.STEER_STEP
+              if self.hca_frame_low_torque >= self.CCP.STEER_TIME_LOW_TORQUE / DT_CTRL:
+                hca_enabled = False
+            else:
+              self.hca_frame_low_torque = 0
+              if self.hca_frame_timer_resetting > 0:
+                apply_torque = 0
+        else:
+          self.hca_frame_low_torque = 0
+          hca_enabled = False
+          apply_torque = 0
+
+        if hca_enabled:
+          output_torque = apply_torque
+          self.hca_frame_timer_resetting = 0
+        else:
+          output_torque = 0
+          self.hca_frame_timer_resetting += self.CCP.STEER_STEP
+          if self.hca_frame_timer_resetting >= self.CCP.STEER_TIME_RESET / DT_CTRL or not self.eps_timer_workaround:
+            self.hca_frame_timer_running = 0
+            apply_torque = 0
+
+        self.eps_timer_soft_disable_alert = self.hca_frame_timer_running > self.CCP.STEER_TIME_ALERT / DT_CTRL
         self.apply_torque_last = apply_torque
-        can_sends.append(self.CCS.create_steering_control(self.packer_pt, self.CAN.pt, apply_torque, hca_enabled))
+        can_sends.append(self.CCS.create_steering_control(self.packer_pt, self.CAN.pt, output_torque, hca_enabled))
 
-      # Macan(MLB): 指纹无 0x126 → STOCK_HCA_PRESENT 不设；但 MLB EPS 同样有 EA 驾驶员不活动检测
-      # （约6分钟 hands-off 后撤权→横向退出），按车型启用 EA 模拟（jyoung #24711 方案）
-      if (self.CP.flags & VolkswagenFlags.STOCK_HCA_PRESENT or self.CP.carFingerprint == "PORSCHE_MACAN_MK1") and CS.eps_stock_values:
+      if self.CP.flags & VolkswagenFlags.STOCK_HCA_PRESENT:
         # Pacify VW Emergency Assist driver inactivity detection by changing its view of driver steering input torque
         # to the greatest of actual driver input or 2x openpilot's output (1x openpilot output is not enough to
         # consistently reset inactivity detection on straight level roads). See commaai/openpilot#23274 for background.
@@ -204,7 +235,6 @@ class CarController(CarControllerBase, SnGCarController):
         if abs(CS.out.steeringTorque) > abs(ea_simulated_torque):
           ea_simulated_torque = CS.out.steeringTorque
         can_sends.append(self.CCS.create_eps_update(self.packer_pt, self.CAN.cam, CS.eps_stock_values, ea_simulated_torque))
-
     # Emergency Assist intervention
     if self.CP.flags & VolkswagenFlags.MEB and self.CP.flags & VolkswagenFlags.STOCK_KLR_PRESENT:
       # send capacitive steering wheel hands-on message to keep ACC resume active and control Emergency Assist
