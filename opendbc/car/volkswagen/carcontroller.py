@@ -194,7 +194,9 @@ class CarController(CarControllerBase, SnGCarController):
         self.apply_torque_last = apply_torque
         can_sends.append(self.CCS.create_steering_control(self.packer_pt, self.CAN.pt, apply_torque, hca_enabled))
 
-      if self.CP.flags & VolkswagenFlags.STOCK_HCA_PRESENT:
+      # Macan(MLB): 指纹无 0x126 → STOCK_HCA_PRESENT 不设；但 MLB EPS 同样有 EA 驾驶员不活动检测
+      # （约6分钟 hands-off 后撤权→横向退出），按车型启用 EA 模拟（jyoung #24711 方案）
+      if (self.CP.flags & VolkswagenFlags.STOCK_HCA_PRESENT or self.CP.carFingerprint == "PORSCHE_MACAN_MK1") and CS.eps_stock_values:
         # Pacify VW Emergency Assist driver inactivity detection by changing its view of driver steering input torque
         # to the greatest of actual driver input or 2x openpilot's output (1x openpilot output is not enough to
         # consistently reset inactivity detection on straight level roads). See commaai/openpilot#23274 for background.
