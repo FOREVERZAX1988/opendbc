@@ -1,5 +1,6 @@
 from opendbc.car.volkswagen.mqbcan import (volkswagen_mqb_meb_checksum, xor_checksum,
-                                           create_lka_hud_control as mqb_create_lka_hud_control)
+                                           create_lka_hud_control as mqb_create_lka_hud_control,
+                                           create_eps_update)
 
 # 柔和加速（原厂ACC风格）：k_accel 上限 0.55、scale 封顶 1.8、扭矩上升斜坡 8Nm/帧(≈400Nm/s)
 #
