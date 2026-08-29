@@ -429,6 +429,9 @@ class CarState(CarStateBase):
     # ECU 写 DTC 锁死 ACC。OP 激活期间若原厂在请求减速（ACC_Verz_anf<0）或停车
     # （ACC_Anhalten=1），carcontroller 仲裁逻辑将禁止 OP 正加速，只能比原厂保守。
     self.acc05_stock_verz = float(cam_cp.vl["ACC_05"]["ACC_Verz_anf"])
+    # 原厂 axG（ACC_ax_Getriebe 48|9 0.024 -2.016）：超驰透传用（2026-08-29 4e/4f
+    # 38窗口3299帧验证：超驰时OP axG矛盾62%→透传原厂后0矛盾，消除执行反馈st6根因）。
+    self.acc05_stock_axg = float(cam_cp.vl["ACC_05"]["ACC_ax_Getriebe"])
     # 原厂力矩请求（ACC_Momentenanforderung，10bit 0-1021）：00000038 实锤——雷达的减速意图
     # 有两种表达：verz<0/anh=1（停车请求）与 mom 下降/归零（撤动力）。00000038@688.4s 雷达
     # mom 114→26→0 持续撤力，OP 无视继续拉 92→152 猛加速 → 雷达自检失败 st=6 → DTC 锁死。

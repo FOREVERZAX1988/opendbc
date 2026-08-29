@@ -90,7 +90,7 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
   return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False, stock_verz=0.0, verz_follow=False, axg_comp=False):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False, stock_verz=0.0, verz_follow=False, axg_comp=False, stock_axg=0.0):
   global _last_acc_moment
   global _last_ax_ge
   commands = []
@@ -301,6 +301,12 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # 原厂却 verz<0 → 矛盾。跟随：verz 取原厂值（上限 -2.2 对齐原厂最深）。
   if verz_follow and stock_verz < -0.05 and verz > stock_verz:
     verz = max(stock_verz, -2.2)
+  # 超驰透传（2026-08-29 4e/4f 38窗口3299帧离线验证）：超驰时OP axG矛盾62%、verz矛盾0.6%，
+  # 透传原厂后0矛盾。驾驶员踩油门超驰=归还控制权，verz/axG跟随原厂值，消除
+  # "OP帧(CAN0)≠雷达请求(CAN2)"执行反馈矛盾（st6根因）。verz钳制对齐原厂全域[-2.2,1.0]。
+  if gas_override:
+    verz = max(min(stock_verz, 1.0), -2.2)
+    ax_ge = stock_axg
   acc_05_values = {
     "ACC_Status_ACC": acc_control,
     "ACC_Verz_anf": verz,
