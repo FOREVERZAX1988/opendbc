@@ -22,8 +22,15 @@ _RESUME_ACCEL_THRESHOLD = 0.15
 _RESUME_CONFIRM_FRAMES = 5
 # 起步确认阈值：vEgo 超过该值视为车已动起来，重置防抖状态
 _RESUME_VEGO_RESET = 0.5
-# 停车保持态下连续发送 RESUME 的最大帧数（0.2s @100Hz 控制帧率）
-_RESUME_MAX_FRAMES = 20
+# RESUME 脉冲整形（2026-08-31，方案A）：OP 代发模拟"人按一下 RESUME"的干净单脉冲。
+# 人为按键实测（0002 seg6 899.8s / seg14 1311.9s）：LS_Tip_Wiederaufnahme=1 持续 160-180ms。
+# 旧实现按 aTarget 条件逐帧发送：前车走走停停时视觉 aTarget 抖动（0.15 附近反复）→
+# confirm/resume 计数被反复清零 → LS_01 断续成簇（90-100ms×N，63/65 实测多脉冲）→
+# 原厂 ACC 上升沿检测把每个 0→1 都当一次 RESUME → 起步状态机反复触发（SnG st6 嫌疑根因）。
+# 修复：5帧确认后锁定发送一个 180ms 连续脉冲（无视 aTarget 抖动），结束进 3s 冷却
+# （vEgo>0.5 车动立即解除）——一次起步意图 = 一次干净脉冲。
+_RESUME_PULSE_FRAMES = 18       # 脉冲总长度：180ms @100Hz 控制帧率（对齐人为按键 160-180ms）
+_RESUME_COOLDOWN_FRAMES = 300   # 冷却：3s 内不重发（人不会 3 秒内按两次 RESUME）
 
 
 class SnGCarController:
@@ -67,6 +74,8 @@ class SnGCarController:
     self.last_standstill_frame = 0
     self.resume_frames_sent = 0
     self.confirm_frames = 0
+    self._pulse_frames_left = 0     # 脉冲锁定剩余帧（>0=发送中，无视 aTarget 抖动）
+    self._cooldown_frames_left = 0  # 冷却剩余帧（防连续短脉冲成簇）
     self.prev_close_distance = 0.0
 
   def update_stop_and_go(self, CC: structs.CarControl, CS: CarStateBase, frame: int,
@@ -86,12 +95,38 @@ class SnGCarController:
       return False
 
     if not CC.enabled:
+      self._pulse_frames_left = 0
+      self._cooldown_frames_left = 0
       return False
 
     # 驾驶员干预时绝不代发（踩油门/刹车归驾驶员控制）
     if CS.out.gasPressed or CS.out.brakePressed:
       self.resume_frames_sent = 0
       self.confirm_frames = 0
+      self._pulse_frames_left = 0
+      self._cooldown_frames_left = 0
+      return False
+
+    # ---- RESUME 脉冲锁定（方案A 2026-08-31）：触发后无视 aTarget 抖动，发满一个
+    # 180ms 单脉冲（对齐人为按键）。一次起步意图 = 一次干净脉冲，杜绝"多短脉冲
+    # 成簇 → 原厂 ACC 上升沿检测当成多次 RESUME"（63/65 实测根因）。----
+    if self._pulse_frames_left > 0:
+      self._pulse_frames_left -= 1
+      self.resume_frames_sent += 1
+      if CS.out.vEgo > _RESUME_VEGO_RESET:
+        # 车已动（vEgo>0.5）= 原厂放行起步成功 → 脉冲提前结束，剩余帧不再发
+        self._pulse_frames_left = 0
+        return False
+      if self._pulse_frames_left == 0:
+        # 脉冲自然结束但车没动：进冷却，等原厂响应/超时，防止立即重触发
+        self._cooldown_frames_left = _RESUME_COOLDOWN_FRAMES
+      return True
+
+    # 冷却期：不重发；车已动（vEgo>0.5）立即解除冷却，允许下一次 SnG
+    if self._cooldown_frames_left > 0:
+      self._cooldown_frames_left -= 1
+      if CS.out.vEgo > _RESUME_VEGO_RESET:
+        self._cooldown_frames_left = 0
       return False
 
     # 车未静止（行驶中）不触发
@@ -152,10 +187,9 @@ class SnGCarController:
     if self.confirm_frames < _RESUME_CONFIRM_FRAMES:
       return False
 
-    # 防抖：连续发送有上限（RESUME 是瞬时按键，过长可能被原厂当长按）
-    if self.resume_frames_sent >= _RESUME_MAX_FRAMES:
-      return False
-
+    # 确认满5帧 → 启动 180ms 锁定脉冲（本帧已发出第1帧；后续帧由脉冲锁定分支接管）
+    self._pulse_frames_left = _RESUME_PULSE_FRAMES - 1
+    self.confirm_frames = 0
     self.resume_frames_sent += 1
     return True
 
