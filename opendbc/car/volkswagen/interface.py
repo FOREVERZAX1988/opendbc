@@ -140,20 +140,4 @@ class CarInterface(CarInterfaceBase):
     if CAN.pt >= 4:
       safety_configs.insert(0, get_safety_config(structs.CarParams.SafetyModel.noOutput))
     ret.safetyConfigs = safety_configs
-
-    # Macan 转向系数开关（实验值18.0/0.52，跨route标定极差22%不可靠，默认关等路试修正）
-    if candidate == CAR.PORSCHE_MACAN_MK1:
-      try:
-        from openpilot.common.params import Params
-        if Params().get_bool("MacanSteerParams"):
-          ret.steerRatio = 16.2  # v2标定(ESP_Gierrate,4route极差2.6%): 15.24/16.05/17.23/14.65中位≈15.7,与原厂16.2一致; 旧实验值18.0(gyro极差22%)偏大15%→城市弯转向不足
-          # 动态转向比（速度相关）：4f全段29284样本拟合——<144km/h SR≈15.0（36-72:14.98/72-144:15.01）、
-          # >144km/h SR≈18.71（RMSE1.75°）——保时捷PDS/EPS随速特性实锤（早前v7标定高速段22.9即此）。
-          # 格式：[速度km/h..., 比值...]（前一半速度、后一半比值）；140-145km/h线性过渡；
-          # 当前16.2为折中（中速偏大8%转向不足、高速偏小13%转向过度——高速段由V2修正）。
-          ret.steerRatioV2 = [0.0, 140.0, 145.0, 200.0, 15.0, 15.0, 18.7, 18.7]
-          if ret.lateralTuning.which() == 'torque':
-            ret.lateralTuning.torque.friction = 0.52
-      except Exception:
-        pass
     return ret
