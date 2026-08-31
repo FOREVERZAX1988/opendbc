@@ -451,6 +451,10 @@ class CarState(CarStateBase):
     # TSK_04 st02 1→0 → controlsMismatch。透传通道位供 carcontroller 做「撤力跟随」。
     self.acc05_stock_fm = bool(cam_cp.vl["ACC_05"]["ACC_Freigabe_Momentenanf"])
     self.acc05_stock_fv = bool(cam_cp.vl["ACC_05"]["ACC_Freigabe_Verzanf"])
+    # TSK_04 的 ACC 状态（bus1 发动机ECU）：0=not engaged/1=engaged/2=engaged with driver
+    # accel override/3=fault——原厂确认驾驶员超驰的二值信号（比 ACC_05 st=4 早约40ms，
+    # 无踏板阈值浮动）。方案B 作诊断字段（透传已由 gasPressed 覆盖，st 由镜像跟随）。
+    self.stock_tsk_gra = int(alt_cp.vl["TSK_04"]["TSK_Status_GRA_ACC_02"])
     # 原厂 ACC_02 目标车显示字段（bus2 雷达域 src=2）：OP 代发 ACC_02 到 bus0 时若
     # ACC_Abstandsindex/ACC_Relevantes_Objekt 恒 0，仪表盘永远显示「无目标」——
     # 即使 OP/雷达已捕捉到前车也不显示车距图标/三档距离（00000037/38 路试反馈）。

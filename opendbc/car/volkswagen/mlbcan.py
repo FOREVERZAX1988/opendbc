@@ -67,14 +67,17 @@ def create_acc_buttons_control(packer, bus, gra_stock_values, cancel=False, resu
   return packer.make_can_msg("LS_01", bus, values)
 
 
-def acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed=False):
+def acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed=False, stock_st=None):
   if acc_faulted:
     acc_control = 6
   elif long_active:
     # 激活中踩油门 → OVERRIDE(4)（原厂行为，00000004--seg7 实锤：激活中踩油门 st 3→4，
     # 力矩照发巡航值；松油门自动回 3）。若激活中仍发 3(active)，ECU 检测到
     # 「ACC激活+油门踏板」矛盾会写 DTC 锁死（00000015--seg23 踩油门0.8s accFaulted）。
-    acc_control = 4 if gas_pressed else 3
+    # 2026-09-01 st 镜像（方案B）：激活域内跟随原厂 ACC_05（原厂3→3、4→4）——OP 永不
+    # 自己判定 st=4（消除 00000056「OP早切4vs原厂未确认」+ 65#3「原厂已退OP仍3」窗口）。
+    # stock_st 不在 3/4（原厂已退出，carcontroller 已降级 long_active）兜底旧逻辑。
+    acc_control = stock_st if stock_st in (3, 4) else (4 if gas_pressed else 3)
   elif main_switch_on:
     # 待机：踩不踩油门都保持 2（原厂行为，00000004--seg1 实锤：待机踩油门 st 全程=2）。
     # 注意：不能在这里发 4——ECU 会把「2→4 未经过3」视为异常状态跳变。
@@ -90,7 +93,7 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
   return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False, stock_verz=0.0, verz_follow=False, axg_comp=False, stock_axg=0.0):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False, stock_verz=0.0, verz_follow=False, axg_comp=False, stock_axg=0.0, stock_fm=False, stock_anhalten=False):
   global _last_acc_moment
   global _last_ax_ge
   commands = []
@@ -307,11 +310,16 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   if gas_override:
     verz = max(min(stock_verz, 1.0), -2.2)
     ax_ge = stock_axg
+    # 2026-09-01 mom 透传（方案B）：介入期力矩=原厂值（轻踩撤力 mom=0→OP 发 0；深踩
+    # 配合加速 mom>0→OP 发原厂值），杜绝「axG/verz 已透传、mom 仍 OP 巡航基线」混合矛盾。
+    # _last 同步保证松油门后从原厂值平滑恢复（bump-less）。
+    acc_moment = max(0, int(round(stock_mom)))
+    _last_acc_moment = float(acc_moment)
   acc_05_values = {
     "ACC_Status_ACC": acc_control,
     "ACC_Verz_anf": verz,
-    "ACC_Freigabe_Verzanf": 1 if (braking or verz < -0.05 or (acc_enabled and stock_fv and not gas_override)) else 0,
-    "ACC_Freigabe_Momentenanf": 1 if (acc_enabled and not braking and not stock_follow) else 0,
+    "ACC_Freigabe_Verzanf": (1 if stock_fv else 0) if gas_override else (1 if (braking or verz < -0.05 or (acc_enabled and stock_fv)) else 0),
+    "ACC_Freigabe_Momentenanf": (1 if stock_fm else 0) if gas_override else (1 if (acc_enabled and not braking and not stock_follow) else 0),
     "ACC_Momentenanforderung": acc_moment,
     "ACC_zul_Regelabw": 0.0,  # 原厂实测：激活巡航时=0（00000005--4 route 130帧 status=3），保持原厂一致
     # 原厂59段全扫描（00000004--915ebf086f）：ACC_limitierte_Anfahrdyn 全程=0，
@@ -337,7 +345,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # 此时 ESP 应以原厂为准（透传 stock_esp）；esp_hold（原厂 ESP hold 确认）保留。
     "ACC_Beeinflussung_ESP": 1 if (esp_hold or stock_esp) else 0,
     "ACC_StartStopp_Info": acc_enabled,
-    "ACC_Anhalten": stopping,
+    "ACC_Anhalten": stock_anhalten if gas_override else stopping,
     "ACC_Betaetigung_EPB": esp_hold,  # Echo ESP hold state -- DO NOT use stopping (causes brake release when ACC off)
     # KD_Fehler (63|1 = byte7 bit7): 原厂实测（route 00000004 全59段）恒 1 = 正常。
     # DBC 命名误导——它是 ACC 健康位而非故障位。OP 此前漏设 → packer 恒发 0，

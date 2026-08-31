@@ -293,7 +293,7 @@ class CarController(CarControllerBase, SnGCarController):
           if long_active and getattr(CS, 'acc05_stock_status', 3) not in (3, 4):
             long_active = False
           gas_override = gas_override_stock and CS.out.cruiseState.available and not brake_override
-          acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, gas_override_stock)
+          acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, gas_override_stock, getattr(CS, 'acc05_stock_status', 3))
           # OVERRIDE(4) 时保持巡航力矩（原厂 st=4 力矩≈st=3，仅状态字切 4）；accel=0 → 巡航基线。
           # 力矩许可只跟 long_active（激活态），不跟 gas_override（00000004 seg2 实锤：待机+踩油门
           # 原厂 ACC_05 全程 st=2/fm=0/mom=0，ACC 不发力矩，动力完全由驾驶员油门主导；
@@ -427,6 +427,8 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                              verz_follow=self.macan_verz_follow,
                                                              axg_comp=self.macan_axg_comp,
                                                              stock_axg=getattr(CS, 'acc05_stock_axg', 0.0),
+                                                             stock_fm=getattr(CS, 'acc05_stock_fm', False),
+                                                             stock_anhalten=getattr(CS, 'acc05_stock_anhalten', False),
                                                              slope_pct=slope_used,
                                                              slope_comp=self.slope_comp,
                                                              slope_comp_unlimited=self.slope_comp_unlimited,
@@ -540,7 +542,7 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
         # OP 代发 ACC_04（原厂雷达状态文本，16Hz）：屏蔽 bus2->bus0 转发后由 OP 保持总线活跃，
         # 内容为原厂正常模板（无故障文本），避免网关/仪表对 ACC_04 超时监测报 ACC 故障
         lead_speed_kph = getattr(CS, 'stock_lead_speed_kph', 327.36)
-        acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, gas_override_stock)
+        acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, gas_override_stock, getattr(CS, 'acc05_stock_status', 3))
         can_sends.append(self.CCS.create_acc_04_control(self.packer_pt, self.CAN.pt, lead_speed_kph, acc_control,
                                                          stock_texte_zusatz=getattr(CS, 'stock_acc04_texte_zusatz', None),
                                                          stock_charisma_status=getattr(CS, 'stock_acc04_charisma_status', None)))
