@@ -77,7 +77,10 @@ def acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed=Fals
     # 2026-09-01 st 镜像（方案B）：激活域内跟随原厂 ACC_05（原厂3→3、4→4）——OP 永不
     # 自己判定 st=4（消除 00000056「OP早切4vs原厂未确认」+ 65#3「原厂已退OP仍3」窗口）。
     # stock_st 不在 3/4（原厂已退出，carcontroller 已降级 long_active）兜底旧逻辑。
-    acc_control = stock_st if stock_st in (3, 4) else (4 if gas_pressed else 3)
+    # 2026-09-01 st=6 跟随退出（回放实锤 65-seg5/11/15）：原厂 st6 期间 OP 若仍发 3/4，
+    # 会保留「原厂已故障/退出 vs OP 仍激活」矛盾窗口（原厂 st6 后实测 100% 回 st=2 待机，
+    # 从未回 3）。故 stock_st==6 → 立即发 2 跟随，消除窗口。
+    acc_control = stock_st if stock_st in (3, 4) else (2 if stock_st == 6 else (4 if gas_pressed else 3))
   elif main_switch_on:
     # 待机：踩不踩油门都保持 2（原厂行为，00000004--seg1 实锤：待机踩油门 st 全程=2）。
     # 注意：不能在这里发 4——ECU 会把「2→4 未经过3」视为异常状态跳变。
