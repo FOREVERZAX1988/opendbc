@@ -192,15 +192,21 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # 上升斜坡：激活/加速时扭矩渐进（原厂ACC柔和感）
     if acc_moment > _last_acc_moment:
       acc_moment = min(acc_moment, int(_last_acc_moment + _ACC_MOMENT_RAMP))
-    # 方案A：OP力矩≤原厂雷达力矩（2026-08-17 cut-in实证）
-    # 原厂收油预备（Mom 88→81 持续下降）时 OP 必须跟随，不能反向加速（Mom 100-164）——
-    # 水平限制强制 OP ≤ 原厂；v_ego≤11km/h 豁免起步（SnG 正常，原厂 mom=0/爬升期不被锁死）；
-    # 正常加速 OP 本来就≤原厂（实测 72.9 vs 87.9），限制不生效；上升斜坡保证平滑爬升。
-    if stock_mom > 0 and v_ego > 3.0:
-      if slope_comp and slope_comp_unlimited:
-        acc_moment = min(acc_moment, int(max(stock_mom, 200.0)))   # 选项2：放开给小坡空间
+    # 方案A：OP力矩≤原厂雷达力矩（2026-08-17 cut-in实证；2026-09-02 收回低速豁免）
+    # 原厂收油预备（Mom 88→81 持续下降）时 OP 必须跟随，不能反向加速（Mom 100-164）。
+    # 2026-09-02 收回 v_ego≤3.0 豁免（原理由：原厂mom=0/爬升期会锁死起步）——seg27实锤：
+    # 原厂在 OP loes=1 时同步发 mom=62→166（非0非滞后）；0066/0065 的 loes 帧 98%+ 原厂
+    # mom>0；原厂 mom=0 只发生在停车保持/待机（OP 此时也不发力矩）。低速段强制 min(stock)
+    # 修 145-150 vs 原厂95 的"低速猛"，起步跟随原厂62→爬升（不再65起）。
+    # stock_mom>0 保留为安全阀：原厂0=OP自由（防后溜/保持），原厂>0=OP贴原厂。
+    # 高速段维持现状：unlimited 开可到 max(stock,200)（坡道补偿），关则贴原厂。
+    if stock_mom > 0:
+      if v_ego <= 3.0:
+        acc_moment = min(acc_moment, int(stock_mom))                # 低速贴原厂（不限unlimited）
+      elif slope_comp and slope_comp_unlimited:
+        acc_moment = min(acc_moment, int(max(stock_mom, 200.0)))   # 高速选项2：放开给小坡空间
       else:
-        acc_moment = min(acc_moment, int(stock_mom))                # 选项1：原厂限制
+        acc_moment = min(acc_moment, int(stock_mom))                # 高速选项1：原厂限制
     # 方案B已回退（2026-09-02，用户实测确认）：原厂起步 mom 起点 45-49（<65）缓慢爬升是
     # 正常行为（00000002 seg21 loes=1 时 mom=49→87；00000049 全段 6 个起步事件起点 45-47）。
     # 且 OP 代发场景原厂 ACC_05 静音（00000004 seg26 实测 src=2 帧 mom 恒=0）→ 原条件
