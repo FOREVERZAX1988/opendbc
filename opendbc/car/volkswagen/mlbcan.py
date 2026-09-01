@@ -318,6 +318,13 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # _last 同步保证松油门后从原厂值平滑恢复（bump-less）。
     acc_moment = max(0, int(round(stock_mom)))
     _last_acc_moment = float(acc_moment)
+  # 2026-09-02 loes窗口期 verz 钳制 >=0（原厂 loes 期间 verz 恒=0）：loes=1 帧绝不与
+  # verz<0 共存（自相矛盾帧→原厂自检失败→loes 断续/起步失败）。放在 gas_override 之后，
+  # 覆盖 stopping 路径写入的 -2.0。
+  # 2026-09-02 安全收紧（追尾风险评估）：必须 not braking——braking 路径的负 verz 是
+  # 前车急刹的安全刹车请求，绝不能清零（loes 窗口期前车急刹→OP 仍须请求刹车）。
+  if sng_resume_req and verz < 0.0 and not braking:
+    verz = 0.0
   acc_05_values = {
     "ACC_Status_ACC": acc_control,
     "ACC_Verz_anf": verz,
@@ -337,6 +344,9 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # 2026-08-23 事件化（对齐原厂 route 00000002）：原厂 loes=1 期间 verz 恒=0/mom>0，
     # 车动前回 0（500-620ms）。verz>=0 兜底：loes=1 绝不与刹车请求共存（loes+braking 也是矛盾帧）。
     # gas_override 独立条件移除——踩油门由 carcontroller 跟随原厂 loes 控制（不跟油门持续）。
+    # 2026-09-02 修复 loes/verz 突变（seg27 实锤）：sng_resume_req（loes 窗口）期间
+    # verz 强制 >=0——原厂 loes 期间 verz 恒=0（route 00000002），杜绝停车保持帧
+    # verz=-2.0 与 loes=1 自相矛盾（loes+braking=矛盾帧）导致的断续输出。
     "ACC_Loeseanforderung": 1 if (acc_enabled and not stopping and verz >= 0.0 and sng_resume_req) else 0,
     "ACC_ax_Getriebe": ax_ge,
     "ACC_Vorbefuellung_Bremsanlage": 1 if braking else 0,
