@@ -130,13 +130,25 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
 
   # OVERRIDE(4)：驾驶员踩油门时 ACC 保持 armed，力矩照发巡航值（原厂 st=4 力矩≈st=3），
   # 仅状态字从 3 切 4；松油门后状态回 3 自动恢复。
+  global _prev_braking, _ovr_slope_active, _ovr_slope_step  # braking滞回+超驰斜坡状态
   if acc_enabled:
-    # 00000039 seg5 实锤：原厂 verz=-0.40 被旧阈值 -0.4（严格小于）吞掉 → OP 发 verz=0
-    # → 雷达自检"减速请求未执行" → st6。放宽到 -0.05：任何轻微减速都走 braking 发 verz。
-    # 00000042 seg3/seg6 实锤：油门超驰（gas_override）时不得因 v_ego<2 走 braking——
-    # 原厂跟停中踩油门会切 st=4 并发力矩（mom 70->140/FM=1/FV=0），若 OP 因低速条件
-    # 走 braking（FV=1/verz=0）则与原厂方向矛盾 → TSK_04 2->0 退出 → 松油门不加速。
-    braking = (accel_eff < -0.05 and not gas_override) or stopping or (not gas_override and v_ego < 2.0 and accel_eff <= 0)
+    # 2026-09-02 braking滞回（治"喘息感"，00000066全30段实锤：175次mom跳变中162次=
+    # braking翻转——accel_eff在-0.05阈值附近抖动→braking每帧翻转→mom 65↔0跳变）。
+    # 滞回带[-0.08,-0.02]：真减速(<-0.08)才进braking；回升到>-0.02才退出；带内保持
+    # 上次状态（防阈值抖动，mom不再跳0）。低速刹停(v_ego<2且accel<=0)与stopping保持
+    # 独立于滞回（停车场景明确的braking不参与滞回）。
+    # 原-0.05阈值被滞回取代：00000039 seg5（verz=-0.40被-0.4吞掉）已由-0.08覆盖（-0.40<-0.08）；
+    # 00000042 超驰场景 gas_override 优先置 False（不因低速走braking，保持原语义）。
+    if gas_override:
+      braking = False
+    elif stopping or (not gas_override and v_ego < 2.0 and accel_eff <= 0):
+      braking = True
+    elif accel_eff < -0.08:
+      braking = True
+    elif accel_eff > -0.02:
+      braking = False
+    else:
+      braking = _prev_braking
   else:
     braking = False
 
@@ -145,7 +157,6 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # 峰值+1.285/180ms）。MacanSlopeComp 开关控制：开=发斜坡；关=直接归0（现状，31次实证
   # 原厂容忍）。斜坡期间若 braking 重新成立（踩刹车/松油门后目标减速），下一帧走 braking
   # 分支自然退出斜坡。
-  global _prev_braking, _ovr_slope_active, _ovr_slope_step
   if slope_comp and not braking and _prev_braking and gas_override and not _ovr_slope_active:
     _ovr_slope_active = True
     _ovr_slope_step = 9
