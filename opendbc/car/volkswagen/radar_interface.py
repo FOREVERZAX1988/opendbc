@@ -34,7 +34,12 @@ class RadarInterface(RadarInterfaceBase):
     # 雷达点数据不暴露在 CAN 上（ACC 模块内部消化），这里把汇总信号合成为单个标准雷达点，
     # 供 radard 的 get_lead 走"雷达点匹配"分支（Track 卡尔曼平滑）。
     # 标定表：00000004 原厂模式 8411 样本（2026-08-13），全量复核偏差<=4%
-    self._macan_radar = CP.carFingerprint == "PORSCHE_MACAN_MK1" and not self.CP.radarUnavailable
+    # 2026-09-02 修复：去掉 and not self.CP.radarUnavailable —— MLB 的 dbc_dict 只有
+    # Bus.pt（无 Bus.radar）→ interface.py:19 判定 radarUnavailable=True，但这只是"dbc没
+    # 定义雷达总线"的误标，Macan 实际有 ACC_02/04 汇总信号可合成点。原条件导致
+    # _update_macan 从未被调用（A3 点从未生成→radard tracks 恒空→get_lead 永远纯视觉
+    # →radarState.leadOne.radar 恒 False，0066 实测 0%）。修复后 A3 点正常注入官方链路。
+    self._macan_radar = CP.carFingerprint == "PORSCHE_MACAN_MK1"
     self._macan_abstands_t = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 6.0]
     self._macan_abstands_idx = [100, 106, 122, 168, 234, 271, 363, 380, 389, 401, 420]
 
