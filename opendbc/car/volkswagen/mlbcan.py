@@ -201,17 +201,12 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
         acc_moment = min(acc_moment, int(max(stock_mom, 200.0)))   # 选项2：放开给小坡空间
       else:
         acc_moment = min(acc_moment, int(stock_mom))                # 选项1：原厂限制
-    # 方案B：SnG 起步窗口 mom 下限=起步基线 65（2026-08-24，治 st6#2 "车没动"）。
-    # 00000056 实测（330 vs 938 对照）：330s 成功案例 OP mom=23-35（比原厂 87-184 低
-    # 4-5 倍！）但 vEgo 动了（0→0.3→1.0）→ 原厂放行；938s 失败 OP mom=40 且 vEgo 全程
-    # 0.0（车纹丝不动）→ 原厂判"起步请求未响应"→ st6。**判据是"车动不动"不是 mom 差距**。
-    # 修复：起步窗口 mom 下限=65（ECU 发力矩阈值 60 之上、原厂起步基线 57-87 下沿）——
-    # 响应快（车能克服静止摩擦立即动，原厂放行）+ 柔和（比原厂 87-100+ 低 25%，爬升靠
-    # +8/帧斜坡慢慢加，用户需求"稳稳的慢慢起步，安全第一"；后续成熟可逐级上调 75/85）。
-    # 注：v_ego<=3.0 与方案A（v_ego>3 上限）代码层面完全互斥（sng_resume_req 窗口
-    # 0.6s 内 v_ego 物理上也到不了 3.0）。
-    if sng_resume_req and stock_mom > 0 and v_ego <= 3.0:
-      acc_moment = max(acc_moment, 65)
+    # 方案B已回退（2026-09-02，用户实测确认）：原厂起步 mom 起点 45-49（<65）缓慢爬升是
+    # 正常行为（00000002 seg21 loes=1 时 mom=49→87；00000049 全段 6 个起步事件起点 45-47）。
+    # 且 OP 代发场景原厂 ACC_05 静音（00000004 seg26 实测 src=2 帧 mom 恒=0）→ 原条件
+    # stock_mom>0 永不成立=死代码。原 65 下限使命（防 st6#2 "车没动"）已由 loes/verz
+    # 修复（macan-long-0901）承担——00000056 330s 实证 OP mom=23-35 车动即放行，
+    # 判据是"车动不动"不是 mom 数值。起步力矩交由 acc_moment 正常计算（含 +8/帧斜坡）。
     _last_acc_moment = float(acc_moment)
   else:
     acc_moment = 0
