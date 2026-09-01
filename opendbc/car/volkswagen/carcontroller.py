@@ -414,6 +414,12 @@ class CarController(CarControllerBase, SnGCarController):
           else:
             loes_early_release = CS.out.vEgo > 0.5 or (not stock_loes and now_nanos - self.sng_loes_start > 300_000_000)
             loes_active = sng_resume_ready or (now_nanos < self.sng_loes_until and not loes_early_release)
+            # 2026-09-02 修复 loes 断续（seg27 实锤：planner accel 震荡→stopping 每帧翻转→
+            # verz=-2.0/0 交替→loes=1 只在 verz>=0 帧输出→5% 占空比断续）。
+            # loes 窗口期（600ms）强制 stopping=False——原厂 loes 期间 anh=0/verz 恒=0，
+            # 窗口内持续输出 loes=1，不再被停车保持帧打断。
+            if loes_active and now_nanos < self.sng_loes_until:
+              stopping = False
           can_sends.extend(self.CCS.create_acc_accel_control(
 self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                              acc_control, stopping, starting, CS.esp_hold_confirmation, v_ego=CS.out.vEgo,
