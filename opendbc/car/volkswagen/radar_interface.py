@@ -64,22 +64,24 @@ class RadarInterface(RadarInterfaceBase):
     lead_spd = 0.0
     v_sum = 0.0
     v_cnt = 0
-    for msg in can_strings:
-      d = msg.dat
-      if msg.address == 259 and len(d) >= 8:
-        # 四轮轮速 16|12 28|12 40|12 52|12 @1+ (0.1,0) km/h
-        v_sum += (((d[2] | (d[3] << 8)) & 0xFFF)
-                  + (((d[3] >> 4) | (d[4] << 4)) & 0xFFF)
-                  + ((d[5] | (d[6] << 8)) & 0xFFF)
-                  + (((d[6] >> 4) | (d[7] << 4)) & 0xFFF)) * 0.1
-        v_cnt += 4
-      elif msg.src == 2:
-        if msg.address == 780 and len(d) >= 7:
-          idx = (d[3] | (d[4] << 8)) & 0x3FF
-        elif msg.address == 804 and len(d) >= 7:
-          v = ((d[5] | (d[6] << 8)) & 0x3FF) * 0.32  # km/h
-          if v < 320:
-            lead_spd = v
+    # can_capnp_to_list 返回两级结构 [(nanos, [(addr, dat, src), ...]), ...]
+    # （2026-09-02 修复：此前按 capnp 对象 msg.dat 访问导致 card 崩溃 AttributeError）
+    for _ts, frames in can_strings:
+      for addr, dat, src in frames:
+        if addr == 259 and len(dat) >= 8:
+          # 四轮轮速 16|12 28|12 40|12 52|12 @1+ (0.1,0) km/h
+          v_sum += (((dat[2] | (dat[3] << 8)) & 0xFFF)
+                    + (((dat[3] >> 4) | (dat[4] << 4)) & 0xFFF)
+                    + ((dat[5] | (dat[6] << 8)) & 0xFFF)
+                    + (((dat[6] >> 4) | (dat[7] << 4)) & 0xFFF)) * 0.1
+          v_cnt += 4
+        elif src == 2:
+          if addr == 780 and len(dat) >= 7:
+            idx = (dat[3] | (dat[4] << 8)) & 0x3FF
+          elif addr == 804 and len(dat) >= 7:
+            v = ((dat[5] | (dat[6] << 8)) & 0x3FF) * 0.32  # km/h
+            if v < 320:
+              lead_spd = v
     if idx <= 0 or idx >= 1021:
       return super().update(None)  # 无有效目标 -> 空雷达（视觉兜底）
     if v_cnt == 0:
