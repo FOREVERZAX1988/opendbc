@@ -12,6 +12,11 @@ VisualAlert = structs.CarControl.HUDControl.VisualAlert
 LongCtrlState = structs.CarControl.Actuators.LongControlState
 
 
+# 全量标定 v4（2026-09-02, 223段/100055样本, 留出验证中位误差9.74%）
+# bus2(原厂ACC) Abstandsindex × 视觉dRel 配对; T单调化用于 t→idx 反向插值
+_MACAN_ABSTAND_IDX = [27, 32, 37, 42, 47, 52, 57, 62, 67, 72, 77, 82, 87, 92, 97, 102, 107, 112, 117, 122, 127, 132, 137, 142, 147, 152, 157, 162, 167, 172, 177, 182, 187, 192, 197, 202, 207, 212, 217, 222, 227, 232, 237, 242, 247, 252, 257, 262, 267, 272, 277, 282, 287, 292, 297, 302, 307, 312, 317, 322, 327, 332, 337, 342, 347, 352, 357, 362, 367, 372, 377, 382, 387, 392, 397, 402, 407, 412, 417, 422, 427, 432, 437, 442, 447, 452, 457, 462, 467, 472, 477, 482, 487, 492, 497, 502, 507, 512, 517, 522, 527, 532, 537, 542, 547, 552, 557, 562, 567, 572, 577, 582, 587, 592, 597, 602, 607, 612, 617, 622, 627, 632, 637, 642, 647, 652, 657, 662, 667, 672, 677, 682, 687, 692, 697, 702, 707, 712, 717, 722, 727, 732, 737, 742, 747, 752, 757, 762, 767, 772, 777, 780, 1021]
+_MACAN_ABSTAND_T_MONO = [np.float64(0.81), np.float64(0.81), np.float64(0.81), np.float64(0.81), np.float64(0.81), np.float64(0.81), np.float64(0.81), np.float64(0.822), np.float64(0.837), np.float64(0.872), np.float64(0.942), np.float64(0.942), np.float64(0.942), np.float64(0.978), np.float64(1.025), np.float64(1.14), np.float64(1.168), np.float64(1.185), np.float64(1.203), np.float64(1.275), np.float64(1.288), np.float64(1.364), np.float64(1.422), np.float64(1.439), np.float64(1.459), np.float64(1.505), np.float64(1.571), np.float64(1.616), np.float64(1.682), np.float64(1.708), np.float64(1.766), np.float64(1.801), np.float64(1.828), np.float64(1.869), np.float64(1.933), np.float64(2.0), np.float64(2.028), np.float64(2.091), np.float64(2.12), np.float64(2.17), np.float64(2.246), np.float64(2.246), np.float64(2.351), np.float64(2.353), np.float64(2.394), np.float64(2.435), np.float64(2.467), np.float64(2.497), np.float64(2.553), np.float64(2.635), np.float64(2.653), np.float64(2.711), np.float64(2.774), np.float64(2.823), np.float64(2.923), np.float64(2.968), np.float64(3.031), np.float64(3.075), np.float64(3.121), np.float64(3.128), np.float64(3.197), np.float64(3.263), np.float64(3.263), np.float64(3.263), np.float64(3.299), np.float64(3.398), np.float64(3.472), np.float64(3.472), np.float64(3.472), np.float64(3.531), np.float64(3.619), np.float64(3.628), np.float64(3.684), np.float64(3.826), np.float64(3.826), np.float64(3.826), np.float64(3.884), np.float64(3.925), np.float64(3.955), np.float64(3.955), np.float64(4.074), np.float64(4.074), np.float64(4.074), np.float64(4.074), np.float64(4.074), np.float64(4.154), np.float64(4.193), np.float64(4.216), np.float64(4.406), np.float64(4.453), np.float64(4.453), np.float64(4.453), np.float64(4.562), np.float64(4.562), np.float64(4.562), np.float64(4.587), np.float64(4.71), np.float64(4.802), np.float64(4.802), np.float64(4.802), np.float64(4.835), np.float64(4.974), np.float64(4.974), np.float64(4.974), np.float64(4.974), np.float64(5.048), np.float64(5.048), np.float64(5.052), np.float64(5.098), np.float64(5.098), np.float64(5.237), np.float64(5.364), np.float64(5.606), np.float64(5.606), np.float64(5.606), np.float64(5.782), np.float64(5.782), np.float64(5.782), np.float64(5.782), np.float64(5.782), np.float64(5.782), np.float64(5.782), np.float64(5.782), np.float64(5.782), np.float64(5.787), np.float64(5.909), np.float64(5.909), np.float64(6.202), np.float64(6.331), np.float64(6.331), np.float64(6.331), np.float64(6.331), np.float64(6.331), np.float64(6.331), np.float64(6.331), np.float64(6.458), np.float64(6.458), np.float64(6.458), np.float64(6.59), np.float64(6.59), np.float64(6.59), np.float64(6.59), np.float64(6.59), np.float64(6.59), np.float64(6.94), np.float64(6.94), np.float64(6.94), np.float64(6.94), np.float64(6.94), np.float64(7.149), np.float64(7.149), np.float64(7.149), np.float64(7.149)]
+
 class CarController(CarControllerBase, SnGCarController):
   def __init__(self, dbc_names, CP, CP_SP):
     super().__init__(dbc_names, CP, CP_SP)
@@ -91,16 +96,11 @@ class CarController(CarControllerBase, SnGCarController):
 
   @staticmethod
   def op_lead_to_index(drel, vego):
-    """OP 前车距离 → 原厂 ACC_Abstandsindex（1-1021）。分段线性插值，标定点来自
-    00000004 原厂 ACC 模式下雷达 abstand 与视觉 leadOne.dRel 的 8411 个同步配对样本
-    （按 t=dRel/vEgo 分桶取中位数，2026-08-13 校准）。低速（vEgo<5m/s≈18km/h）用
-    等效距离兜底（t=dRel/5，避免低速档位虚远）。"""
+    """OP 前车距离 → 原厂 ACC_Abstandsindex（1-1021）。全量标定 v4（2026-09-02，
+    223段/100055样本，留出验证 9.74%）：bus2(原厂)idx × 视觉dRel 配对，反向插值
+    用单调化时距表 _MACAN_ABSTAND_T_MONO。低速（vEgo<5m/s）等效距离兜底。"""
     t = drel / vego if vego > 5.0 else drel / 5.0
-    # 基于 00000004 配对校准（8411 样本，2026-08-13）：原厂 abstand 中位数 vs t=dRel/vEgo
-    # 0.5s→106, 1.0→122, 1.5→168, 2.0→234, 2.5→271, 3.0→363, 3.5→380, 4.0→389, 4.5→401
-    # （>4.5s 视觉远距离不可靠，封顶 420）。分段线性插值对齐原厂，替代旧 4 档量化（偏高 1.4-2.2x）
-    return int(np.interp(t, [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 6.0],
-                         [100, 106, 122, 168, 234, 271, 363, 380, 389, 401, 420]))
+    return int(np.interp(t, _MACAN_ABSTAND_T_MONO, _MACAN_ABSTAND_IDX))
 
   def update(self, CC, CC_SP, CS, now_nanos):
     actuators = CC.actuators
