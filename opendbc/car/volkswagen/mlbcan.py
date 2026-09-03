@@ -344,9 +344,12 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # 0→-1.2 约1.2s渐进（比撞墙柔和，比原厂缓刹略快）。
   # 豁免：目标≤-1.5（急刹级——前车急刹/AEB）立即执行；只限加深不限回正（松刹即时）；
   # 待机/非激活直接同步。超驰透传帧(gas_override)的 verz=stock_verz 同样经过本限幅——
-  # 原厂深刹(verz<-1.5)不裁剪（跟刹立即）；原厂缓刹(0.025/帧)会被轻微裁剪到0.02
-  # （比原厂缓刹更柔一档——跟车时若感觉响应肉可回调0.03）。
-  if acc_enabled and verz > -1.5 and _last_verz_cmd - verz > 0.02:
+  # 原厂深刹(verz<-1.5)不裁剪（跟刹立即）；原厂缓刹(0.025/帧)经 2026-09-03 豁免(<0.01 让路)原样跟随。
+  # 2026-09-03 原厂刹车优先透传（用户定稿）：原厂ACC雷达 bus2 标定全量验证——只有漏刹、从无
+  # 误判错刹——原厂 verz<0 即它判定前方需刹（前车距离传感器可信）。桥让路：verz 立即执行
+  # （原厂缓刹0.025/帧本身平滑，不需要桥；原厂深刹另有 -1.5 豁免）。
+  # 桥最终语义：只柔化 OP 自发的阶跃减速（SCC弯道/限速/超驰解除），绝不延迟原厂刹车跟随。
+  if acc_enabled and verz > -1.5 and _last_verz_cmd - verz > 0.02 and stock_verz > -0.01:
     verz = _last_verz_cmd - 0.02
   _last_verz_cmd = verz
   acc_05_values = {
