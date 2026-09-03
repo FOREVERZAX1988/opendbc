@@ -15,6 +15,7 @@ _ACC_MOMENT_RAMP_DOWN = 3.0  # 撤力跟随斜坡（50Hz≈150Nm/s）：00000042
                              # OP 用 3/帧 斜坡下降避免 110→0 瞬间跳变与原厂残余力矩方向相反 → st=6
 _ACC_SCALE_MAX = 1.8
 _last_acc_moment = 0.0
+_last_verz_cmd = 0.0  # verz过渡桥状态（2026-09-02：负向加深限速0.02/帧）
 _last_accel_cmd = 0.0  # 减速请求斜坡状态（原厂 verz 渐进式加深）
 _last_ax_ge = 0.0  # ACC_ax_Getriebe 缓爬状态（2026-08-23 拟合原厂，rate 0.005/帧）
 # 超驰斜坡状态（2026-08-24 对齐原厂）：减速中驾驶员踩油门切超驰时，原厂发"加速声明"
@@ -328,7 +329,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # 2026-09-01 mom 透传（方案B）：介入期力矩=原厂值（轻踩撤力 mom=0→OP 发 0；深踩
     # 配合加速 mom>0→OP 发原厂值），杜绝「axG/verz 已透传、mom 仍 OP 巡航基线」混合矛盾。
     # _last 同步保证松油门后从原厂值平滑恢复（bump-less）。
-    acc_moment = max(0, int(round(stock_mom)))
+    acc_moment = min(acc_moment, max(0, int(round(stock_mom))))
     _last_acc_moment = float(acc_moment)
   # 2026-09-02 loes窗口期 verz 钳制 >=0（原厂 loes 期间 verz 恒=0）：loes=1 帧绝不与
   # verz<0 共存（自相矛盾帧→原厂自检失败→loes 断续/起步失败）。放在 gas_override 之后，
@@ -337,6 +338,17 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # 前车急刹的安全刹车请求，绝不能清零（loes 窗口期前车急刹→OP 仍须请求刹车）。
   if sng_resume_req and verz < 0.0 and not braking:
     verz = 0.0
+  # verz过渡桥（2026-09-02）：verz 负向(加深)变化率限幅——治超驰解除/MPC/SCC阶跃的猛刹跳变。
+  # 参考原厂：缓刹约-0.025/帧、急刹0.06-0.07/帧（00000004/4c实测）。OP 此前 verz 无斜坡
+  # （_last_accel_cmd 仅记录未限幅）→ 601.2 从0瞬间跳-1.26。取 0.02/帧(50Hz≈1m/s³=MPC舒适jerk)：
+  # 0→-1.2 约1.2s渐进（比撞墙柔和，比原厂缓刹略快）。
+  # 豁免：目标≤-1.5（急刹级——前车急刹/AEB）立即执行；只限加深不限回正（松刹即时）；
+  # 待机/非激活直接同步。超驰透传帧(gas_override)的 verz=stock_verz 同样经过本限幅——
+  # 原厂深刹(verz<-1.5)不裁剪（跟刹立即）；原厂缓刹(0.025/帧)会被轻微裁剪到0.02
+  # （比原厂缓刹更柔一档——跟车时若感觉响应肉可回调0.03）。
+  if acc_enabled and verz > -1.5 and _last_verz_cmd - verz > 0.02:
+    verz = _last_verz_cmd - 0.02
+  _last_verz_cmd = verz
   acc_05_values = {
     "ACC_Status_ACC": acc_control,
     "ACC_Verz_anf": verz,
