@@ -100,6 +100,7 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
 def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False, stock_verz=0.0, verz_follow=False, axg_comp=False, stock_axg=0.0, stock_fm=False, stock_anhalten=False):
   global _last_acc_moment
   global _last_ax_ge
+  global _last_verz_cmd
   commands = []
 
   # Macan 坡度补偿（2026-08-19 重新实施）：slope_pct 由 carcontroller 经参数传入（非 CS 变量）。
