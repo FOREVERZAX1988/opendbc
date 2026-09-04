@@ -436,7 +436,8 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                              slope_comp=self.slope_comp,
                                                              slope_comp_unlimited=self.slope_comp_unlimited,
                                                              sng_resume_req=loes_active,
-                                                             lead_distance=getattr(CS, 'lead_distance', 999.0)))
+                                                             lead_distance=getattr(CS, 'lead_distance', 999.0),
+                                                             lead_speed=getattr(CS, 'op_lead_vLead', 0.0)))
 
         self.accel_last = accel
 
