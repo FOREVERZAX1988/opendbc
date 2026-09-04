@@ -97,7 +97,7 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
   return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False, stock_verz=0.0, verz_follow=False, axg_comp=False, stock_axg=0.0, stock_fm=False, stock_anhalten=False, lead_distance=999.0):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False, stock_verz=0.0, verz_follow=False, axg_comp=False, stock_axg=0.0, stock_fm=False, stock_anhalten=False, lead_distance=999.0, lead_speed=0.0):
   global _last_acc_moment
   global _last_ax_ge
   global _last_verz_cmd
@@ -312,7 +312,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   ax_ge = round(_last_ax_ge, 3)
   # 2026-09-05 SnG起步axG透传（双闸门）：原厂放行(stock_verz>=-0.05) + OP视觉安全距离(lead_distance>2.0m)
   # 原厂起步时axG=1.99满格预告，OP代发时axG≈0.17→变速箱不接合→st6。透传原厂axG解决。
-  if sng_resume_req and stock_verz >= -0.05 and lead_distance > 2.0 and stock_axg > 0.1:
+  if sng_resume_req and stock_verz >= -0.05 and lead_distance > 2.0 and lead_speed > 0 and stock_axg > 0.1:
     ax_ge = stock_axg
     _last_ax_ge = stock_axg
   # 2026-08-29 修复（65-5 实锤）：SnG 起步窗口 axG 缓爬 0.005/帧太慢——st6 前只爬到
