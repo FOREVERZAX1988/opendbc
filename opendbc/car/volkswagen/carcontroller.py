@@ -386,7 +386,13 @@ class CarController(CarControllerBase, SnGCarController):
           # 会覆盖仲裁=抢跑 → 原厂方向矛盾 st6（00000070 seg18: 原厂 vz-2.0 保持中 OP 发 mom42）。
           # 等原厂先释放(verz 回正)再起步；原厂一直不切→保持→走超驰/按键安全路径(st3→st2 正常
           # 退出，永不 st6)。seg7 对照：驾驶员踩油门起步=原厂让位 st3→st2 安全。
-          if (sng_resume_ready or resume_btn) and CS.out.standstill and not stock_anhalten and stock_verz > -0.05:
+          # 2026-09-04 B2实锤修复（雷达锁目标才自动起步）：SnG 自动起步加 bus2 原厂
+          # ACC_Relevantes_Objekt==1 闸门——原厂雷达没锁到跟车目标（relobj=0，如红灯前
+          # 静止车队首次接触、雷区）时 OP 不抢跑，等原厂先锁定（00000070 seg6/18 st6
+          # 全 18 帧实测 relobj=0：OP la/en=True lc=pid 强驱起步而原厂 st=2 未授权力矩
+          # → 越权 st6）。仅锁自动起步路径；驾驶员手动 resume/踩油门=原厂让位安全路径
+          # （seg7 对照 st3→st2 永不 st6），不受此闸门限制。
+          if (sng_resume_ready and getattr(CS, 'stock_lead_object', 0) == 1 or resume_btn) and CS.out.standstill and not stock_anhalten and stock_verz > -0.05:
             stopping = False
             self.stopping_hold = False
             accel = max(accel, 0.1)
