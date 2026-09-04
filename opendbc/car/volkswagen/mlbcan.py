@@ -359,8 +359,11 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # 误判错刹——原厂 verz<0 即它判定前方需刹（前车距离传感器可信）。桥让路：verz 立即执行
   # （原厂缓刹0.025/帧本身平滑，不需要桥；原厂深刹另有 -1.5 豁免）。
   # 桥最终语义：只柔化 OP 自发的阶跃减速（SCC弯道/限速/超驰解除），绝不延迟原厂刹车跟随。
-  if acc_enabled and verz > -1.5 and _last_verz_cmd - verz > 0.02 and stock_verz > -0.01:
-    verz = _last_verz_cmd - 0.02
+  # 2026-09-04 自适应step（替代固定0.02/帧）：目标越浅越柔（消超驰解除/轻微收速的喘息感）、
+  # 越深越及时（弯道强力减速保持跟手），-1.5以上急刹照旧豁免一帧到位。分档查表常量，无反馈不震荡。
+  step = 0.010 if verz > -0.5 else (0.015 if verz > -1.2 else 0.020)
+  if acc_enabled and verz > -1.5 and _last_verz_cmd - verz > step and stock_verz > -0.01:
+    verz = _last_verz_cmd - step
   _last_verz_cmd = verz
   acc_05_values = {
     "ACC_Status_ACC": acc_control,
