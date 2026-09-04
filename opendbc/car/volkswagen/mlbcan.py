@@ -361,7 +361,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # 桥最终语义：只柔化 OP 自发的阶跃减速（SCC弯道/限速/超驰解除），绝不延迟原厂刹车跟随。
   # 2026-09-04 自适应step（替代固定0.02/帧）：目标越浅越柔（消超驰解除/轻微收速的喘息感）、
   # 越深越及时（弯道强力减速保持跟手），-1.5以上急刹照旧豁免一帧到位。分档查表常量，无反馈不震荡。
-  step = 0.010 if verz > -0.5 else (0.015 if verz > -1.2 else 0.020)
+  # 连续百分比step（2026-09-04 v2，替代固定/三档）：step=1.25%×|verz|，从0到位恒1.6s——
+  # 浅刹(超驰解除/轻收速)极柔治喘息、越深step越大随深度连续。深区封顶0.02/帧保弯道跟手，
+  # 下限0.005防目标过浅时step趋近0产生拖拽。-1.5以上急刹照旧豁免(在下方 if 条件里)。
+  step = max(0.005, min(0.0125 * abs(verz), 0.020))
   if acc_enabled and verz > -1.5 and _last_verz_cmd - verz > step and stock_verz > -0.01:
     verz = _last_verz_cmd - step
   _last_verz_cmd = verz
