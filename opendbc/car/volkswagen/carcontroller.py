@@ -449,7 +449,8 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                              slope_pct=slope_used,
                                                              slope_comp=self.slope_comp,
                                                              slope_comp_unlimited=self.slope_comp_unlimited,
-                                                             sng_resume_req=loes_active))
+                                                             sng_resume_req=loes_active,
+                                                             lead_distance=getattr(CS, 'lead_distance', 999.0)))
 
       #if self.aeb_available:
       #  if self.frame % self.CCP.AEB_CONTROL_STEP == 0:
