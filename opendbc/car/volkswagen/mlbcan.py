@@ -332,6 +332,15 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     # _last 同步保证松油门后从原厂值平滑恢复（bump-less）。
     acc_moment = min(acc_moment, max(0, int(round(stock_mom))))
     _last_acc_moment = float(acc_moment)
+  # 2026-09-03 seg6实锤修复（起步mom跟足原厂）：原厂已切起步(stock_mom>0=它在发起步力矩)而
+  # OP 的 planner 起步 accel 映射 mom 偏低(24 vs 原厂62→执行不足→原厂判"起步偷懒"→st6)。
+  # 低速起步窗口(v_ego<2.0)内、非超驰非刹车时跟足原厂力矩——安全样本(seg4/8/16/23)本就
+  # 跟随 149-169。超驰(mom自算min)、巡航、刹车路径均不受影响（条件逐项排除）。
+  if acc_enabled and not gas_override and not braking and v_ego < 2.0 and stock_mom > 0:
+    _stock_mom_round = int(round(stock_mom))
+    if _stock_mom_round > acc_moment:
+      acc_moment = _stock_mom_round
+      _last_acc_moment = float(acc_moment)
   # 2026-09-02 loes窗口期 verz 钳制 >=0（原厂 loes 期间 verz 恒=0）：loes=1 帧绝不与
   # verz<0 共存（自相矛盾帧→原厂自检失败→loes 断续/起步失败）。放在 gas_override 之后，
   # 覆盖 stopping 路径写入的 -2.0。

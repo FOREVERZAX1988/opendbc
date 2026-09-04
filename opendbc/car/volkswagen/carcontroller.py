@@ -381,7 +381,12 @@ class CarController(CarControllerBase, SnGCarController):
           # LoC 卡 stopping（should_stop 未及时变 False）时 stopping 仍 True → anh 还 1 →
           # 原厂等不到释放 → 锁死（0000004d 未起步区间实测：aTarget 正 0.21-0.45 但 accel≤0.135）。
           # 仅停车中+原厂已放行（未请求保持）时生效——原厂 stock_anhalten=True 时跟随原厂（安全）。
-          if (sng_resume_ready or resume_btn) and CS.out.standstill and not stock_anhalten:
+          # 2026-09-03 seg18实锤修复（起步不抢跑）：原厂还在刹(stock_verz<-0.05=它判定前车未动/
+          # 保持刹未释放)时 SnG 不自动起步——上方仲裁已把 accel 压到刹，此处 max(accel,0.1) 放开
+          # 会覆盖仲裁=抢跑 → 原厂方向矛盾 st6（00000070 seg18: 原厂 vz-2.0 保持中 OP 发 mom42）。
+          # 等原厂先释放(verz 回正)再起步；原厂一直不切→保持→走超驰/按键安全路径(st3→st2 正常
+          # 退出，永不 st6)。seg7 对照：驾驶员踩油门起步=原厂让位 st3→st2 安全。
+          if (sng_resume_ready or resume_btn) and CS.out.standstill and not stock_anhalten and stock_verz > -0.05:
             stopping = False
             self.stopping_hold = False
             accel = max(accel, 0.1)
