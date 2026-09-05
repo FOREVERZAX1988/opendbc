@@ -41,9 +41,14 @@ class CarController(CarControllerBase, SnGCarController):
         self.macan_verz_follow = self._mp.get_bool("MacanVerzFollow") # 踩油门跟随原厂减速verz
       except Exception:
         self.macan_verz_follow = True
+      try:
+        self.macan_verz_bridge_ttc = self._mp.get_bool("MacanVerzBridge")  # verz桥TTC紧迫度分级(方案1,默认关)
+      except Exception:
+        self.macan_verz_bridge_ttc = False
     except Exception:
       self.slope_comp = False
       self.slope_comp_unlimited = False
+      self.macan_verz_bridge_ttc = False
 
     if CP.flags & VolkswagenFlags.PQ:
       self.CCS = pqcan
@@ -442,6 +447,7 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                              stock_mom=stock_mom,
                                                              stock_verz=getattr(CS, 'acc05_stock_verz', 0.0),
                                                              verz_follow=self.macan_verz_follow,
+                                                             bridge_ttc=self.macan_verz_bridge_ttc,
                                                              axg_comp=self.macan_axg_comp,
                                                              stock_axg=getattr(CS, 'acc05_stock_axg', 0.0),
                                                              stock_fm=getattr(CS, 'acc05_stock_fm', False),
@@ -450,7 +456,7 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                              slope_comp=self.slope_comp,
                                                              slope_comp_unlimited=self.slope_comp_unlimited,
                                                              sng_resume_req=loes_active,
-                                                             lead_distance=getattr(CS, 'lead_distance', 999.0),
+                                                             lead_distance=getattr(CS, 'op_lead_dRel', 999.0),
                                                              lead_speed=getattr(CS, 'op_lead_vLead', 0.0)))
 
       #if self.aeb_available:

@@ -17,7 +17,8 @@ _ACC_SCALE_MAX = 1.8
 _last_acc_moment = 0.0
 _last_verz_cmd = 0.0  # verz过渡桥状态（2026-09-02：负向加深限速0.02/帧）
 _last_accel_cmd = 0.0  # 减速请求斜坡状态（原厂 verz 渐进式加深）
-_last_ax_ge = 0.0  # ACC_ax_Getriebe 缓爬状态（2026-08-23 拟合原厂，rate 0.005/帧）
+_last_ax_ge = 0.0  # ACC_ax_Getriebe 缓爬状态
+
 # 超驰斜坡状态（2026-08-24 对齐原厂）：减速中驾驶员踩油门切超驰时，原厂发"加速声明"
 # 斜坡（verz 爬正 +1.285/180ms 再归0，00000002 31次减速→超驰事件每次必发，2043 窗口
 # 序列 0.025→0.205→0.385→...→1.285→0）。受 MacanSlopeComp 开关控制：关=直接归0（现状）。
@@ -97,7 +98,7 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
   return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False, stock_verz=0.0, verz_follow=False, axg_comp=False, stock_axg=0.0, stock_fm=False, stock_anhalten=False, lead_distance=999.0, lead_speed=0.0):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False, stock_verz=0.0, verz_follow=False, axg_comp=False, stock_axg=0.0, stock_fm=False, stock_anhalten=False, lead_distance=999.0, lead_speed=0.0, bridge_ttc=False):
   global _last_acc_moment
   global _last_ax_ge
   global _last_verz_cmd
@@ -370,9 +371,17 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # 浅刹(超驰解除/轻收速)极柔治喘息、越深step越大随深度连续。深区封顶0.02/帧保弯道跟手，
   # 下限0.005防目标过浅时step趋近0产生拖拽。-1.5以上急刹照旧豁免(在下方 if 条件里)。
   step = max(0.005, min(0.0125 * abs(verz), 0.020))
-  if acc_enabled and verz > -1.5 and _last_verz_cmd - verz > step and stock_verz > -0.01:
+    # 2026-09-05 纯 verz 桥缓冲（覆盖TTC分档，简化定稿）
+  # 开关 MacanVerzBridge = 桥主闸，只决定"是否执行缓冲"：
+  #   开(True) -> 执行百分比渐进限幅 step=1.25%×|verz|：
+  #              浅刹(超驰解除/轻收速)极柔治喘息, 越深step越大, 深区封顶0.02/帧保弯道跟手
+  #   关(False) -> 不执行缓冲, verz 直接跟随已算好的目标(一帧到位, 无斜坡)
+  # 豁免(无论开关): 目标≤-1.5(急刹级/AEB)立即执行; 只限加深不限回正(松刹即时);
+  #               待机/非激活直接同步; 原厂刹车跟随(stock_verz<-0.01)让路原样执行.
+  if bridge_ttc and acc_enabled and verz > -1.5 and _last_verz_cmd - verz > step and stock_verz > -0.01:
     verz = _last_verz_cmd - step
   _last_verz_cmd = verz
+
   acc_05_values = {
     "ACC_Status_ACC": acc_control,
     "ACC_Verz_anf": verz,
