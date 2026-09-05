@@ -16,6 +16,9 @@ _ACC_MOMENT_RAMP_DOWN = 3.0  # 撤力跟随斜坡（50Hz≈150Nm/s）：00000042
 _ACC_SCALE_MAX = 1.8
 _last_acc_moment = 0.0
 _last_verz_cmd = 0.0  # verz过渡桥状态（2026-09-02：负向加深限速0.02/帧）
+_macan_ttc_band = 1.0  # verz桥TTC分档当前系数(滞回状态, 松档1.0%基线, 变紧即时/变松滞后2帧)
+_macan_ttc_hold = 0    # verz桥TTC分档"变松"确认计数(连续2帧变松才降档, 防档界抖)
+
 _last_accel_cmd = 0.0  # 减速请求斜坡状态（原厂 verz 渐进式加深）
 _last_ax_ge = 0.0  # ACC_ax_Getriebe 缓爬状态
 
@@ -371,15 +374,47 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # 浅刹(超驰解除/轻收速)极柔治喘息、越深step越大随深度连续。深区封顶0.02/帧保弯道跟手，
   # 下限0.005防目标过浅时step趋近0产生拖拽。-1.5以上急刹照旧豁免(在下方 if 条件里)。
   step = max(0.005, min(0.0125 * abs(verz), 0.020))
-    # 2026-09-05 纯 verz 桥缓冲（覆盖TTC分档，简化定稿）
-  # 开关 MacanVerzBridge = 桥主闸，只决定"是否执行缓冲"：
-  #   开(True) -> 执行百分比渐进限幅 step=1.25%×|verz|：
-  #              浅刹(超驰解除/轻收速)极柔治喘息, 越深step越大, 深区封顶0.02/帧保弯道跟手
-  #   关(False) -> 不执行缓冲, verz 直接跟随已算好的目标(一帧到位, 无斜坡)
-  # 豁免(无论开关): 目标≤-1.5(急刹级/AEB)立即执行; 只限加深不限回正(松刹即时);
-  #               待机/非激活直接同步; 原厂刹车跟随(stock_verz<-0.01)让路原样执行.
-  if bridge_ttc and acc_enabled and verz > -1.5 and _last_verz_cmd - verz > step and stock_verz > -0.01:
-    verz = _last_verz_cmd - step
+    # verz过渡桥 2026-09-05 SPIKE 定稿：开关开=TTC紧迫度分档渐进；开关关=MPC输出直通不干预。
+  # 开关 MacanVerzBridge 语义：
+  #   开(True) -> 执行 verz 桥过渡（柔化 MPC 阶跃减速），渐进系数按 TTC 紧迫度分档抬升，
+  #              真逼近(TTC<2.0)时直通 MPC 全权输出，防"桥过渡不回位/拖慢导致未按 MPC 刹到"事故。
+  #   关(False)-> 完全不走桥，MPC 输出多少执行多少（执行层不多管闲事），verz 一帧跟随目标。
+  # 豁免(始终成立, 无论开关/TTC): stopping(红绿灯刹停保冲线) + verz<=-1.5(急刹/AEB级) 
+  #              + 非激活(acc_enabled=False) + 原厂刹车跟随(stock_verz<-0.01)。这些场景立即跟目标。
+  # 无前车/非逼近时保持最柔(1.0%)，避免非必要柔化；TTC分档+滞回防档界抖动(变紧即时/变松滞后)。
+  step = max(0.005, min(0.0125 * abs(verz), 0.020))  # 默认1.25%百分比(松档基线)
+  if bridge_ttc and acc_enabled and not stopping and verz > -1.5 and _last_verz_cmd - verz > step and stock_verz > -0.01:
+    # TTC分档渐进系数(有前车逼近时抬升, 真急刹直通)。v_ego>0 才可算 TTC, 数据异常回退松档。
+    _has_lead = (lead_distance is not None and 0 < lead_distance < 500
+                 and lead_speed is not None and (v_ego - lead_speed) > 0.5
+                 and v_ego > 0.5)
+    if not _has_lead:
+      _k = 1.0      # 无前车/非逼近: 最柔 1.0%
+    else:
+      _ttc = lead_distance / max(v_ego - lead_speed, 0.01)
+      if _ttc < 2.0:
+        _k = 999.0  # 真急刹(TTC<2s): 直通 MPC 全权, 不作柔化限幅(防刹不住)
+      elif _ttc < 3.5:
+        _k = 2.5    # 紧档: 2.5%
+      elif _ttc < 6.0:
+        _k = 2.0    # 中档: 2.0%
+      else:
+        _k = 1.0    # 松档: 1.0%
+    # 滞回防抖: 档位变紧即时生效; 档位变松(缓和)需连续2帧确认, 防 TTC 在档界抖动重燃喘息
+    global _macan_ttc_band, _macan_ttc_hold
+    if _k >= _macan_ttc_band:
+      _macan_ttc_band = _k
+      _macan_ttc_hold = 0
+    else:
+      if _macan_ttc_hold >= 1:
+        _macan_ttc_band = _k
+        _macan_ttc_hold = 0
+      else:
+        _macan_ttc_hold += 1
+    _k = _macan_ttc_band
+    estep = max(0.005, min(_k * 0.01 * abs(verz), 0.020))
+    if _last_verz_cmd - verz > estep:
+      verz = _last_verz_cmd - estep
   _last_verz_cmd = verz
 
   acc_05_values = {
