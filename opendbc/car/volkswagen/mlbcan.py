@@ -487,11 +487,14 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
     # ACC_Display_Prio：2026-08-22 改透传原厂（原厂按 ab 判定 2/3；OP 按视觉 lead_obj 会相反）。
     # None 时回退 OP 逻辑（其他平台不传此参数不受影响）。
     "ACC_Display_Prio": (2 if lead_obj else 3) if stock_display_prio is None else stock_display_prio,
-    # ACC_Wunschgeschw_02：2026-08-25 改透传原厂（stock_wunschgeschw）。原厂行为
-    # （00000002 纯原厂全量）：st=0 才清空为 327；st=2 待机 77% 帧保留上次设定值显示；
-    # st=3/4 恒显示当前设定。旧逻辑 OP 自算 setSpeed → 待机期残留 OP 值最长 60s、
-    # 激活期与原厂差 -3.8km/h（0058段10 实证）。None 回退旧逻辑（其他平台不受影响）。
-    "ACC_Wunschgeschw_02": (set_speed if set_speed < 250 else 327.36) if stock_wunschgeschw is None else stock_wunschgeschw,
+    # ACC_Wunschgeschw_02：2026-09-05 改回 OP 写回（set_speed=OP vCruise），统一"仪表显示=OP实际执行速度"。
+    # 背景：OP 纵向接管时(OPLong=True, relay断开)执行端力矩全程由 OP 代发 ACC_05，原厂 ACC_05
+    #   st=2/mom=0 不出力。此前透传 stock_wunschgeschw 会把「原厂 ACC 模块内部僵尸设定」显示到仪表，
+    #   与 OP 的 vCruise 逐渐分裂(用户实测仪表40 vs comma35、长按仪表+10 vs OP+5) → 取消接管瞬间跳变风险。
+    # 改法：恒用 set_speed(OP vCruise，未设定=255→327.36"无显示")，让仪表实时跟随 OP。
+    #   st=0 时 set_speed=255→327.36 自然清空，与原厂"st=0 清空为 327"语义一致。
+    # 注意：本帧是纯显示件(接收方 HUD_C7/Kombi_D4)，改写不影响原厂 ACC 内部闭环设定，零执行风险。
+    "ACC_Wunschgeschw_02": (set_speed if set_speed < 250 else 327.36),
     "ACC_Gesetzte_Zeitluecke": zeitluecke,  # Mirror stock radar's ZL from ext bus (responds to DIST button)
     "ACC_Abstandsindex": lead_distance,
     "ACC_Relevantes_Objekt": lead_obj,
