@@ -279,3 +279,115 @@ class StartupGapSyncCarController:
     if self._pending <= 0:
       self._synced = True
     return can_sends
+
+
+class VcruiseSyncCarController:
+  """Macan (MLB) 巡航速度自动同步（MacanVcruiseSync，开关开=OP主动同步）：
+
+  背景：Macan 为 openpilotLongitudinalControl（OP 自维护 vCruise）+ 原厂 ACC 雷达并行。
+  原厂 ACC 内部有一套自己的巡航设定（ACC_02.Wunschgeschw_02），OP 建立起自己的
+  vCruise 与之独立，两者可漂移（超驰+SET 锚定、长按步长不一致是主要来源）。
+
+  本模块在 OP 巡航激活 + 原厂 ACC 激活(st=3/4)时，若 |OP_vCruise - 原厂Wunsch| > 1 km/h，
+  代发 LS_01 按键脉冲（SET+/SET-）到 CAN.ext(bus2 雷达侧)，让原厂内部设定向 OP 逼近，
+  直到两者在 ±1 km/h 内一致。读回依据=carstate 的 stock_wunschgeschw（ACC_02 原厂值）。
+
+  防死锁（2026-09-07 设计）：按键窗口按 20→50→80ms 递增，每个窗口层连续 3 次
+  判定"原厂 Wunsch 未向正确方向变化"即升一档；80ms 仍失败则放弃本次 + 冷却 5s，
+  防止"原厂不认 20ms 单帧按键 → 发了也没用而无限循环"。
+  """
+
+  def __init__(self, CP: structs.CarParams, CP_SP: structs.CarParamsSP):
+    self._platform_ok = (CP.brand == "volkswagen" and CP.carFingerprint == "PORSCHE_MACAN_MK1")
+    self.enabled = False
+    self._mp = None
+    try:
+      from openpilot.common.params import Params
+      self._mp = Params()
+      self.enabled = self._platform_ok and self._mp.get_bool("MacanVcruiseSync")
+    except Exception:
+      pass  # opendbc 测试环境无 openpilot 包：保持关闭
+
+    # 按键窗口（帧数）：控制帧率 ~100Hz(10ms) → 20ms≈2帧 / 50ms≈5帧 / 80ms≈8帧
+    # 用帧数表示"按住时长"（一次完整按键 = 连续 N 帧置位 + 至少 1 帧释放）
+    self.windows_frames = [2, 5, 8]      # 20/50/80ms 三档
+    self.window_idx = 0                   # 当前档位
+    self.fail_count = 0                   # 当前档位连续失败次数
+    self.hold_remaining = 0               # 当前按键还剩余置位帧数
+    self.need_increase = 0                # 本批脉冲方向：1=需+ / -1=需-
+    self.stock_at_burst = None            # 本批按键起点的原厂 Wunsch（回读判据）
+    self.cooldown_until = 0               # 放弃后冷却到该帧（防反复）
+    self.gave_up = False
+
+  def create_vcruise_sync(self, CCS, packer, bus, CS: CarStateBase, frame: int) -> list[CanData]:
+    """返回应代发的 LS_01 按键帧（可能为空）。仅 OP 与原厂 ACC 速度设定不一致时发送。"""
+    can_sends = []
+    if not self.enabled:
+      return can_sends
+
+    # 冷却结束后允许重试（重置放弃标志）
+    if self.gave_up:
+      if frame < self.cooldown_until:
+        return can_sends
+      self.gave_up = False
+      self.window_idx = 0
+      self.fail_count = 0
+
+    # 只在 OP 纵向激活 + 原厂 ACC 激活（st=3/4）时同步。非激活/停车/待机不做——
+    # 速度设定同步仅在原厂接管速度时才有意义。
+    stock_status = getattr(CS, 'acc05_stock_status', 3)
+    if stock_status not in (3, 4) or not CS.out.cruiseState.enabled:
+      return can_sends
+
+    op_cruise = float(getattr(CS, 'vCruise', 0.0))       # OP 巡航（kph）
+    stock = float(getattr(CS, 'stock_wunschgeschw', 0.0))  # 原厂 Wunsch（kph）
+    if op_cruise <= 0 or stock <= 0:
+      return can_sends
+
+    delta = op_cruise - stock
+
+    # 正在持续一段按键置位：继续按住（不新发起、不判回读）
+    if self.hold_remaining > 0:
+      self.hold_remaining -= 1
+      can_sends.append(CCS.create_acc_buttons_control(
+        packer, bus, CS.gra_stock_values,
+        set_increase=(self.need_increase > 0),
+        set_decrease=(self.need_increase < 0)))
+      return can_sends
+
+    # 上一批按键已释放：回读判据
+    if self.stock_at_burst is not None:
+      moved = (stock - self.stock_at_burst) * (1 if self.need_increase > 0 else -1)
+      if moved > 0:
+        # 原厂 Wunsch 已向 OP 方向逼近 → 成功，保持最快档
+        self.window_idx = 0
+        self.fail_count = 0
+      else:
+        # 本次按键没生效 → 计数；连续 3 次升档，80ms 仍失败则放弃+冷却
+        self.fail_count += 1
+        if self.fail_count >= 3:
+          if self.window_idx < len(self.windows_frames) - 1:
+            self.window_idx += 1
+            self.fail_count = 0
+          else:
+            self.gave_up = True
+            self.cooldown_until = frame + 500  # 停 5s 防反复
+            self.stock_at_burst = None
+            return can_sends
+      self.stock_at_burst = None
+
+    # 重新计算（可能已被上批修正）：在 ±1 kph 内 = 同步完成
+    delta = op_cruise - float(getattr(CS, 'stock_wunschgeschw', 0.0))
+    if abs(delta) <= 1.0:
+      return can_sends
+
+    # 发一批新按键：指向 OP 方向
+    self.need_increase = 1 if delta > 0 else -1
+    self.hold_remaining = self.windows_frames[self.window_idx]
+    self.stock_at_burst = float(getattr(CS, 'stock_wunschgeschw', 0.0))
+    self.hold_remaining -= 1
+    can_sends.append(CCS.create_acc_buttons_control(
+      packer, bus, CS.gra_stock_values,
+      set_increase=(self.need_increase > 0),
+      set_decrease=(self.need_increase < 0)))
+    return can_sends
