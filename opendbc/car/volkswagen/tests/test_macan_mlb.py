@@ -109,23 +109,26 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     self.assertEqual(r['loes'], 0, "原厂未确认起步时 OP 不得发 loes（不跟油门持续）")
     self.assertGreater(r['mom'], 0, "力矩仍应发出（超驰不刹车）")
 
-  def test_wg_passthrough(self):
-    """WG 透传（2026-08-25）：stock_wunschgeschw 非 None 时完全跟随原厂
-    （00000002 纯原厂：st=2 待机 77% 保留上次设定值显示，st=0 才清空）；
-    None 回退旧逻辑（其他平台兼容）。"""
+  def test_wg_op_writeback(self):
+    """ACC_Wunschgeschw_02 OP 写回（2026-09-05 c1f4a8f0d 定稿）：恒用 set_speed(OP vCruise)，
+    统一"仪表显示=OP实际执行速度"，不随 stock_wunschgeschw 透传——原厂 ACC 被 OP 纵向接管
+    (OPLong, relay断开)时原厂内部 Wunschgeschw 是僵尸设定(仪表40 vs comma35/长按+10 vs +5)，
+    透传会把僵尸值显示到仪表→取消接管瞬间跳变。纯显示件改写零执行风险。"""
     from opendbc.car.volkswagen import mlbcan
-    msg = mlbcan.create_acc_hud_control(PACKER, 0, 3, 40.0, 100, 2, lead_object=1,
-                                        stock_wunschgeschw=53.8)
-    addr, dat, bus = msg[0], msg[1], msg[2]
-    d = bytes(dat)
-    wg = (d[1] >> 4) | (d[2] << 4)   # ACC_Wunschgeschw_02 12|10
-    self.assertAlmostEqual(wg * 0.32, 53.8, delta=0.4,
-                           msg=f"WG 应透传原厂值 53.8km/h，实际 {wg*0.32:.1f}")
-    # None → 回退旧逻辑（set_speed）
-    msg2 = mlbcan.create_acc_hud_control(PACKER, 0, 3, 40.0, 100, 2, lead_object=1)
-    d2 = bytes(msg2[1])
-    wg2 = (d2[1] >> 4) | (d2[2] << 4)
-    self.assertAlmostEqual(wg2 * 0.32, 40.0, delta=0.4, msg=f"无透传源应回退 OP setSpeed，实际 {wg2*0.32:.1f}")
+    # 无论是否传 stock_wunschgeschw，均写回 set_speed(OP vCruise)
+    for sw in (53.8, None):
+      msg = mlbcan.create_acc_hud_control(PACKER, 0, 3, 40.0, 100, 2, lead_object=1,
+                                          stock_wunschgeschw=sw)
+      d = bytes(msg[1])
+      wg = (d[1] >> 4) | (d[2] << 4)   # ACC_Wunschgeschw_02 12|10
+      self.assertAlmostEqual(wg * 0.32, 40.0, delta=0.4,
+                             msg=f"WG 应写回 OP setSpeed 40km/h(无论 stock_wunschgeschw={sw})，实际 {wg*0.32:.1f}")
+    # st=0 未设定时 set_speed=255 → 327.36"无显示"
+    msg3 = mlbcan.create_acc_hud_control(PACKER, 0, 0, 255.0, 100, 2, lead_object=1)
+    d3 = bytes(msg3[1])
+    wg3 = (d3[1] >> 4) | (d3[2] << 4)
+    self.assertAlmostEqual(wg3 * 0.32, 327.36, delta=0.5,
+                           msg=f"st=0 未设定应显示 327.36(无显示)，实际 {wg3*0.32:.1f}")
 
   def test_hud_no_contradiction_frame(self):
     """HUD 矛盾帧回归（2026-08-26 修复）：无目标时 create_acc_hud_control
@@ -172,9 +175,11 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     旧代码 accel<=0.05 走 else → ax_target=0 → axG 掉 0 → 变速箱脱开 → 车不动 → 原厂 st6。
     修复：accel>0.05 or sng_resume_req → 起步窗口 axG=0.01*mom=0.65（65基线）爬升。
     前车又停 → mom 掉 0 → axG 自动归 0（防"空转提示加速"）。"""
+    # 2026-09-07 更新：跟足原厂有效起步力矩(stock_mom=60, 排除1021哨兵)，axG 目标=0.01*60=0.6；
+    # 原 65 硬基线已于 2026-09-02 移除(改跟足原厂)，mom 跟随原厂 60。
     r = run_frames(200, v_ego=0.0, accel=0.01, sng_resume_req=True, stock_mom=60.0)
-    self.assertGreater(r['axg'], 0.6, f"起步窗口低 accel 时 axG 应爬向 0.65，实际 {r['axg']}（旧代码恒 0→st6）")
-    self.assertGreaterEqual(r['mom'], 65, f"起步窗口 mom 应≥65 基线，实际 {r['mom']}")
+    self.assertGreaterEqual(r['axg'], 0.5, f"起步窗口低 accel 时 axG 应爬向 0.6(跟足原厂60)，实际 {r['axg']}（旧代码恒 0→st6）")
+    self.assertGreaterEqual(r['mom'], 55, f"起步窗口 mom 应跟足原厂 60，实际 {r['mom']}")
     # 前车起步又停（sng 窗口内 accel 转负 → braking 分支优先）→ verz 刹车 + axG 掉负，
     # 绝不保持加速提示（防"空转提示加速"；碰撞防护在 planner/MPC + braking 优先）
     r3 = run_frames(200, v_ego=0.0, accel=-0.1, sng_resume_req=True, stock_mom=0.0)
@@ -248,20 +253,24 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     r = make_acc(acc_enabled=True, slope_comp=False, gas_override=True, accel=-0.5, v_ego=15.0)  # 超驰
     self.assertEqual(r['verz'], 0.0, f"开关关超驰 verz 应=0，实际 {r['verz']}")
 
-  def test_sng_mom_floor(self):
-    """SnG 起步窗口 mom 下限=起步基线65（治 938 "车没动" st6 + 用户需求响应快/柔和）。
-    00000056 实测：330s 成功 OP mom=23-35 但车动了→放行；938s 失败 OP mom=40 且
-    vEgo=0（车没动）→st6。判据是"车动不动"不是 mom 差距——65（ECU发力矩阈值60之上、
-    原厂基线57-87下沿）保证车能立即动（响应快）又比原厂柔和。"""
-    # 起步窗口：mom 立即≥65（车能动基线，不卡 40）
-    r = make_acc(acc_enabled=True, sng_resume_req=True, accel=0.15, v_ego=1.0)
-    self.assertGreaterEqual(r['mom'], 65, f"起步窗口 mom 应≥65（车动基线），实际 {r['mom']}")
-    # 起步窗口内连续多帧保持 ≥65（不因目标低回落到 40）
-    seq = [make_acc(acc_enabled=True, sng_resume_req=True, accel=0.15, v_ego=1.0)['mom'] for _ in range(5)]
-    self.assertTrue(all(m >= 65 for m in seq), f"起步窗口全程 mom 应≥65，实际 {seq}")
-    # 非起步窗口：不强制（保持 OP 目标，斜坡起步）
-    r2 = make_acc(acc_enabled=True, sng_resume_req=False, accel=0.15, v_ego=1.0)
-    self.assertLess(r2['mom'], 65, f"非起步窗口不强制 65 基线，实际 {r2['mom']}")
+  def test_sng_mom_follow_stock(self):
+    """SnG 起步窗口 mom 策略（2026-09-07 更新，对齐 c6072b272 跟足原厂 + 1021 哨兵修复）：
+    - 原厂已发起步力矩(stock_mom 有效，如 60) → OP 跟足（防 938 "车没动" st6：原厂62执行24=偷懒）
+    - 原厂静音/无力矩(stock_mom=1021 哨兵，或 0) → 不跟足硬顶，走正常计算（防 1021Nm 猛冲）
+    原 65 硬基线已回退（2026-09-02：原厂起步 mom 起点 45-49 缓慢爬升是正常行为，判据是
+    "车动不动"不是 mom 数值）。"""
+    # 起步窗口 + 原厂有效力矩 → 跟足原厂（不放任 OP 低力矩 8）
+    r = make_acc(acc_enabled=True, sng_resume_req=True, accel=0.15, v_ego=1.0, stock_mom=60.0)
+    self.assertGreaterEqual(r['mom'], 55, f"起步窗口应跟足原厂 60，实际 {r['mom']}")
+    # 起步窗口内连续多帧保持跟足（不回落）
+    seq = [make_acc(acc_enabled=True, sng_resume_req=True, accel=0.15, v_ego=1.0, stock_mom=60.0)['mom'] for _ in range(5)]
+    self.assertTrue(all(m >= 55 for m in seq), f"起步窗口全程应跟足原厂，实际 {seq}")
+    # 原厂静音/哨兵(1021) → 绝不跟足饱和力矩，安全正常计算（<65，防猛冲）
+    r_sent = make_acc(acc_enabled=True, sng_resume_req=True, accel=0.15, v_ego=1.0)  # stock_mom 默认 1021
+    self.assertLess(r_sent['mom'], 65, f"原厂静音(1021)不得跟足饱和力矩，实际 {r_sent['mom']}")
+    # 非低速窗口(v_ego>=2.0)：即使原厂有力矩也不跟足（保持 OP 目标，斜坡起步）
+    r2 = make_acc(acc_enabled=True, sng_resume_req=False, accel=0.15, v_ego=3.0, stock_mom=60.0)
+    self.assertLess(r2['mom'], 55, f"非低速窗口(v>=2)不强制跟足，实际 {r2['mom']}")
 
   def test_sng_resume(self):
     """SnG 自动起步（1b4915d）：sng_resume_req 模拟踩油门语义 → loes=1"""
