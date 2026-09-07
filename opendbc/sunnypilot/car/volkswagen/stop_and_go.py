@@ -6,6 +6,7 @@ See the LICENSE.md file in the root directory for more details.
 """
 
 from opendbc.car import DT_CTRL, structs
+from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.can_definitions import CanData
 from opendbc.car.interfaces import CarStateBase
 
@@ -342,7 +343,7 @@ class VcruiseSyncCarController:
     if stock_status not in (3, 4) or not CS.out.cruiseState.enabled:
       return can_sends
 
-    op_cruise = float(getattr(CS, 'vCruise', 0.0))       # OP 巡航（kph）
+    op_cruise = float(getattr(CS.out, 'vCruise', 0.0)) * CV.MS_TO_KPH  # OP 巡航（kph，carState.vCruise 为 m/s）
     stock = float(getattr(CS, 'stock_wunschgeschw', 0.0))  # 原厂 Wunsch（kph）
     if op_cruise <= 0 or stock <= 0:
       return can_sends
