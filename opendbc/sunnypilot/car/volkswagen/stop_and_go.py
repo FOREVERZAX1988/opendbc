@@ -28,9 +28,9 @@ _RESUME_VEGO_RESET = 0.5
 # 旧实现按 aTarget 条件逐帧发送：前车走走停停时视觉 aTarget 抖动（0.15 附近反复）→
 # confirm/resume 计数被反复清零 → LS_01 断续成簇（90-100ms×N，63/65 实测多脉冲）→
 # 原厂 ACC 上升沿检测把每个 0→1 都当一次 RESUME → 起步状态机反复触发（SnG st6 嫌疑根因）。
-# 修复：5帧确认后锁定发送一个 180ms 连续脉冲（无视 aTarget 抖动），结束进 3s 冷却
+# 修复：5帧确认后锁定发送一个 80ms 连续脉冲（无视 aTarget 抖动），结束进 3s 冷却
 # （vEgo>0.5 车动立即解除）——一次起步意图 = 一次干净脉冲。
-_RESUME_PULSE_FRAMES = 18       # 脉冲总长度：180ms @100Hz 控制帧率（对齐人为按键 160-180ms）
+_RESUME_PULSE_FRAMES = 8        # 脉冲总长度：80ms @100Hz 控制帧率（用户指定 80ms 窗口，信号更干净）
 _RESUME_COOLDOWN_FRAMES = 300   # 冷却：3s 内不重发（人不会 3 秒内按两次 RESUME）
 
 
@@ -110,7 +110,7 @@ class SnGCarController:
       return False
 
     # ---- RESUME 脉冲锁定（方案A 2026-08-31）：触发后无视 aTarget 抖动，发满一个
-    # 180ms 单脉冲（对齐人为按键）。一次起步意图 = 一次干净脉冲，杜绝"多短脉冲
+    # 80ms 单脉冲（用户指定窗口）。一次起步意图 = 一次干净脉冲，杜绝"多短脉冲
     # 成簇 → 原厂 ACC 上升沿检测当成多次 RESUME"（63/65 实测根因）。----
     if self._pulse_frames_left > 0:
       self._pulse_frames_left -= 1
@@ -189,7 +189,7 @@ class SnGCarController:
     if self.confirm_frames < _RESUME_CONFIRM_FRAMES:
       return False
 
-    # 确认满5帧 → 启动 180ms 锁定脉冲（本帧已发出第1帧；后续帧由脉冲锁定分支接管）
+    # 确认满5帧 → 启动 80ms 锁定脉冲（本帧已发出第1帧；后续帧由脉冲锁定分支接管）
     self._pulse_frames_left = _RESUME_PULSE_FRAMES - 1
     self.confirm_frames = 0
     self.resume_frames_sent += 1
