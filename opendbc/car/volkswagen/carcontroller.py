@@ -591,18 +591,23 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                            set_increase=bool(CS.gra_stock_values.get("LS_Tip_Setzen", 0)),
                                                            set_decrease=bool(CS.gra_stock_values.get("LS_Tip_Runter", 0))))
 
-    # **** Macan 起步跟停（MacanStartStop）：原厂停车保持态时由视觉模型判定起步，
-    # OP 代发 LS_01 RESUME 按键帧解除原厂 anh 保持（00000047 根因修复）********* #
-    can_sends.extend(self.create_stop_and_go(self.CCS, self.packer_pt, self.CAN.ext, CC, CS, self.frame,
-                                             resume_ready=sng_resume_ready))
+    # **** Macan 特调输出总闸：SnG / gap_sync / vcruise_sync 三类代发按键模块
+    # 仅在 OP 纵向控制开启（openpilotLongitudinalControl）时才运行。
+    # 关闭 OP 纵向（纯原厂 ACC + OP 横向）时整体禁用——这些特调的前提是 OP
+    # 纵向介入原厂 ACC，纯原厂模式下不应由 OP 代发任何纵向按键（2026-09-07 门控补强）。
+    if self.CP.openpilotLongitudinalControl:
+      # **** Macan 起步跟停（MacanStartStop）：原厂停车保持态时由视觉模型判定起步，
+      # OP 代发 LS_01 RESUME 按键帧解除原厂 anh 保持（00000047 根因修复）********* #
+      can_sends.extend(self.create_stop_and_go(self.CCS, self.packer_pt, self.CAN.ext, CC, CS, self.frame,
+                                               resume_ready=sng_resume_ready))
 
-    # 开机距离档位同步：停车+待机时代发 DIST +/- 脉冲，让原厂 ACC 内部档位
-    # 与 OP 记忆对齐（MacanStartupGapSync，默认关；仅 MLB 生效，行驶/激活中禁止）
-    can_sends.extend(self.gap_sync.create_startup_gap_sync(self.CCS, self.packer_pt, self.CAN.ext, CS, self.frame))
+      # 开机距离档位同步：停车+待机时代发 DIST +/- 脉冲，让原厂 ACC 内部档位
+      # 与 OP 记忆对齐（MacanStartupGapSync，默认关；仅 MLB 生效，行驶/激活中禁止）
+      can_sends.extend(self.gap_sync.create_startup_gap_sync(self.CCS, self.packer_pt, self.CAN.ext, CS, self.frame))
 
-    # 巡航速度自动同步（MacanVcruiseSync=开）：OP 与原厂 ACC 速度设定不一致时代发
-    # LS_01 按键脉冲到 bus2，让原厂内部设定逼近 OP（20/50/80ms 窗口升级 + 防死锁冷却）。
-    can_sends.extend(self.vcruise_sync.create_vcruise_sync(self.CCS, self.packer_pt, self.CAN.ext, CS, self.frame))
+      # 巡航速度自动同步（MacanVcruiseSync=开）：OP 与原厂 ACC 速度设定不一致时代发
+      # LS_01 按键脉冲到 bus2，让原厂内部设定逼近 OP（20/50/80ms 窗口升级 + 防死锁冷却）。
+      can_sends.extend(self.vcruise_sync.create_vcruise_sync(self.CCS, self.packer_pt, self.CAN.ext, CS, self.frame))
 
     new_actuators = actuators.as_builder()
     new_actuators.torque = self.apply_torque_last / self.CCP.STEER_MAX
