@@ -486,7 +486,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   return commands
 
 
-def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance, distance, lead_object=0, zeitluecke=4, stock_prim_anz=0, stock_status_anzeige=None, stock_texte_prim=0, stock_display_prio=None, stock_wunschgeschw=None):
+def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance, distance, lead_object=0, zeitluecke=4, stock_prim_anz=0, stock_status_anzeige=None, stock_texte_prim=0, stock_display_prio=None, stock_wunschgeschw=None, use_stock_display_speed=False):
   # Stock radar's lead_object is accurate when working, but gets suppressed to 0 during
   # irreversible fault (status 7) even though ACC_Abstandsindex still tracks distance.
   # Fallback: if lead_object=0 but valid distance exists, the radar is faulted -- use distance.
@@ -513,7 +513,16 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
     # 改法：恒用 set_speed(OP vCruise，未设定=255→327.36"无显示")，让仪表实时跟随 OP。
     #   st=0 时 set_speed=255→327.36 自然清空，与原厂"st=0 清空为 327"语义一致。
     # 注意：本帧是纯显示件(接收方 HUD_C7/Kombi_D4)，改写不影响原厂 ACC 内部闭环设定，零执行风险。
-    "ACC_Wunschgeschw_02": (set_speed if set_speed < 250 else 327.36),
+    # ACC_Wunschgeschw_02 显示源（2026-09-07 用户需求：路试观察 VcruiseSync 自动同步）：
+    #   use_stock_display_speed=False（默认/关闭定向同步）：恒写 OP vCruise（set_speed），仪表显示 OP 实际执行速度。
+    #   use_stock_display_speed=True（VcruiseSync 自动同步 ON）：透传原厂 bus2 ACC_02 stock_wunschgeschw，
+    #     让仪表显示原厂 ACC 内部巡航值——若与 OP vCruise 有差，即可肉眼看到仪表速度向 OP 靠拢（验证同步）。
+    #   纯显示件（接收方 HUD_C7/Kombi_D4），改写不影响原厂 ACC 内部闭环设定；无效值(=0/st=0)统一 327.36"无显示"。
+    "ACC_Wunschgeschw_02": ((stock_wunschgeschw
+                            if stock_wunschgeschw and 0 < stock_wunschgeschw < 250
+                            else 327.36)
+                            if use_stock_display_speed
+                            else (set_speed if set_speed < 250 else 327.36)),
     "ACC_Gesetzte_Zeitluecke": zeitluecke,  # Mirror stock radar's ZL from ext bus (responds to DIST button)
     "ACC_Abstandsindex": lead_distance,
     "ACC_Relevantes_Objekt": lead_obj,
