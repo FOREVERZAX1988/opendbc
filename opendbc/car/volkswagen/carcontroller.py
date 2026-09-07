@@ -564,7 +564,8 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                          stock_status_anzeige=getattr(CS, 'stock_status_anzeige', None),
                                                          stock_texte_prim=getattr(CS, 'stock_texte_prim', 0),
                                                          stock_display_prio=getattr(CS, 'stock_display_prio', None),
-                                                         stock_wunschgeschw=getattr(CS, 'stock_wunschgeschw', None)))
+                                                         stock_wunschgeschw=getattr(CS, 'stock_wunschgeschw', None),
+                                                         use_stock_display_speed=self.vcruise_sync.enabled))
         # OP 代发 ACC_04（原厂雷达状态文本，16Hz）：屏蔽 bus2->bus0 转发后由 OP 保持总线活跃，
         # 内容为原厂正常模板（无故障文本），避免网关/仪表对 ACC_04 超时监测报 ACC 故障
         lead_speed_kph = getattr(CS, 'stock_lead_speed_kph', 327.36)

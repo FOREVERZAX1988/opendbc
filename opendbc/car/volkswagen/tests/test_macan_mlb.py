@@ -130,6 +130,31 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     self.assertAlmostEqual(wg3 * 0.32, 327.36, delta=0.5,
                            msg=f"st=0 未设定应显示 327.36(无显示)，实际 {wg3*0.32:.1f}")
 
+  def test_wg_display_source_vcruise_sync(self):
+    """ACC_Wunschgeschw_02 显示源切换（2026-09-07 需求）：VcruiseSync 自动同步开
+    (use_stock_display_speed=True) 时透传原厂 bus2 stock_wunschgeschw，让仪表显示原厂
+    ACC 内部巡航值以肉眼验证其向 OP vCruise 靠拢；关闭时恒写 OP vCruise(默认行为)。"""
+    from opendbc.car.volkswagen import mlbcan
+    # 关闭：默认恒写 OP vCruise（set_speed=40）
+    msg_off = mlbcan.create_acc_hud_control(PACKER, 0, 3, 40.0, 100, 2, lead_object=1,
+                                            stock_wunschgeschw=60.0, use_stock_display_speed=False)
+    d_off = bytes(msg_off[1]); wg_off = (d_off[1] >> 4) | (d_off[2] << 4)
+    self.assertAlmostEqual(wg_off * 0.32, 40.0, delta=0.4,
+                           msg=f"同步关应写回 OP vCruise 40，实际 {wg_off*0.32:.1f}")
+    # 开启：透传原厂 stock=60（若与 OP 40 有差，仪表显示 60 便于观察向 40 靠拢）
+    msg_on = mlbcan.create_acc_hud_control(PACKER, 0, 3, 40.0, 100, 2, lead_object=1,
+                                           stock_wunschgeschw=60.0, use_stock_display_speed=True)
+    d_on = bytes(msg_on[1]); wg_on = (d_on[1] >> 4) | (d_on[2] << 4)
+    self.assertAlmostEqual(wg_on * 0.32, 60.0, delta=0.4,
+                           msg=f"同步开应透传原厂 stock 60，实际 {wg_on*0.32:.1f}")
+    # 开启但原厂无效(0/None) → 兜底 327.36 无显示
+    for bad in (None, 0.0):
+      msg_bad = mlbcan.create_acc_hud_control(PACKER, 0, 3, 40.0, 100, 2, lead_object=1,
+                                              stock_wunschgeschw=bad, use_stock_display_speed=True)
+      d_bad = bytes(msg_bad[1]); wg_bad = (d_bad[1] >> 4) | (d_bad[2] << 4)
+      self.assertAlmostEqual(wg_bad * 0.32, 327.36, delta=0.5,
+                             msg=f"同步开但原厂无效({bad})应无显示 327.36，实际 {wg_bad*0.32:.1f}")
+
   def test_hud_no_contradiction_frame(self):
     """HUD 矛盾帧回归（2026-08-26 修复）：无目标时 create_acc_hud_control
     不得输出 ab=0 + relev=1（仪表显示"一辆很近的车"幻觉，00000061 seg0 实测 67 帧）。
