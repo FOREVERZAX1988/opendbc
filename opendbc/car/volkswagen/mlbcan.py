@@ -298,7 +298,12 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
       # else → axG 掉 0 → 变速箱脱开 → 扭矩不传递 → 车不动（转速恒定 800）→ 原厂 st6。
       # axG 跟随 mom（0.01*mom）：前车起步又停 → stock_mom 掉 0 → mom 掉 → axG 自动
       # 归 0，不会空转提示加速（碰撞防护仍在 planner/MPC 层 + braking 分支优先）。
-      ax_target = min(0.01 * acc_moment, 1.3)
+      # 2026-09-07 一致性修复：axG 目标必须用「跟足原厂后」的力矩，而非跟足前自算的
+      # 旧 acc_moment——否则变速箱预告(0.27)与实际执行力矩(60)不一致→误判"车没动"→st6。
+      _ax_mom = acc_moment
+      if acc_enabled and not gas_override and not braking and v_ego < 2.0 and 0 < stock_mom < 1021:
+        _ax_mom = max(_ax_mom, int(round(stock_mom)))
+      ax_target = min(0.01 * _ax_mom, 1.3)
     elif acc_control == 4 and not gas_override and v_ego > 5.0:
       # 超驰滑行（st=4 且司机松油门且车速>18km/h）：发负值提示变速箱降挡。
       # 原厂 4 个 route 确诊（00000002/04/05/49）：st=4 时 axG 负值占比 71-85%，
@@ -345,7 +350,9 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   # OP 的 planner 起步 accel 映射 mom 偏低(24 vs 原厂62→执行不足→原厂判"起步偷懒"→st6)。
   # 低速起步窗口(v_ego<2.0)内、非超驰非刹车时跟足原厂力矩——安全样本(seg4/8/16/23)本就
   # 跟随 149-169。超驰(mom自算min)、巡航、刹车路径均不受影响（条件逐项排除）。
-  if acc_enabled and not gas_override and not braking and v_ego < 2.0 and stock_mom > 0:
+  # 2026-09-07 哨兵修复：排除 stock_mom=1021（10bit 满量程=原厂无力矩/静音/读不到时的哨兵），
+  # 原条件 stock_mom>0 会把 1021 当真实力矩向上顶→OP 发 1021Nm 饱和力矩猛冲。
+  if acc_enabled and not gas_override and not braking and v_ego < 2.0 and 0 < stock_mom < 1021:
     _stock_mom_round = int(round(stock_mom))
     if _stock_mom_round > acc_moment:
       acc_moment = _stock_mom_round
