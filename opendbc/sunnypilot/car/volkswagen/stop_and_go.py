@@ -56,7 +56,7 @@ class SnGCarController:
     # 以 Params 为准并定时刷新（update_stop_and_go 内每 100 帧）——中途开/关开关
     # 无需重启 car 进程即生效（0000004f 实测根因：CP_SP.flags 开机后固定，
     # 中途开开关 enabled 仍 False，SnG 永不触发）。
-    self.enabled = self._platform_ok and bool(CP_SP.flags & VolkswagenFlagsSP.STOP_AND_GO)
+    self.enabled = self._platform_ok and CP.openpilotLongitudinalControl and bool(CP_SP.flags & VolkswagenFlagsSP.STOP_AND_GO)
     # 起步安全距离（MacanStartStopDistance，INT 米；0=Off/V1纯意图起步，3~10=需前车距离>阈值）：
     # 开（>0）时：需 原厂雷达距离(ab) 或 视觉前车距离 换算后 > 阈值才起步（防误起步）。
     # 关（0）：V1 纯意图起步（仅 aTarget>0.15+5帧确认）——拥堵防加塞。仅 SnG 开启时生效。
@@ -65,7 +65,8 @@ class SnGCarController:
     try:
       from openpilot.common.params import Params
       self._mp = Params()
-      self.enabled = self._platform_ok and self._mp.get_bool("MacanStartStop")
+      # 门控补强(2026-09-07)：仅 OP 纵向开启时才启用（纯原厂ACC下OP不介入原厂起步）
+      self.enabled = self._platform_ok and CP.openpilotLongitudinalControl and self._mp.get_bool("MacanStartStop")
       self._distance_m = int(self._mp.get("MacanStartStopDistance") or 5)
     except Exception:
       pass  # opendbc 测试环境无 openpilot 包：保持 flags 判断
@@ -229,7 +230,8 @@ class StartupGapSyncCarController:
     try:
       from openpilot.common.params import Params
       self._mp = Params()
-      self.enabled = self._platform_ok and self._mp.get_bool("MacanStartupGapSync")
+      # 门控补强(2026-09-07)：仅 OP 纵向开启时生效
+      self.enabled = self._platform_ok and CP.openpilotLongitudinalControl and self._mp.get_bool("MacanStartupGapSync")
     except Exception:
       pass  # opendbc 测试环境无 openpilot 包：保持关闭
 
@@ -304,7 +306,8 @@ class VcruiseSyncCarController:
     try:
       from openpilot.common.params import Params
       self._mp = Params()
-      self.enabled = self._platform_ok and self._mp.get_bool("MacanVcruiseSync")
+      # 门控补强(2026-09-07)：仅 OP 纵向开启时生效
+      self.enabled = self._platform_ok and CP.openpilotLongitudinalControl and self._mp.get_bool("MacanVcruiseSync")
     except Exception:
       pass  # opendbc 测试环境无 openpilot 包：保持关闭
 
