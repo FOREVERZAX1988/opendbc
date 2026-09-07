@@ -424,6 +424,13 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
       verz = _last_verz_cmd - estep
   _last_verz_cmd = verz
 
+  # 2026-09-07 最终硬顶：任何路径（OP计算/跟足原厂/超驰透传/起步跟足）产出的力矩
+  # 都不超过 500Nm（车机扭矩极限，原厂实测 mom 全域 0-222，400 以上从未出现）。
+  # 兜底彻底：即便未来引入新路径或扫描误读（idx 时距与 mom 同为 10bit[1|1021]），
+  # 也绝不可能把 1021 饱和哨兵当真实力矩输出。500 是物理上限、1021 是位域哨兵。
+  acc_moment = max(0, min(int(acc_moment), 500))
+  _last_acc_moment = float(acc_moment)
+
   acc_05_values = {
     "ACC_Status_ACC": acc_control,
     "ACC_Verz_anf": verz,
