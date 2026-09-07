@@ -14,6 +14,11 @@ _ACC_MOMENT_RAMP = 8.0
 _ACC_MOMENT_RAMP_DOWN = 3.0  # 撤力跟随斜坡（50Hz≈150Nm/s）：00000042 seg7 原厂 mom 96→0 约0.68s(≈2.8/帧)，
                              # OP 用 3/帧 斜坡下降避免 110→0 瞬间跳变与原厂残余力矩方向相反 → st=6
 _ACC_SCALE_MAX = 1.8
+# 力矩最终硬顶（Nm）＝2015 Macan 发动机物理极限。真实原厂 ACC_Momentenanforderung
+# 全量扫描（2026-09-07, 197 routes / 584,711 帧[bus2]）GLOBAL_MAX=407（仅 route71 seg15
+# 大油门起步 7 帧≥400），从未出现 ≥500 或 =1021（1021 是 idx 时距同 10bit[1|1021] 位域
+# 饱和哨兵，非真实力矩）。兜底取 350 比 500 更彻底且不削顶真实需求。
+_ACC_MOMENT_MAX = 350.0
 _last_acc_moment = 0.0
 _last_verz_cmd = 0.0  # verz过渡桥状态（2026-09-02：负向加深限速0.02/帧）
 _macan_ttc_band = 1.0  # verz桥TTC分档当前系数(滞回状态, 松档1.0%基线, 变紧即时/变松滞后2帧)
@@ -191,10 +196,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
       # → 用户症状"激活成功但车不加速"的直接根因（同窗口原厂请求 145Nm，差 5 倍）。
       # 修复：正加速度改用加性映射 Mom = 巡航基线 + accel*85 Nm/(m/s²)（原厂斜率≈97，留12%余量防过冲）；
       # 8Nm/帧上升斜坡（_ACC_MOMENT_RAMP）继续保证起步柔和。
-      acc_moment = int(min(500, cruise_torque + accel_eff * 85.0))
+      acc_moment = int(min(_ACC_MOMENT_MAX, cruise_torque + accel_eff * 85.0))
     else:
       scale = max(0.0, 1.0 + accel_eff * 2.5)
-      acc_moment = int(min(500, cruise_torque * scale))
+      acc_moment = int(min(_ACC_MOMENT_MAX, cruise_torque * scale))
     # 上升斜坡：激活/加速时扭矩渐进（原厂ACC柔和感）
     if acc_moment > _last_acc_moment:
       acc_moment = min(acc_moment, int(_last_acc_moment + _ACC_MOMENT_RAMP))
@@ -425,10 +430,10 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   _last_verz_cmd = verz
 
   # 2026-09-07 最终硬顶：任何路径（OP计算/跟足原厂/超驰透传/起步跟足）产出的力矩
-  # 都不超过 500Nm（车机扭矩极限，原厂实测 mom 全域 0-222，400 以上从未出现）。
-  # 兜底彻底：即便未来引入新路径或扫描误读（idx 时距与 mom 同为 10bit[1|1021]），
-  # 也绝不可能把 1021 饱和哨兵当真实力矩输出。500 是物理上限、1021 是位域哨兵。
-  acc_moment = max(0, min(int(acc_moment), 500))
+  # 都不超过 _ACC_MOMENT_MAX(350Nm，2015 Macan 物理极限)。全量扫描证实真实的
+  # ACC_Momentenanforderung 全域 0-407（日常 0-150、巡航基线 27-99），400 以上仅
+  # 极少数硬起步帧，500/1021 均为位域饱和哨兵非真实力矩。350 彻底兜底不削顶。
+  acc_moment = max(0, min(int(acc_moment), int(_ACC_MOMENT_MAX)))
   _last_acc_moment = float(acc_moment)
 
   acc_05_values = {

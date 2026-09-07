@@ -272,19 +272,20 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     r2 = make_acc(acc_enabled=True, sng_resume_req=False, accel=0.15, v_ego=3.0, stock_mom=60.0)
     self.assertLess(r2['mom'], 55, f"非低速窗口(v>=2)不强制跟足，实际 {r2['mom']}")
 
-  def test_mom_hard_cap_500(self):
-    """力矩最终硬顶 500Nm（2026-09-07）：任何路径产出的 ACC_Momentenanforderung
-    都不超过 500（车机物理扭矩极限）。兜底彻底——即便 stock_mom 传入 1021 哨兵
-    （idx 时距与 mom 同为 10bit[1|1021] 位域，易被扫描误读）也绝不输出饱和力矩。"""
-    # 直接传 1021 哨兵：即使误触发跟足逻辑，最终输出也必须被 500 硬顶钳死
+  def test_mom_hard_cap(self):
+    """力矩最终硬顶 350Nm（2026-09-07）：任何路径产出的 ACC_Momentenanforderung
+    都不超过 2015 Macan 发动机物理扭矩极限 350。兜底彻底——即便 stock_mom 传入
+    1021 哨兵（idx 时距与 mom 同为 10bit[1|1021] 位域，易被扫描误读）也绝不输出
+    饱和力矩。全量真实数据 mom=0-407，500/1021 皆是位域哨兵非真实扭矩。"""
+    # 直接传 1021 哨兵：即使误触发跟足逻辑，最终输出也必须被 350 硬顶钳死
     r = make_acc(acc_enabled=True, sng_resume_req=True, accel=0.5, v_ego=1.0, stock_mom=1021.0)
-    self.assertLessEqual(r['mom'], 500, f"mom 必须被硬顶到 ≤500，实际 {r['mom']}")
+    self.assertLessEqual(r['mom'], 350, f"mom 必须被硬顶到 ≤ 350，实际 {r['mom']}")
     # 超驰透传原厂高值（理论上限 1021）同样被硬顶
     r2 = make_acc(acc_enabled=True, gas_override=True, accel=0.5, v_ego=5.0, stock_mom=1021.0)
-    self.assertLessEqual(r2['mom'], 500, f"超驰透传也须 ≤500，实际 {r2['mom']}")
-    # 正常大 accel 也不应超 500
+    self.assertLessEqual(r2['mom'], 350, f"超驰透传也须 ≤350，实际 {r2['mom']}")
+    # 正常大 accel 也不应超 350
     r3 = make_acc(acc_enabled=True, accel=1.5, v_ego=30.0)
-    self.assertLessEqual(r3['mom'], 500, f"正常大加速也须 ≤500，实际 {r3['mom']}")
+    self.assertLessEqual(r3['mom'], 350, f"正常大加速也须 ≤350，实际 {r3['mom']}")
 
   def test_sng_resume(self):
     """SnG 自动起步（1b4915d）：sng_resume_req 模拟踩油门语义 → loes=1"""
