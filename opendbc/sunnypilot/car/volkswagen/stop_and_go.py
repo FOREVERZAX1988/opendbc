@@ -32,10 +32,12 @@ _RESUME_VEGO_RESET = 0.5
 # （vEgo>0.5 车动立即解除）——一次起步意图 = 一次干净脉冲。
 _RESUME_PULSE_FRAMES = 8        # 脉冲总长度：80ms @100Hz 控制帧率（用户指定 80ms 窗口，信号更干净）
 _RESUME_COOLDOWN_FRAMES = 300   # 冷却：3s 内不重发（人不会 3 秒内按两次 RESUME）
-# VcruiseSync 按键脉冲间隔（2026-09-08）：每批 LS_01 按键结束后必须强制留出释放间隙。
-# 否则一批刚结束本函数就在同一帧发起下一批 → LS_01 置位几乎不间断 → Cabana 看起来
-# 像按键黏连/卡键 → 雷达/ECU 异常判定直接 st=6 关功能（上版 st6 直接根因）。
-_SYNC_RELEASE_FRAMES = 10   # 100ms @100Hz：两批同步按键之间的强制释放时长（松手）
+# VcruiseSync 按键脉冲间隔（2026-09-08）：每批 LS_01 按键结束必须强制松手留出释放间隙，
+# 否则一批刚结束本函数就在同一帧发起下一批 → LS_01 置位几乎不间断 → Cabana 看起来像
+# 按键黏连/卡键 → 雷达/ECU 异常判定直接 st=6 关功能（上版 st6 直接根因）。
+# 2026-09-08 用户定参：问题不在窗口太小而在太频繁 → 窗口固定 80ms、等 20ms 松手后才
+# 允许发第二个信号（80ms 按住 + 20ms 释放 = 干净单脉冲，避免连续批次被误判卡键）。
+_SYNC_RELEASE_FRAMES = 2    # 20ms @100Hz：两批同步按键之间的强制释放时长（松手）
 
 
 class SnGCarController:
@@ -299,9 +301,8 @@ class VcruiseSyncCarController:
   代发 LS_01 按键脉冲（SET+/SET-）到 CAN.ext(bus2 雷达侧)，让原厂内部设定向 OP 逼近，
   直到两者在 ±1 km/h 内一致。读回依据=carstate 的 stock_wunschgeschw（ACC_02 原厂值）。
 
-  防死锁（2026-09-07 设计）：按键窗口按 20→50→80ms 递增，每个窗口层连续 3 次
-  判定"原厂 Wunsch 未向正确方向变化"即升一档；80ms 仍失败则放弃本次 + 冷却 5s，
-  防止"原厂不认 20ms 单帧按键 → 发了也没用而无限循环"。
+  防死锁（2026-09-08 用户定参）：按键窗口固定 80ms，每批按键=80ms 按住+20ms 松手。
+  原厂判定"本次按键未向正确方向变化"连续 3 次则放弃本次 + 冷却 5s，防死循环。
   """
 
   def __init__(self, CP: structs.CarParams, CP_SP: structs.CarParamsSP):
@@ -318,7 +319,7 @@ class VcruiseSyncCarController:
 
     # 按键窗口（帧数）：控制帧率 ~100Hz(10ms) → 20ms≈2帧 / 50ms≈5帧 / 80ms≈8帧
     # 用帧数表示"按住时长"（一次完整按键 = 连续 N 帧置位 + 至少 1 帧释放）
-    self.windows_frames = [2, 5, 8]      # 20/50/80ms 三档
+    self.windows_frames = [8]            # 固定 80ms（用户定参：窗口固定80ms，不逐档升级）
     self.window_idx = 0                   # 当前档位
     self.fail_count = 0                   # 当前档位连续失败次数
     self.hold_remaining = 0               # 当前按键还剩余置位帧数
@@ -376,17 +377,14 @@ class VcruiseSyncCarController:
         self.window_idx = 0
         self.fail_count = 0
       else:
-        # 本次按键没生效 → 计数；连续 3 次升档，80ms 仍失败则放弃+冷却
+        # 本次按键没生效 → 计数；固定 80ms 窗口下连续 3 次未生效则放弃+冷却
+        # （2026-09-08 用户定参：窗口固定 80ms 不再逐档升级，失败即冷却防死循环）
         self.fail_count += 1
         if self.fail_count >= 3:
-          if self.window_idx < len(self.windows_frames) - 1:
-            self.window_idx += 1
-            self.fail_count = 0
-          else:
-            self.gave_up = True
-            self.cooldown_until = frame + 500  # 停 5s 防反复
-            self.stock_at_burst = None
-            return can_sends
+          self.gave_up = True
+          self.cooldown_until = frame + 500  # 停 5s 防反复
+          self.stock_at_burst = None
+          return can_sends
       self.stock_at_burst = None
 
     # 释放间隙（2026-09-08）：刚结束一段按键后强制松手 N 帧才允许发下一批，防止连续批次
