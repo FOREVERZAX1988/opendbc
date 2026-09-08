@@ -343,7 +343,7 @@ class VcruiseSyncCarController:
     if stock_status not in (3, 4) or not CS.out.cruiseState.enabled:
       return can_sends
 
-    op_cruise = float(getattr(CS.out, 'vCruise', 0.0)) * CV.MS_TO_KPH  # OP 巡航（kph，carState.vCruise 为 m/s）
+    op_cruise = float(getattr(CS.out, 'vCruise', 0.0))  # OP 巡航（kph，card.py:224 已置 vCruise=kph，勿再乘 3.6 造成 144 伪速度差 → st6/7）
     stock = float(getattr(CS, 'stock_wunschgeschw', 0.0))  # 原厂 Wunsch（kph）
     if op_cruise <= 0 or stock <= 0:
       return can_sends
