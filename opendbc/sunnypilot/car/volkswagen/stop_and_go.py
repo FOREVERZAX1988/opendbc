@@ -37,8 +37,17 @@ _RESUME_COOLDOWN_FRAMES = 300   # 冷却：3s 内不重发（人不会 3 秒内�
 # 按键黏连/卡键 → 雷达/ECU 异常判定直接 st=6 关功能（上版 st6 直接根因）。
 # 2026-09-08 用户定参：问题不在窗口太小而在太频繁 → 窗口固定 80ms、等 20ms 松手后才
 # 允许发第二个信号（80ms 按住 + 20ms 释放 = 干净单脉冲，避免连续批次被误判卡键）。
-_SYNC_RELEASE_FRAMES = 2    # 20ms @100Hz：两批同步按键之间的强制释放时长（松手）
+_SYNC_RELEASE_FRAMES = 10   # 100ms @100Hz：两批同步按键之间的强制释放时长（松手）2026-09-08 定稿
 
+# VcruiseSync 速度差连续帧滤波(2026-09-08 定稿)：不能有一帧出现速度差就去追，需连续
+# _SYNC_DELTA_CONFIRM_FRAMES 帧都有速度差才模拟按键追平，避免原厂 Wunsch/OP vCruise
+# 在 ±边界抖动时逐帧反复触发按键死循环 → st6。5~10 帧=50~100ms @100Hz。
+_SYNC_DELTA_CONFIRM_FRAMES = 5
+# 原厂 ACC_02 Wunschgeschw 无默认速度哨兵(=327.36 kph→speed≈90.93 m/s)与同步上限。
+# 原厂速度我们限制不住(可到140)，但置入的只是让 OP vCruise 自维护 120 上限——加速
+# 控制权在 OP，仅 120 以下才同步；>120 不置入(落回 OP 自身逻辑)。327.36 无设定值排除。
+_SYNC_STOCK_SENTINEL_KPH = 327.36
+_SYNC_STOCK_MAX_KPH = 120.0
 
 class SnGCarController:
   """Macan (MLB) 起步跟停：
@@ -328,6 +337,7 @@ class VcruiseSyncCarController:
     self.cooldown_until = 0               # 放弃后冷却到该帧（防反复）
     self.gave_up = False
     self.release_frames_remaining = 0     # 两批按键之间的强制释放帧数（防黏连）
+    self.delta_confirm_frames = 0         # 速度差连续帧计数（2026-09-08 定稿：连续 N 帧才有差值才追）
 
   def create_vcruise_sync(self, CCS, packer, bus, CS: CarStateBase, frame: int) -> list[CanData]:
     """返回应代发的 LS_01 按键帧（可能为空）。仅 OP 与原厂 ACC 速度设定不一致时发送。"""
@@ -354,7 +364,25 @@ class VcruiseSyncCarController:
     if op_cruise <= 0 or stock <= 0:
       return can_sends
 
+    # (a2) 327.36 无设定哨兵排除 + 上限 120：stock 无设定时本模块不回读/不比较，避免
+    # 拿 327 当真实速度去按键死循环；>120 不置入（原厂速度限制不住，置入只会推到
+    # OP 120 上限，加速控制权在 OP）——仅 120 以下才参与同步。
+    if not (0 < op_cruise <= _SYNC_STOCK_MAX_KPH and 0 < stock <= _SYNC_STOCK_MAX_KPH
+            and stock < _SYNC_STOCK_SENTINEL_KPH):
+      self.delta_confirm_frames = 0
+      return can_sends
+
     delta = op_cruise - stock
+
+    # (b) 速度差连续 N 帧滤波（2026-09-08 定稿）：单帧差值不去追，需连续
+    # _SYNC_DELTA_CONFIRM_FRAMES 帧都超阈值才触发按键，滤掉 ±1 边界的单帧抖动。
+    if abs(delta) > 1.0:
+      self.delta_confirm_frames += 1
+    else:
+      self.delta_confirm_frames = 0
+    in_burst = self.hold_remaining > 0 or self.stock_at_burst is not None or self.release_frames_remaining > 0
+    if self.delta_confirm_frames < _SYNC_DELTA_CONFIRM_FRAMES and not in_burst:
+      return can_sends
 
     # 正在持续一段按键置位：继续按住（不新发起、不判回读）
     if self.hold_remaining > 0:
