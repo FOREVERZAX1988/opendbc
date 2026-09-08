@@ -32,6 +32,10 @@ _RESUME_VEGO_RESET = 0.5
 # （vEgo>0.5 车动立即解除）——一次起步意图 = 一次干净脉冲。
 _RESUME_PULSE_FRAMES = 8        # 脉冲总长度：80ms @100Hz 控制帧率（用户指定 80ms 窗口，信号更干净）
 _RESUME_COOLDOWN_FRAMES = 300   # 冷却：3s 内不重发（人不会 3 秒内按两次 RESUME）
+# VcruiseSync 按键脉冲间隔（2026-09-08）：每批 LS_01 按键结束后必须强制留出释放间隙。
+# 否则一批刚结束本函数就在同一帧发起下一批 → LS_01 置位几乎不间断 → Cabana 看起来
+# 像按键黏连/卡键 → 雷达/ECU 异常判定直接 st=6 关功能（上版 st6 直接根因）。
+_SYNC_RELEASE_FRAMES = 10   # 100ms @100Hz：两批同步按键之间的强制释放时长（松手）
 
 
 class SnGCarController:
@@ -322,6 +326,7 @@ class VcruiseSyncCarController:
     self.stock_at_burst = None            # 本批按键起点的原厂 Wunsch（回读判据）
     self.cooldown_until = 0               # 放弃后冷却到该帧（防反复）
     self.gave_up = False
+    self.release_frames_remaining = 0     # 两批按键之间的强制释放帧数（防黏连）
 
   def create_vcruise_sync(self, CCS, packer, bus, CS: CarStateBase, frame: int) -> list[CanData]:
     """返回应代发的 LS_01 按键帧（可能为空）。仅 OP 与原厂 ACC 速度设定不一致时发送。"""
@@ -357,6 +362,10 @@ class VcruiseSyncCarController:
         packer, bus, CS.gra_stock_values,
         set_increase=(self.need_increase > 0),
         set_decrease=(self.need_increase < 0)))
+      # 本批按键最后一帧已发出 → 下一帧起进入强制释放间隙（确保两批之间松手，
+      # 让原厂看到干净的上升沿/释放，避免按键黏连被误判卡键 → st6）
+      if self.hold_remaining == 0:
+        self.release_frames_remaining = _SYNC_RELEASE_FRAMES
       return can_sends
 
     # 上一批按键已释放：回读判据
@@ -379,6 +388,12 @@ class VcruiseSyncCarController:
             self.stock_at_burst = None
             return can_sends
       self.stock_at_burst = None
+
+    # 释放间隙（2026-09-08）：刚结束一段按键后强制松手 N 帧才允许发下一批，防止连续批次
+    # 之间 0 释放帧造成按键黏连 → 原厂误判卡键 → st6。每批按键 = 一次干净的单脉冲。
+    if self.release_frames_remaining > 0:
+      self.release_frames_remaining -= 1
+      return can_sends
 
     # 重新计算（可能已被上批修正）：在 ±1 kph 内 = 同步完成
     delta = op_cruise - float(getattr(CS, 'stock_wunschgeschw', 0.0))
