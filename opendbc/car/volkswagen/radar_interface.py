@@ -87,8 +87,15 @@ class RadarInterface(RadarInterfaceBase):
     if v_cnt == 0:
       return super().update(None)  # 无轮速 -> 无法算相对速度，保守返回空
     v_ego = v_sum / v_cnt * 0.2778 * self.CP.wheelSpeedFactor  # km/h -> m/s
-    # Abstandsindex -> 时距 t -> 距离（标定逆映射，低速用等效 t*5）
-    t = float(np.interp(idx, self._macan_abstands_idx, self._macan_abstands_t))
+    # Abstandsindex -> 时距 t -> 距离
+    # 0909 重标定（VERIFIED）：时距线性公式 t=0.008718*idx+1.0178（idx 100~560，误差0.5~1.4%）
+    #   低 idx<100 锚 0.8s（近贴防外推过冲）；高 idx>560 封顶 6.0s（无实测点防外推失真）
+    if idx < 100:
+        t = 0.8
+    elif idx > 560:
+        t = 6.0
+    else:
+        t = 0.008718 * idx + 1.0178
     d_rel = t * max(v_ego, 5.0)
     v_lead = lead_spd / 3.6  # 前车绝对速度 (m/s)
     ret = structs.RadarData()
