@@ -19,6 +19,15 @@ SIGNAL_SETS = tuple(
   for prefix in (f"{lane}_0{idx}",)
 )
 
+# Macan Abstandsindex <-> 时距标定（0910 方案B / B1 单表）：t(idx) = A*idx + B
+# 干净"同目标"帧、6 route / 15,040 帧重拟合，RMS 0.61 s。
+# 效果：视觉-雷达 中位差 -0.77 m、中位绝对差 1.90 m、82.0% 帧 <=5 m、A2 原厂替换率 6.3%
+# （旧 0909 新线性 0.008718/+1.0178：中位差 -7.10 m、仅 17.5% <=5 m、替换率 35.3%）。
+# 注意：openpilot radard.py 的 A2（_macan_t_from_idx / _macan_drel_to_idx）使用同一组
+# 系数，必须同源修改，否则融合两源会落在不同尺度上。详见 ai/docs/MLB_MACAN_PLANB_FIT_0910.md
+MACAN_B1_T_A = 0.008969
+MACAN_B1_T_B = 0.332
+
 
 class RadarInterface(RadarInterfaceBase):
   def __init__(self, CP, CP_SP):
@@ -33,8 +42,8 @@ class RadarInterface(RadarInterfaceBase):
     # Macan (MLB, 非 MEB)：原厂 ACC 模块在 bus2 上报汇总雷达信号（ACC_02.Abstandsindex 距离 + ACC_04 前车速度）。
     # 雷达点数据不暴露在 CAN 上（ACC 模块内部消化），这里把汇总信号合成为单个标准雷达点，
     # 供 radard 的 get_lead 走"雷达点匹配"分支（Track 卡尔曼平滑）。
-    # 标定表：2026-09-02 全量重标定（6-route，拟合26367/留出5979样本，中位相对误差
-    # 低速8.23%/高速9.64%/全部8.86% vs 旧11点表15.12%）。低速区<234实测点，高速区保留原表。
+    # 标定口径：0910 方案B / B1 单表 t = 0.008969*idx + 0.332（模块常量 MACAN_B1_T_*），
+    # 与 radard.py 的 A2 同源；旧 0902 插值查表与 0909 新线性公式（+1.0178 s 截距）均已废弃。
     # 2026-09-02 修复：去掉 and not self.CP.radarUnavailable —— MLB 的 dbc_dict 只有
     # Bus.pt（无 Bus.radar）→ interface.py:19 判定 radarUnavailable=True，但这只是"dbc没
     # 定义雷达总线"的误标，Macan 实际有 ACC_02/04 汇总信号可合成点。原条件导致
@@ -85,15 +94,10 @@ class RadarInterface(RadarInterfaceBase):
     if v_cnt == 0:
       return super().update(None)  # 无轮速 -> 无法算相对速度，保守返回空
     v_ego = v_sum / v_cnt * 0.2778 * self.CP.wheelSpeedFactor  # km/h -> m/s
-    # Abstandsindex -> 时距 t -> 距离
-    # 0909 重标定（VERIFIED）：时距线性公式 t=0.008718*idx+1.0178（idx 100~560，误差0.5~1.4%）
-    #   低 idx<100 锚 0.8s（近贴防外推过冲）；高 idx>560 封顶 6.0s（无实测点防外推失真）
-    if idx < 100:
-        t = 0.8
-    elif idx > 560:
-        t = 6.0
-    else:
-        t = 0.008718 * idx + 1.0178
+    # Abstandsindex -> 时距 t -> 距离（0910 方案B / B1 单表直线，无人工分段）
+    # 旧 idx<100 锚 0.8 s / idx>560 截顶 6.0 s 已删除：前者在 idx=100 处会造成
+    # 0.8 -> 1.89 s 的突跳，且两者都是与 radard A2 反解不一致的阶梯源。
+    t = MACAN_B1_T_A * idx + MACAN_B1_T_B
     d_rel = t * max(v_ego, 5.0)
     v_lead = lead_spd / 3.6  # 前车绝对速度 (m/s)
     ret = structs.RadarData()
