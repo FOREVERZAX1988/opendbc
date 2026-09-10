@@ -12,10 +12,18 @@ VisualAlert = structs.CarControl.HUDControl.VisualAlert
 LongCtrlState = structs.CarControl.Actuators.LongControlState
 
 
-# 全量标定 v4（2026-09-02, 223段/100055样本, 留出验证中位误差9.74%）
-# bus2(原厂ACC) Abstandsindex × 视觉dRel 配对; T单调化用于 t→idx 反向插值
-_MACAN_ABSTAND_IDX = [27, 32, 37, 42, 47, 52, 57, 62, 67, 72, 77, 82, 87, 92, 97, 102, 107, 112, 117, 122, 127, 132, 137, 142, 147, 152, 157, 162, 167, 172, 177, 182, 187, 192, 197, 202, 207, 212, 217, 222, 227, 232, 237, 242, 247, 252, 257, 262, 267, 272, 277, 282, 287, 292, 297, 302, 307, 312, 317, 322, 327, 332, 337, 342, 347, 352, 357, 362, 367, 372, 377, 382, 387, 392, 397, 402, 407, 412, 417, 422, 427, 432, 437, 442, 447, 452, 457, 462, 467, 472, 477, 482, 487, 492, 497, 502, 507, 512, 517, 522, 527, 532, 537, 542, 547, 552, 557, 562, 567, 572, 577, 582, 587, 592, 597, 602, 607, 612, 617, 622, 627, 632, 637, 642, 647, 652, 657, 662, 667, 672, 677, 682, 687, 692, 697, 702, 707, 712, 717, 722, 727, 732, 737, 742, 747, 752, 757, 762, 767, 772, 777, 780, 1021]
-_MACAN_ABSTAND_T_MONO = [np.float64(0.81), np.float64(0.81), np.float64(0.81), np.float64(0.81), np.float64(0.81), np.float64(0.81), np.float64(0.81), np.float64(0.822), np.float64(0.837), np.float64(0.872), np.float64(0.942), np.float64(0.942), np.float64(0.942), np.float64(0.978), np.float64(1.025), np.float64(1.14), np.float64(1.168), np.float64(1.185), np.float64(1.203), np.float64(1.275), np.float64(1.288), np.float64(1.364), np.float64(1.422), np.float64(1.439), np.float64(1.459), np.float64(1.505), np.float64(1.571), np.float64(1.616), np.float64(1.682), np.float64(1.708), np.float64(1.766), np.float64(1.801), np.float64(1.828), np.float64(1.869), np.float64(1.933), np.float64(2.0), np.float64(2.028), np.float64(2.091), np.float64(2.12), np.float64(2.17), np.float64(2.246), np.float64(2.246), np.float64(2.351), np.float64(2.353), np.float64(2.394), np.float64(2.435), np.float64(2.467), np.float64(2.497), np.float64(2.553), np.float64(2.635), np.float64(2.653), np.float64(2.711), np.float64(2.774), np.float64(2.823), np.float64(2.923), np.float64(2.968), np.float64(3.031), np.float64(3.075), np.float64(3.121), np.float64(3.128), np.float64(3.197), np.float64(3.263), np.float64(3.263), np.float64(3.263), np.float64(3.299), np.float64(3.398), np.float64(3.472), np.float64(3.472), np.float64(3.472), np.float64(3.531), np.float64(3.619), np.float64(3.628), np.float64(3.684), np.float64(3.826), np.float64(3.826), np.float64(3.826), np.float64(3.884), np.float64(3.925), np.float64(3.955), np.float64(3.955), np.float64(4.074), np.float64(4.074), np.float64(4.074), np.float64(4.074), np.float64(4.074), np.float64(4.154), np.float64(4.193), np.float64(4.216), np.float64(4.406), np.float64(4.453), np.float64(4.453), np.float64(4.453), np.float64(4.562), np.float64(4.562), np.float64(4.562), np.float64(4.587), np.float64(4.71), np.float64(4.802), np.float64(4.802), np.float64(4.802), np.float64(4.835), np.float64(4.974), np.float64(4.974), np.float64(4.974), np.float64(4.974), np.float64(5.048), np.float64(5.048), np.float64(5.052), np.float64(5.098), np.float64(5.098), np.float64(5.237), np.float64(5.364), np.float64(5.606), np.float64(5.606), np.float64(5.606), np.float64(5.782), np.float64(5.782), np.float64(5.782), np.float64(5.782), np.float64(5.782), np.float64(5.782), np.float64(5.782), np.float64(5.782), np.float64(5.782), np.float64(5.787), np.float64(5.909), np.float64(5.909), np.float64(6.202), np.float64(6.331), np.float64(6.331), np.float64(6.331), np.float64(6.331), np.float64(6.331), np.float64(6.331), np.float64(6.331), np.float64(6.458), np.float64(6.458), np.float64(6.458), np.float64(6.59), np.float64(6.59), np.float64(6.59), np.float64(6.59), np.float64(6.59), np.float64(6.59), np.float64(6.94), np.float64(6.94), np.float64(6.94), np.float64(6.94), np.float64(6.94), np.float64(7.149), np.float64(7.149), np.float64(7.149), np.float64(7.149)]
+# Macan Abstandsindex <-> 时距标定（0910 方案B / B1 单表）：t(idx) = A*idx + B
+# 【第三处映射统一 2026-09-10】本文件 op_lead_to_index（OP 前车距离 -> 原厂 idx，供仪表
+# 车距显示源换算）原先用 0902 全量标定 v4 的 153 点单调表 _MACAN_ABSTAND_T_MONO，与
+# radard.py(A2 融合) / radar_interface.py(A3 雷达点) 不在同一尺度（idx=400: 0902 表 3.128 s
+# vs B1 3.92 s，差 +25%）。现三处同源到 B1 直线，旧表已删（git 历史可回退）。
+# 注意：A2/A3/此处三份常量必须一起改（ai/tools/verify_planB_code_0910.py 有同源断言）。
+MACAN_B1_T_A = 0.008969
+MACAN_B1_T_B = 0.332
+# 仪表显示源迟滞阈值（物理化）：|d_stock - d_vis| / d_stock（与 A2 判据、复核工具同口径）。
+# 旧实现是 idx 域 30%，而 idx 域比值 = |Δt|/(t-B)，B1 下等效物理 ~25%（t=2 s）；
+# 物理化后为真实 30%（门槛略放宽 3~5pp）。仪表若出现"该切雷达没切"再调此值。
+MACAN_DISP_REL_TH = 0.30
 
 class CarController(CarControllerBase, SnGCarController):
   def __init__(self, dbc_names, CP, CP_SP):
@@ -101,12 +109,20 @@ class CarController(CarControllerBase, SnGCarController):
     self.hca_frame_low_torque = 0
 
   @staticmethod
+  def op_index_to_drel(idx, vego):
+    """原厂 ACC_Abstandsindex -> 距离（B1 正解，与 A2/A3 同源）。低速用等效 t*max(v,5)。"""
+    t = MACAN_B1_T_A * idx + MACAN_B1_T_B
+    return t * (vego if vego > 5.0 else 5.0)
+
+  @staticmethod
   def op_lead_to_index(drel, vego):
-    """OP 前车距离 → 原厂 ACC_Abstandsindex（1-1021）。全量标定 v4（2026-09-02，
-    223段/100055样本，留出验证 9.74%）：bus2(原厂)idx × 视觉dRel 配对，反向插值
-    用单调化时距表 _MACAN_ABSTAND_T_MONO。低速（vEgo<5m/s）等效距离兜底。"""
+    """OP 前车距离 -> 原厂 ACC_Abstandsindex（1..1020；1021 = 原厂"无目标/饱和"，不用）。
+
+    0910 方案B / B1 直线反解（与 A2 融合、A3 雷达点同源）：t = d/max(v,5)，
+    idx = clip((t - B)/A, 1, 1020)。旧实现用 0902 全量标定 v4 的 153 点表
+    （idx 27..1021、t 0.81..7.149 s），与 A2/A3 尺度差 25%，已删。"""
     t = drel / vego if vego > 5.0 else drel / 5.0
-    return int(np.interp(t, _MACAN_ABSTAND_T_MONO, _MACAN_ABSTAND_IDX))
+    return int(round(float(np.clip((t - MACAN_B1_T_B) / MACAN_B1_T_A, 1.0, 1020.0))))
 
   def update(self, CC, CC_SP, CS, now_nanos):
     actuators = CC.actuators
@@ -504,8 +520,13 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
         radar_valid = 0 < lead_distance < 1021
         vis_raw = self.op_lead_to_index(op_drel, CS.out.vEgo) if op_drel > 0 else 0
         if radar_valid and not self.disp_src_radar:
-          # 视觉源中：仅当视觉也明显偏离（>30%）才切回雷达（迟滞进入条件）
-          if vis_raw == 0 or abs(lead_distance - vis_raw) > 0.30 * max(vis_raw, 1):
+          # 视觉源中：仅当视觉也明显偏离才切回雷达（迟滞进入条件）。
+          # 【判据物理化 2026-09-10】比较改在距离域、且与 A2 判据/复核工具同一口径：
+          #   |d_stock - d_vis| / d_stock   （d_stock 由原厂 idx 经 B1 正解得到）
+          # 旧实现比值 = |Δt|/(t-B)，B1 下阈值随距离变严（名义 30% 实为 23~27%）；
+          # 物理化后 rel=|Δt|/t_stock，换表不再漂移（分母也统一用原厂距离，与 A2 一致）。
+          d_stock = self.op_index_to_drel(lead_distance, CS.out.vEgo)
+          if vis_raw == 0 or abs(d_stock - op_drel) > MACAN_DISP_REL_TH * max(d_stock, 1.0):
             self.disp_src_radar = True
         elif not radar_valid:
           self.disp_src_radar = False
