@@ -16,6 +16,8 @@ import unittest
 
 from opendbc.can import CANPacker
 from opendbc.car.volkswagen import mlbcan
+from opendbc.car.volkswagen.carcontroller import (CarController, MACAN_B1_T_A, MACAN_B1_T_B,
+                                                 MACAN_DISP_REL_TH)
 
 PACKER = CANPacker('vw_mlb')
 
@@ -358,3 +360,58 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
 
 if __name__ == '__main__':
   unittest.main()
+
+
+class TestMacanDisplayMapping(unittest.TestCase):
+  """仪表车距显示源换算（第三处映射，2026-09-10 统一到 B1 单表 + 判据物理化）。
+
+  背景：op_lead_to_index 原用 0902 全量标定 v4 的 153 点单调表（idx 27~1021、t 0.81~7.149s），
+  与 radard(A2)/radar_interface(A3) 不在同一尺度（idx=400: 3.128 s vs 3.92 s，+25%）。
+  现三处同源到 t = 0.008969*idx + 0.332，并把显示源迟滞判据从 idx 域搬到距离域。
+  """
+
+  def test_b1_inverse_matches_formula(self):
+    for idx, v in ((27, 20.0), (100, 20.0), (300, 15.0), (560, 30.0), (780, 20.0), (1020, 10.0)):
+      d = CarController.op_index_to_drel(idx, v)
+      self.assertAlmostEqual(d, (MACAN_B1_T_A * idx + MACAN_B1_T_B) * v, places=9)
+      self.assertEqual(CarController.op_lead_to_index(d, v), idx)
+
+  def test_low_speed_equivalent_and_clip(self):
+    # 低速（v<5）用等效 t*5
+    self.assertAlmostEqual(CarController.op_index_to_drel(300, 2.0),
+                           (MACAN_B1_T_A * 300 + MACAN_B1_T_B) * 5.0, places=9)
+    # 钳位到有效域 1..1020（0 与 1021 是原厂"无目标/饱和"，绝不可输出）
+    self.assertEqual(CarController.op_lead_to_index(0.0, 10.0), 1)
+    self.assertEqual(CarController.op_lead_to_index(1e4, 10.0), 1020)
+
+  def test_no_step_in_mapping(self):
+    # 直线：逐 idx 距离步长恒定（旧 153 点表在重复段平、稀疏段陡；旧代码另有 t<=0.8→100 硬锚）
+    ds = [CarController.op_index_to_drel(i + 1, 20.0) - CarController.op_index_to_drel(i, 20.0)
+          for i in range(1, 1020)]
+    self.assertLess(max(ds) - min(ds), 1e-9)
+    self.assertAlmostEqual(max(ds), MACAN_B1_T_A * 20.0, places=9)
+
+  def test_criterion_physicalization(self):
+    # 判据物理化：rel = |d_stock - d_vis| / d_stock（距离域，与 A2 判据/复核工具同口径），
+    # 不是旧代码的 idx 域比值 ratio = |Δt|/(t-B) = rel * t/(t-B)。
+    # 取 t_stock = 2 s（v=15 m/s → idx≈186、d_stock≈30 m）时放大因子 = 1.2：
+    #   rel=27% → 旧口径 32.4% > 30% 会"切回雷达"，物理化后 27% < 30% 保持视觉补位
+    #   （即门槛由"物理约 25%"放宽到"真实 30%"，幅度 3~7pp）
+    v = 15.0
+    idx = round((2.0 - MACAN_B1_T_B) / MACAN_B1_T_A)
+    d_stock = CarController.op_index_to_drel(idx, v)
+    t_stock = d_stock / v
+    amp = t_stock / (t_stock - MACAN_B1_T_B)          # 旧 idx 域放大因子
+    self.assertGreater(amp, 1.15)
+    for rel in (0.20, 0.27, 0.35):
+      d_vis = d_stock * (1.0 + rel)
+      phys = abs(d_stock - d_vis) / d_stock           # 新口径
+      ratio_idx = abs(d_vis - d_stock) / v / (t_stock - MACAN_B1_T_B)   # 旧口径
+      self.assertAlmostEqual(phys, rel, places=9)
+      self.assertAlmostEqual(ratio_idx, rel * amp, places=9)
+      self.assertGreater(ratio_idx, phys)             # idx 域恒放大
+      self.assertEqual(phys > MACAN_DISP_REL_TH, rel > MACAN_DISP_REL_TH)
+    # 27% 这一档：旧口径判"切回雷达"、新口径不切 —— 语义变化点，显式断言
+    rel = 0.27
+    self.assertGreater(rel * amp, MACAN_DISP_REL_TH)
+    self.assertLess(rel, MACAN_DISP_REL_TH)
