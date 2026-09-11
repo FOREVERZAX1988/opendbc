@@ -74,6 +74,7 @@ class CarController(CarControllerBase, SnGCarController):
     self.lead_distance_bars_last = None
     self.distance_bar_frame = 0
     self.gra_acc_counter_last = None
+    self.dist_key_last = 0   # 物理车距键(LIST_Verstellung_Zeitluecke)上一次值，边缘检测用
     # 跟停保持（00000039 seg7 实锤）：OP 的 stopping 状态在停稳后偶发掉 0 导致
     # ACC_Anhalten 抖动，原厂 anh 全程保持。进入 stopping 且 vEgo≈0 后保持 anh，
     # 直到起步（vEgo>0.5）或驾驶员刹车才释放。
@@ -631,6 +632,26 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
       # LS_01 按键脉冲到 bus2，让原厂内部设定逼近 OP（20/50/80ms 窗口升级 + 防死锁冷却）。
       can_sends.extend(self.vcruise_sync.create_vcruise_sync(self.CCS, self.packer_pt, self.CAN.ext, CS, self.frame))
 
+      # **** 物理车距键转发（2026-09-09 治本修复）****
+      # 背景：Macan OP 纵向开启（relay 断开，pcmCruise=False）时，bus0 物理车距键
+      # (LS_Verstellung_Zeitluecke) 不会由硬件转发到 bus2 雷达侧——carstate 里只被
+      # "消费"（更新仪表游标 stock_zeitluecke + OP 记忆/buttonEvents），StartupGapSync
+      # 也只在点火停车+待机时代发对齐。导致行驶中按车距键只改显示/记忆，原厂 ACC 雷达
+      # 内部跟车距离/档位永远停在 3 格 → 背离"bus0 ZL == bus2 ZL"的初衷。
+      # 这里在 relay 断开(OP 纵向)时，把物理车距键的原厂值原样边缘转发到 bus2(雷达)，
+      # 让雷达内部档位随键实时变（边缘 0↔N 转发=干净单脉冲，模拟一次按键+-）。
+      # 仅 MLB 支持 distance_increase/decrease；SET/RESUME/± 由 OP 自身逻辑/其他模块处理。
+      if (self.CP.flags & VolkswagenFlags.MLB) and self.CP.openpilotLongitudinalControl:
+        _dk = int(CS.gra_stock_values.get("LS_Verstellung_Zeitluecke", 0) or 0)
+        # 边缘转发：仅当在合法按下值(1/2)与释放(0)之间跳变时补发到 bus2——
+        # 按下(0→1/2)转发按下、松开(1/2→0)转发释放，镜像硬件转发原样行为；
+        # 跳过 DBC 未定义的 3（"nicht belegt"），避免向雷达代发无效档。
+        if _dk != self.dist_key_last and (self.dist_key_last in (1, 2) or _dk in (1, 2)):
+          can_sends.append(self.CCS.create_acc_buttons_control(
+            self.packer_pt, self.CAN.ext, CS.gra_stock_values,
+            distance_increase=(_dk == 2), distance_decrease=(_dk == 1)))
+          self.dist_key_last = _dk
+
     new_actuators = actuators.as_builder()
     new_actuators.torque = self.apply_torque_last / self.CCP.STEER_MAX
     new_actuators.torqueOutputCan = self.apply_torque_last
@@ -639,5 +660,6 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
 
     self.lead_distance_bars_last = hud_control.leadDistanceBars
     self.gra_acc_counter_last = CS.gra_stock_values["COUNTER"]
+    self.dist_key_last = int(CS.gra_stock_values.get("LS_Verstellung_Zeitluecke", 0) or 0)
     self.frame += 1
     return new_actuators, can_sends
