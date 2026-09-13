@@ -19,6 +19,11 @@ _ACC_SCALE_MAX = 1.8
 # 大油门起步 7 帧≥400），从未出现 ≥500 或 =1021（1021 是 idx 时距同 10bit[1|1021] 位域
 # 饱和哨兵，非真实力矩）。兜底取 350 比 500 更彻底且不削顶真实需求。
 _ACC_MOMENT_MAX = 350.0
+# ACC_Wunschgeschw_02 无显示哨兵（2026-09-14 对齐原厂）：MLB 原厂无效值=327.04 kph
+# （raw 1022 "keine Anzeige"，DBC VAL_FAS_Wunschgeschw 1022 keine Anzeige / 1023 nicht definiert），
+# 非 MQB/MEB 用的 327.36(raw 1023)。OP 融合模式读取 stock 时以 >90 归零识别"无设定"，
+# 与 327.04/327.36 无关；此处统一写回 327.04 与仪表原厂语义一致（仅纯显示件，零执行风险）。
+_WUNSCH_NO_DISPLAY = 327.04
 _last_acc_moment = 0.0
 _last_verz_cmd = 0.0  # verz过渡桥状态（2026-09-02：负向加深限速0.02/帧）
 _macan_ttc_band = 1.0  # verz桥TTC分档当前系数(滞回状态, 松档1.0%基线, 变紧即时/变松滞后2帧)
@@ -510,11 +515,11 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
     # 背景：OP 纵向接管时(OPLong=True, relay断开)执行端力矩全程由 OP 代发 ACC_05，原厂 ACC_05
     #   st=2/mom=0 不出力。此前透传 stock_wunschgeschw 会把「原厂 ACC 模块内部僵尸设定」显示到仪表，
     #   与 OP 的 vCruise 逐渐分裂(用户实测仪表40 vs comma35、长按仪表+10 vs OP+5) → 取消接管瞬间跳变风险。
-    # 改法：恒用 set_speed(OP vCruise，未设定=255→327.36"无显示")，让仪表实时跟随 OP。
-    #   st=0 时 set_speed=255→327.36 自然清空，与原厂"st=0 清空为 327"语义一致。
+    # 改法：恒用 set_speed(OP vCruise，未设定=255→327.04"无显示"(对齐原厂))，让仪表实时跟随 OP。
+    #   st=0 时 set_speed=255→327.04 自然清空，与原厂"st=0 清空为 327"语义一致。
     # 注意：本帧是纯显示件(接收方 HUD_C7/Kombi_D4)，改写不影响原厂 ACC 内部闭环设定，零执行风险。
-    #   纯显示件（接收方 HUD_C7/Kombi_D4），改写不影响原厂 ACC 内部闭环设定；无效值(=0/st=0)统一 327.36"无显示"。
-    "ACC_Wunschgeschw_02": (set_speed if set_speed < 250 else 327.36),
+    #   纯显示件（接收方 HUD_C7/Kombi_D4），改写不影响原厂 ACC 内部闭环设定；无效值(=0/st=0)统一 327.04"无显示"(对齐MLB原厂)。
+    "ACC_Wunschgeschw_02": (set_speed if set_speed < 250 else _WUNSCH_NO_DISPLAY),
     "ACC_Gesetzte_Zeitluecke": zeitluecke,  # Mirror stock radar's ZL from ext bus (responds to DIST button)
     "ACC_Abstandsindex": lead_distance,
     "ACC_Relevantes_Objekt": lead_obj,

@@ -125,12 +125,12 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
       wg = (d[1] >> 4) | (d[2] << 4)   # ACC_Wunschgeschw_02 12|10
       self.assertAlmostEqual(wg * 0.32, 40.0, delta=0.4,
                              msg=f"WG 应写回 OP setSpeed 40km/h(无论 stock_wunschgeschw={sw})，实际 {wg*0.32:.1f}")
-    # st=0 未设定时 set_speed=255 → 327.36"无显示"
+    # st=0 未设定时 set_speed=255 → 327.04(无显示，对齐 MLB 原厂无效值，非 MQB 的 327.36)
     msg3 = mlbcan.create_acc_hud_control(PACKER, 0, 0, 255.0, 100, 2, lead_object=1)
     d3 = bytes(msg3[1])
     wg3 = (d3[1] >> 4) | (d3[2] << 4)
-    self.assertAlmostEqual(wg3 * 0.32, 327.36, delta=0.5,
-                           msg=f"st=0 未设定应显示 327.36(无显示)，实际 {wg3*0.32:.1f}")
+    self.assertAlmostEqual(wg3 * 0.32, 327.04, delta=0.5,
+                           msg=f"st=0 未设定应显示 327.04(无显示，对齐原厂)，实际 {wg3*0.32:.1f}")
 
   def test_hud_no_contradiction_frame(self):
     """HUD 矛盾帧回归（2026-08-26 修复）：无目标时 create_acc_hud_control
