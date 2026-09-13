@@ -484,6 +484,10 @@ class CarState(CarStateBase):
     # 原厂 ACC_04 目标车速度（km/h）：OP 代发 ACC_04 时透传，仪表显示目标车速度
     self.stock_lead_speed_kph = float(ext_cp.vl["ACC_04"]["ACC_Geschw_Zielfahrzeug"]) if self.CP.openpilotLongitudinalControl else 327.36
     ret.cruiseState.speed = ext_cp.vl["ACC_02"]["ACC_Wunschgeschw_02"] * CV.KPH_TO_MS
+    # 无设定值哨兵（ACC_Wunschgeschw_02 1023→327.36 kph=无显示）：与 MQB/MEB 一致清零，
+    # 供 OP 融合模式（OP 纵向读取原厂 Wunschgeschw 作巡航速度）正确识别"无设定"。
+    if ret.cruiseState.speed > 90:
+      ret.cruiseState.speed = 0
 
     self.parse_mlb_mqb_steering_state(ret, pt_cp)
 
