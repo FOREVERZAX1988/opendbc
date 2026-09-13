@@ -514,7 +514,10 @@ class CarState(CarStateBase):
       ret.rightBlindspot = bool(ext_cp.vl["SWA_01"]["SWA_Infostufe_SWA_re"]) or bool(ext_cp.vl["SWA_01"]["SWA_Warnung_SWA_re"])
 
     self.ldw_stock_values = cam_cp.vl["LDW_02"] if self.CP.networkLocation == NetworkLocation.fwdCamera else {}
-    self.gra_stock_values = pt_cp.vl["LS_01"]
+    # 2026-09-13 (macan-long-0913): LS_01 从 bus1（alt，物理拨杆源）读取。relay 断开后
+    # bus0->bus2 不硬件转发，OP 从 bus1 复制物理拨杆帧并转发到 bus2（carcontroller 代发）。
+    # 单一权威源（bus1），避免 bus2 上原厂/OP 混叠（st=6 根因）。
+    self.gra_stock_values = alt_cp.vl["LS_01"] if (self.CP.flags & VolkswagenFlags.MLB) else pt_cp.vl["LS_01"]
 
     # 车距键消费：LS_Verstellung_Zeitluecke(20|2) 非 0 时是"按下"，边沿触发 ±1 档。
     # 值 1=减小（-）、值 2=增大（+）——方向如路试不符可对调。OP 代发 ACC_02 时
@@ -621,6 +624,13 @@ class CarState(CarStateBase):
     if CP.flags & VolkswagenFlags.STOCK_HCA_PRESENT:
       cam_messages += [
         ("HCA_01", 1),  # From R242 Driver assistance camera, 50Hz if steering/1Hz if not
+      ]
+    if CP.flags & VolkswagenFlags.MLB:
+      # 2026-09-13 (macan-long-0913): 物理巡航拨杆 LS_01 从 bus1（alt）读取。relay 断开后
+      # bus0->bus2 不再硬件转发 LS_01，由 OP 从 bus1 复制转发到 bus2（原厂 ACC 雷达侧）——
+      # 消除 bus2 上原厂信号与 OP 代发信号双源冲突（st=6 根因之一）。
+      alt_messages += [
+        ("LS_01", 10),  # 原厂物理巡航拨杆（bus1），10Hz
       ]
 
     return {

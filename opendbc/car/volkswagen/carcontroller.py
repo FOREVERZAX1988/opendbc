@@ -6,7 +6,7 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.volkswagen import mebcan, mlbcan, mqbcan, pqcan
 from opendbc.car.volkswagen.values import CanBus, CarControllerParams, VolkswagenFlags
-from opendbc.sunnypilot.car.volkswagen.stop_and_go import SnGCarController, StartupGapSyncCarController, VcruiseSyncCarController
+from opendbc.sunnypilot.car.volkswagen.stop_and_go import SnGCarController, StartupGapSyncCarController
 
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
 LongCtrlState = structs.CarControl.Actuators.LongControlState
@@ -93,7 +93,6 @@ class CarController(CarControllerBase, SnGCarController):
     # 不依赖 standstill（车动即停会截断确认窗口）。00000049 原厂踩油门实测 400-520ms，
     # 0051 段19 SnG 仅 160ms → 原厂起步确认不足 → 撤力退出（cruiseMismatch）。
     self.gap_sync = StartupGapSyncCarController(CP, CP_SP)  # 开机距离档同步
-    self.vcruise_sync = VcruiseSyncCarController(CP, CP_SP)  # 巡航速度自动同步
     self.sng_loes_until = 0          # 单调时钟纳秒
     self.sng_loes_start = 0          # loes 窗口起点（事件化回收基准）
     self.sng_resume_ready_last = False
@@ -586,8 +585,7 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                          stock_status_anzeige=getattr(CS, 'stock_status_anzeige', None),
                                                          stock_texte_prim=getattr(CS, 'stock_texte_prim', 0),
                                                          stock_display_prio=getattr(CS, 'stock_display_prio', None),
-                                                         stock_wunschgeschw=getattr(CS, 'stock_wunschgeschw', None),
-                                                         use_stock_display_speed=self.vcruise_sync.enabled))
+                                                         stock_wunschgeschw=getattr(CS, 'stock_wunschgeschw', None)))
         # OP 代发 ACC_04（原厂雷达状态文本，16Hz）：屏蔽 bus2->bus0 转发后由 OP 保持总线活跃，
         # 内容为原厂正常模板（无故障文本），避免网关/仪表对 ACC_04 超时监测报 ACC 故障
         lead_speed_kph = getattr(CS, 'stock_lead_speed_kph', 327.36)
@@ -614,7 +612,7 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
                                                            set_increase=bool(CS.gra_stock_values.get("LS_Tip_Setzen", 0)),
                                                            set_decrease=bool(CS.gra_stock_values.get("LS_Tip_Runter", 0))))
 
-    # **** Macan 特调输出总闸：SnG / gap_sync / vcruise_sync 三类代发按键模块
+    # **** Macan 特调输出总闸：SnG / gap_sync 两类代发按键模块
     # 仅在 OP 纵向控制开启（openpilotLongitudinalControl）时才运行。
     # 关闭 OP 纵向（纯原厂 ACC + OP 横向）时整体禁用——这些特调的前提是 OP
     # 纵向介入原厂 ACC，纯原厂模式下不应由 OP 代发任何纵向按键（2026-09-07 门控补强）。
@@ -628,29 +626,24 @@ self.packer_pt, self.CAN.pt, CS.acc_type, torque_active, accel,
       # 与 OP 记忆对齐（MacanStartupGapSync，默认关；仅 MLB 生效，行驶/激活中禁止）
       can_sends.extend(self.gap_sync.create_startup_gap_sync(self.CCS, self.packer_pt, self.CAN.ext, CS, self.frame))
 
-      # 巡航速度自动同步（MacanVcruiseSync=开）：OP 与原厂 ACC 速度设定不一致时代发
-      # LS_01 按键脉冲到 bus2，让原厂内部设定逼近 OP（20/50/80ms 窗口升级 + 防死锁冷却）。
-      can_sends.extend(self.vcruise_sync.create_vcruise_sync(self.CCS, self.packer_pt, self.CAN.ext, CS, self.frame))
-
-      # **** 物理车距键转发（2026-09-09 治本修复）****
-      # 背景：Macan OP 纵向开启（relay 断开，pcmCruise=False）时，bus0 物理车距键
-      # (LS_Verstellung_Zeitluecke) 不会由硬件转发到 bus2 雷达侧——carstate 里只被
-      # "消费"（更新仪表游标 stock_zeitluecke + OP 记忆/buttonEvents），StartupGapSync
-      # 也只在点火停车+待机时代发对齐。导致行驶中按车距键只改显示/记忆，原厂 ACC 雷达
-      # 内部跟车距离/档位永远停在 3 格 → 背离"bus0 ZL == bus2 ZL"的初衷。
-      # 这里在 relay 断开(OP 纵向)时，把物理车距键的原厂值原样边缘转发到 bus2(雷达)，
-      # 让雷达内部档位随键实时变（边缘 0↔N 转发=干净单脉冲，模拟一次按键+-）。
-      # 仅 MLB 支持 distance_increase/decrease；SET/RESUME/± 由 OP 自身逻辑/其他模块处理。
+      # **** 物理 LS_01 转发 bus1->bus2（2026-09-13 macan-long-0913 治本修复）****
+      # 背景：relay 断开(OP 纵向)后 bus0->bus2 已不硬件转发（安全层 LS_01 bus2 check_relay=true）。
+      # 原厂 LS_01 物理拨杆帧仍从 bus1(alt) 读到（carstate.gra_stock_values 已切 bus1 源）。
+      # 这里在 OP 纵向开启时，把 bus1 物理拨杆帧按"COUNTER 变化即转发"原样代发到 bus2(雷达侧)，
+      # 让原厂 ACC 雷达收到真实的物理按键（SET/RESUME/±/DIST 全部）——OP 是 bus2 LS_01 唯一来源，
+      # 消除此前 bus2 上原厂信号与 OP 代发信号双源混叠 → st=6（8913 与用户确认的根因）。
+      # 仅在 MLB + OP 纵向生效；纯原厂(pcmCruise)仍走上面 gra_send_ready 块。
       if (self.CP.flags & VolkswagenFlags.MLB) and self.CP.openpilotLongitudinalControl:
-        _dk = int(CS.gra_stock_values.get("LS_Verstellung_Zeitluecke", 0) or 0)
-        # 边缘转发：仅当在合法按下值(1/2)与释放(0)之间跳变时补发到 bus2——
-        # 按下(0→1/2)转发按下、松开(1/2→0)转发释放，镜像硬件转发原样行为；
-        # 跳过 DBC 未定义的 3（"nicht belegt"），避免向雷达代发无效档。
-        if _dk != self.dist_key_last and (self.dist_key_last in (1, 2) or _dk in (1, 2)):
+        if CS.gra_stock_values["COUNTER"] != self.gra_acc_counter_last:
           can_sends.append(self.CCS.create_acc_buttons_control(
             self.packer_pt, self.CAN.ext, CS.gra_stock_values,
-            distance_increase=(_dk == 2), distance_decrease=(_dk == 1)))
-          self.dist_key_last = _dk
+            cancel=bool(CS.gra_stock_values.get("LS_Abbrechen", 0)),
+            resume=bool(CS.gra_stock_values.get("LS_Tip_Wiederaufnahme", 0)),
+            set_increase=bool(CS.gra_stock_values.get("LS_Tip_Setzen", 0)),
+            set_decrease=bool(CS.gra_stock_values.get("LS_Tip_Runter", 0)),
+            distance_increase=(int(CS.gra_stock_values.get("LS_Verstellung_Zeitluecke", 0)) == 2),
+            distance_decrease=(int(CS.gra_stock_values.get("LS_Verstellung_Zeitluecke", 0)) == 1)))
+        self.dist_key_last = int(CS.gra_stock_values.get("LS_Verstellung_Zeitluecke", 0) or 0)
 
     new_actuators = actuators.as_builder()
     new_actuators.torque = self.apply_torque_last / self.CCP.STEER_MAX
