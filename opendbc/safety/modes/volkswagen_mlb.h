@@ -13,8 +13,9 @@ static safety_config volkswagen_mlb_init(uint16_t param) {
   static const CanMsg VOLKSWAGEN_MLB_LONG_TX_MSGS[] = {{MSG_HCA_01, 0, 8, .check_relay = true}, {MSG_LDW_02, 0, 8, .check_relay = true},
                                                        {MSG_ACC_02, 0, 8, .check_relay = true}, {MSG_ACC_05, 0, 8, .check_relay = true},
                                                        {MSG_ACC_04, 0, 8, .check_relay = true},
-                                                       // LS_01 按键帧：起步跟停（MacanStartStop）代发 RESUME + 物理按键转发（relay 断开后 bus0->bus2 不转发）
-                                                       {MSG_LS_01, 0, 4, .check_relay = false}, {MSG_LS_01, 2, 4, .check_relay = false}};
+                                                       // LS_01 按键帧：OP 从 bus1 物理拨杆复制转发到 bus2（relay 断开后 bus0->bus2 不转发，
+                                                       // OP 为 bus2 LS_01 唯一来源，消除双源冲突 st=6，2026-09-13 macan-long-0913）
+                                                       {MSG_LS_01, 0, 4, .check_relay = false}, {MSG_LS_01, 2, 4, .check_relay = true}};
 
   static RxCheck volkswagen_mlb_rx_checks[] = {
     // TODO: implement checksum validation
