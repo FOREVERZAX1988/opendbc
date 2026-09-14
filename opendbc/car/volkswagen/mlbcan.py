@@ -82,6 +82,69 @@ def create_acc_buttons_control(packer, bus, gra_stock_values, cancel=False, resu
   return packer.make_can_msg("LS_01", bus, values)
 
 
+# =====================================================================
+# 纯OP纵向控制（MacanFusionMode=0）专用信号生成
+# 融合关闭(纯OP)时原厂雷达 deactivate，原厂不再发 ACC_02/04/05，无 st6 矛盾源，
+# 因此显示/协调字段全部由 OP 自算（self-generated），与 bus1 物理拨杆闭合：
+#   LS_01 → bus2 仅发待命(LS_Hauptschalter=1, 其余按键位清0) —— 让原厂雷达保持待命
+#   而非激活（不复制 bus0 的 LS_01 按键到 bus2，避免 Bus2 原厂/OP 混叠与误激活）。
+# =====================================================================
+
+def create_ls01_standby_control(packer, bus, gra_stock_values):
+  """纯OP模式：bus2(OP代发为 CAN.ext) 只发 LS_01 待命帧（LS_Hauptschalter=1，
+  全部按键/取消/设定位清0）。让原厂 ACC 雷达保持待命状态但不被激活。"""
+  values = {
+    "LS_Hauptschalter": 1,          # ACC 主开关=开 → 雷达待命（LS_Hauptschalter=1 较安全，
+                                    # 0 可能连前车速度/时距都不发）。不激活（无 SET/Resume）。
+    "LS_Typ_Hauptschalter": 0,
+    "LS_Codierung": 0,
+    "LS_Tip_Stufe_2": 0,
+    "LS_Abbrechen": 0,
+    "LS_Tip_Wiederaufnahme": 0,
+    "LS_Tip_Setzen": 0,
+    "LS_Tip_Hoch": 0,
+    "LS_Tip_Runter": 0,
+    "LS_Verstellung_Zeitluecke": 0,
+    "COUNTER": (gra_stock_values.get("COUNTER", 0) + 1) % 16,
+  }
+  return packer.make_can_msg("LS_01", bus, values)
+
+def create_acc_hud_control_pure_op(packer, bus, acc_hud_status, set_speed, lead_distance,
+                                   lead_object=0, zeitluecke=4):
+  """纯OP模式 ACC_02：雷达停用，原厂不再发 ACC_02。OP 完全自算显示——
+  Status/PrimAnz/Prio/Texte 由 acc_hud_status(OP 状态) 派生，Wunschgeschw=OP vCruise，
+  Abstandsindex=视觉换算距离（配合 MacanRadarFusion 开关决定是否用雷达 idx）。"""
+  values = {
+    # 状态统一由 acc_hud_status（OP 状态源）派生（无原厂可透传）
+    "ACC_Status_Anzeige": acc_hud_status,
+    # 激活(3)跟车 → prim=1，其余(待机2/超驰4/故障) → 0
+    "ACC_Status_Prim_Anz": 1 if acc_hud_status == 3 else 0,
+    # Display_Prio：有目标→2，无目标→3（OP 视觉 lead_obj 派生）
+    "ACC_Display_Prio": 2 if lead_object else 3,
+    "ACC_Wunschgeschw_02": (set_speed if set_speed < 250 else _WUNSCH_NO_DISPLAY),
+    "ACC_Gesetzte_Zeitluecke": zeitluecke,
+    "ACC_Abstandsindex": lead_distance,
+    "ACC_Relevantes_Objekt": lead_object,
+    "ACC_Texte_Primaeranz": 0,   # 纯OP无故障文本（OP 状态正常）
+  }
+  return packer.make_can_msg("ACC_02", bus, values)
+
+def create_acc_04_control_pure_op(packer, bus, lead_speed_kph=327.36, acc_control=2):
+  """纯OP模式 ACC_04：雷达停用，OP 自算提示文本（无原厂可透传）。"""
+  texte_zusatz = {0: 1, 2: 2, 3: 8, 4: 3}.get(acc_control, 0)
+  values = {
+    "ACC_Texte_Zusatzanz": texte_zusatz,
+    "ACC_Status_Zusatzanz": 0,
+    "ACC_Texte": 0,
+    "ACC_Texte_braking_guard": 0,
+    "ACC_Warnhinweis": 0,
+    "ACC_Geschw_Zielfahrzeug": lead_speed_kph,
+    "ACC_Charisma_FahrPr": 2,
+    "ACC_Charisma_Status": 1,
+    "ACC_Charisma_Umschaltung": 0,
+  }
+  return packer.make_can_msg("ACC_04", bus, values)
+
 def acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed=False, stock_st=None):
   if acc_faulted:
     acc_control = 6
@@ -111,7 +174,7 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
   return acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed)
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False, stock_verz=0.0, verz_follow=False, axg_comp=False, stock_axg=0.0, stock_fm=False, stock_anhalten=False, lead_distance=999.0, lead_speed=0.0, bridge_ttc=False):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold, v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0, slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False, stock_verz=0.0, verz_follow=False, axg_comp=False, stock_axg=0.0, stock_fm=False, stock_anhalten=False, lead_distance=999.0, lead_speed=0.0, bridge_ttc=False, pure_op=False):
   global _last_acc_moment
   global _last_ax_ge
   global _last_verz_cmd
@@ -126,6 +189,22 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     accel_eff = accel + 9.81 * math.sin(math.atan(slope_pct / 100.0))
   else:
     accel_eff = accel
+
+  # 纯OP纵向（pure_op=True, MacanFusionMode=0）：原厂雷达已停用，不再有 stock_* 可跟随/透传
+  # （ACC_02/04/05 均由 OP 自算）。把所有 stock_* 置为无操作默认值，则下方所有
+  # 「撤力跟随 / 贴原厂力矩 / 超驰透传 / verz跟随 / SnG axG透传 / ESP透传 / anh跟随」
+  # 融合协调分支全部自然失效，OP 完全按自身 accel/stopping/gas 自算——不影响融合路径。
+  if pure_op:
+    stock_esp = False
+    stock_follow = False
+    stock_fv = False
+    stock_mom = 0.0
+    stock_verz = 0.0
+    stock_axg = 0.0
+    stock_fm = False
+    stock_anhalten = False
+    verz_follow = False
+    bridge_ttc = False
 
 
   # ACC_05: multiplicative torque control
