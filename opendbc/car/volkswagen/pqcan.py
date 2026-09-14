@@ -49,7 +49,7 @@ def create_acc_buttons_control(packer, bus, gra_stock_values, cancel=False, resu
   return packer.make_can_msg("GRA_Neu", bus, values)
 
 
-def acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed=False):
+def acc_control_value(main_switch_on, acc_faulted, long_active, gas_pressed=False, stock_st=None):
   if long_active:
     acc_control = 1
   elif main_switch_on:
@@ -74,7 +74,10 @@ def acc_hud_status_value(main_switch_on, acc_faulted, long_active, gas_pressed=F
 
 
 def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, stopping, starting, esp_hold,
-                                 v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0):
+                                 v_ego=0, engine_torque=0, stock_esp=False, stock_follow=False, gas_override=False, stock_fv=False, stock_mom=0.0,
+                                 stock_verz=0.0, verz_follow=False, axg_comp=False, stock_axg=0.0, stock_fm=False, stock_anhalten=False,
+                                 slope_pct=0.0, slope_comp=False, slope_comp_unlimited=False, sng_resume_req=False,
+                                 lead_distance=999.0, lead_speed=0.0, bridge_ttc=False):
   commands = []
 
   values = {
@@ -93,7 +96,8 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   return commands
 
 
-def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance, distance, lead_object=0, zeitluecke=4):
+def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance, distance, lead_object=0, zeitluecke=4,
+                                 stock_prim_anz=0, stock_status_anzeige=None, stock_texte_prim=0, stock_display_prio=None, stock_wunschgeschw=None):
   values = {
     "ACA_StaACC": acc_hud_status,
     "ACA_Zeitluecke": distance + 2,
@@ -106,7 +110,7 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
 
   return packer.make_can_msg("ACC_GRA_Anzeige", bus, values)
 
-def create_acc_04_control(packer, bus, lead_speed_kph, acc_control):
+def create_acc_04_control(packer, bus, lead_speed_kph, acc_control, stock_texte_zusatz=None, stock_charisma_status=None):
   # MQB/PQ 不代发 ACC_04（原厂正常转发），保持原厂总线行为
   return []
 
