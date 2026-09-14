@@ -25,6 +25,32 @@ MACAN_B1_T_B = 0.332
 # 物理化后为真实 30%（门槛略放宽 3~5pp）。仪表若出现"该切雷达没切"再调此值。
 MACAN_DISP_REL_TH = 0.30
 
+
+# EPS 同扭矩/转向时长 mitigation 封装（还原自 e040cf65d9 的 HCAMitigation 类，2026-09-14 恢复）
+# 职责：解决 EPS 两个"定时炸弹"——
+#   1) 6 秒问题：同扭矩持续 >STEER_TIME_STUCK_TORQUE 会被 EPS 判定卡死，微扰 ±1 打破；
+#   2) 6 分钟问题：EPS 连续转向受 STEER_TIME_MAX=360s 限制，需按 STEER_TIME_BM/ALERT 提前降力矩/复位。
+# 独立封装便于单测（test_volkswagen.py::TestVolkswagenHCAMitigation）直接驱动并保持单一真源。
+class HCAMitigation:
+  def __init__(self, CCP):
+    self.CCP = CCP
+    self.same_torque_counter = 0
+
+  def update(self, torque, last_torque):
+    """同扭矩微扰：last_torque==torque 持续累计，超过阈值微扰 ±1 并向 0 收敛后复位计数器。"""
+    if torque == 0:
+      self.same_torque_counter = 0
+      return torque
+    if last_torque == torque:
+      self.same_torque_counter += self.CCP.STEER_STEP
+      if self.same_torque_counter > self.CCP.STEER_TIME_STUCK_TORQUE / DT_CTRL:
+        torque -= (1, -1)[torque < 0]
+        self.same_torque_counter = 0
+    else:
+      self.same_torque_counter = 0
+    return torque
+
+
 class CarController(CarControllerBase, SnGCarController):
   def __init__(self, dbc_names, CP, CP_SP):
     super().__init__(dbc_names, CP, CP_SP)
@@ -99,6 +125,7 @@ class CarController(CarControllerBase, SnGCarController):
     self.eps_timer_soft_disable_alert = False
     self.hca_frame_timer_running = 0
     self.hca_frame_same_torque = 0
+    self.hca_same_torque = HCAMitigation(self.CCP)  # 6s 同扭矩微扰封装(2026-09-14)
 
     # EPS timer reset workaround for MLB platforms (Porsche Macan, Audi, etc.)
     # MQB racks reset the timer after a single frame of HCA disabled.
@@ -211,13 +238,7 @@ class CarController(CarControllerBase, SnGCarController):
           new_torque = int(round(actuators.torque * self.CCP.STEER_MAX))
           apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last, CS.out.steeringTorque, self.CCP)
           self.hca_frame_timer_running += self.CCP.STEER_STEP
-          if self.apply_torque_last == apply_torque:
-            self.hca_frame_same_torque += self.CCP.STEER_STEP
-            if self.hca_frame_same_torque > self.CCP.STEER_TIME_STUCK_TORQUE / DT_CTRL:
-              apply_torque -= (1, -1)[apply_torque < 0]
-              self.hca_frame_same_torque = 0
-          else:
-            self.hca_frame_same_torque = 0
+          apply_torque = self.hca_same_torque.update(apply_torque, self.apply_torque_last)
           hca_enabled = abs(apply_torque) > 0
 
           # EPS timer reset workaround for MLB platforms
