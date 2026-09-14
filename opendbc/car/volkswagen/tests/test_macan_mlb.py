@@ -390,3 +390,66 @@ class TestMacanDisplayMapping(unittest.TestCase):
     rel = 0.27
     self.assertGreater(rel * amp, MACAN_DISP_REL_TH)
     self.assertLess(rel, MACAN_DISP_REL_TH)
+
+
+class TestMacanPureOPLongStateMachine(unittest.TestCase):
+  """纯OP纵向（MacanFusionMode=0）acc_control_value / acc_hud_status_value 状态机，
+  逐条对齐用户 2026-09-15 规范：
+    LS_Hauptschalter=0                -> st=0（ACC02/04/05 全关）
+    LS_Hauptschalter=1(待命)           -> st=2
+    激活(long_active)                  -> st=3（TSK_Status 1/2 确认成功后）
+    激活中踩油门                        -> st=4（超驰, 用户=TSK_Status=2）
+    故障(accFaulted)                   -> st=6
+  纯OP模式下 stock_st 恒为 None（无原厂雷达 st 镜像）。
+  """
+  def test_off_main_switch(self):
+    # LS_Hauptschalter=0 -> 关闭 st=0
+    self.assertEqual(mlbcan.acc_control_value(False, False, False), 0)
+    self.assertEqual(mlbcan.acc_hud_status_value(False, False, False), 0)
+
+  def test_standby(self):
+    # LS_Hauptschalter=1, 未激活 -> 待命 st=2
+    self.assertEqual(mlbcan.acc_control_value(True, False, False), 2)
+
+  def test_standby_even_if_gas(self):
+    # 待机踩油门保持 2（不能 4，避免 2->4 跳变）
+    self.assertEqual(mlbcan.acc_control_value(True, False, False, gas_pressed=True), 2)
+
+  def test_engaged(self):
+    # 激活（TSK_Status 确认 1/2）-> st=3
+    self.assertEqual(mlbcan.acc_control_value(True, False, True), 3)
+
+  def test_override_gas_pressed(self):
+    # 激活中踩油门 -> st=4（超驰）
+    self.assertEqual(mlbcan.acc_control_value(True, False, True, gas_pressed=True), 4)
+
+  def test_fault(self):
+    # 故障 -> st=6
+    self.assertEqual(mlbcan.acc_control_value(True, True, True), 6)
+    self.assertEqual(mlbcan.acc_control_value(False, True, False), 6)
+
+  def test_stock_st_ignored_in_pure_op(self):
+    # 纯OP：stock_st 恒 None，必须在 3/4 分支正常
+    self.assertEqual(mlbcan.acc_control_value(True, False, True, stock_st=None), 3)
+    self.assertEqual(mlbcan.acc_control_value(True, False, True, gas_pressed=True, stock_st=None), 4)
+
+  def test_pure_op_acc02_hud_status(self):
+    # ACC_02 HUD：激活 -> Prim_Anz=1；待命/关闭 -> Prim_Anz=0
+    from opendbc.can import CANPacker
+    from opendbc.car.volkswagen import mlbcan as m
+    pk = CANPacker('vw_mlb')
+    # 激活
+    addr, dat, bus = m.create_acc_hud_control_pure_op(pk, 0, 3, 100.0, 500, lead_object=1)
+    self.assertEqual(addr, 780)  # ACC_02
+    # ACC_Status_Anzeige 61|3
+    st = (dat[7] >> 5) & 0x7
+    self.assertEqual(st, 3)
+    # ACC_Status_Prim_Anz 22|2
+    prim = (dat[2] >> 6) & 0x3
+    self.assertEqual(prim, 1)
+    # 待命
+    addr, dat, bus = m.create_acc_hud_control_pure_op(pk, 0, 2, 100.0, 500, lead_object=0)
+    st = (dat[7] >> 5) & 0x7
+    self.assertEqual(st, 2)
+    prim = (dat[2] >> 6) & 0x3
+    self.assertEqual(prim, 0)
