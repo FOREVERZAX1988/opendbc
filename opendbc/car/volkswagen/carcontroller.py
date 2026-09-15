@@ -137,6 +137,13 @@ class CarController(CarControllerBase, SnGCarController):
     self.sng_loes_until = 0          # 单调时钟纳秒
     self.sng_loes_start = 0          # loes 窗口起点（事件化回收基准）
     self.sng_resume_ready_last = False
+    # 融合模式首次 SET 接合宽限（00000078 实锤修复）：第一下 SET 时 OP longActive 先置位、
+    # 但原厂 ACC_05 尚未从待命(2)升到激活(3/4)——00000033 退出同步门在首按即把
+    # OP long_active 压回待机 → 仪表无激活反应、OP 又退出纵向 → 需按第二次才行。
+    # 给 OP 首次接合一个短宽限窗口(~1s)，让原厂雷达有时间升到 st=3/4；窗口结束后
+    # 仍严格按 00000033 退出同步（原厂中途撤力/退出场景不受影响）。
+    self.macan_fusion_engage_until = 0
+    self.macan_fusion_engaged_prev = False
     self.eps_timer_soft_disable_alert = False
     self.hca_frame_timer_running = 0
     self.hca_frame_same_torque = 0
@@ -390,12 +397,22 @@ class CarController(CarControllerBase, SnGCarController):
             # acc_control_value 掉到 main_switch_on→2（待机），踩油门发 st=2 而非 st=4，
             # ECU 看到「激活(3)→待机(2)跳变+油门」会锁死 ACC。原厂行为：激活中踩油门 st 3→4。
             long_active = CC.longActive and not brake_override
-            # 原厂状态同步（00000033 根因修复）：OP 激活期间若原厂 ACC_05 已退出（st∉(3,4)），
-            # 强制 acc_control 回待机(2)——消除「OP st=3 + 原厂已撤力矩退出」矛盾窗口，
-            # 防止 ECU 检测到状态矛盾写 DTC 锁死 ACC/PAS（需两次点火清除）。
-            # 正常激活时原厂 src=2 st=3（实测一致），仅在原厂雷达撤力/退出时触发。
-            if long_active and getattr(CS, 'acc05_stock_status', 3) not in (3, 4):
-              long_active = False
+            # 原厂状态同步（00000033 根因修复）+ 首次接合宽限（00000078 实锤修复）：
+            # OP 激活期间若原厂 ACC_05 已退出（st∉(3,4)），强制 acc_control 回待机(2)——
+            # 消除「OP st=3 + 原厂已撤力矩退出」矛盾窗口，防 ECU 检测到状态矛盾写 DTC 锁死
+            # ACC/PAS（需两次点火清除）。正常激活时原厂 src=2 st=3（实测一致）。
+            # 但【首按 SET】时 OP longActive 先置位，原厂雷达接合需时间从待命(2)→激活(3/4)，
+            # 若立刻按 00000033 门压回，会导致第一下 SET 仪表无反应且 OP 退出纵向（00000078）。
+            # 故 OP longActive 上升沿开启 ~1s 宽限窗口：窗口内原厂未升到 3/4 也放行（让雷达
+            # 追上接合），窗口结束仍为退出态才执行 00000033 降级（原厂中途撤力/退出不受影响）。
+            if long_active:
+              if not self.macan_fusion_engaged_prev:
+                self.macan_fusion_engage_until = now_nanos + 1_000_000_000
+              self.macan_fusion_engaged_prev = True
+              if getattr(CS, 'acc05_stock_status', 3) not in (3, 4) and now_nanos > self.macan_fusion_engage_until:
+                long_active = False
+            else:
+              self.macan_fusion_engaged_prev = False
             gas_override = gas_override_stock and CS.out.cruiseState.available and not brake_override
             acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, long_active, gas_override_stock, getattr(CS, 'acc05_stock_status', 3))
             # OVERRIDE(4) 时保持巡航力矩（原厂 st=4 力矩≈st=3，仅状态字切 4）；accel=0 → 巡航基线。
