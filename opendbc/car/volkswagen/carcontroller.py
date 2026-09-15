@@ -590,6 +590,38 @@ class CarController(CarControllerBase, SnGCarController):
 
       else:
         if self.macan_pure_op:
+          # ================================================================
+          # 【备注·未启用】主动发送显示设计（显示 OP 实际发送的 ACC02/04/05 信号）
+          # 目的：路试/调试时在 WebUI 或仪表清晰看到「当前 OP 正在主动发送哪些信号、
+          #       各自取什么值」，便于对照原厂雷达行为排查 DTC / 状态跳变。
+          # 说明：以下仅为设计稿（备注形式），本分支默认不启用，避免改动运行行为。
+          #       后续按需把任一子项启用即可。
+          #
+          # ┌ 设计：在纯OP HUD 分支内聚一个 debug 字段字典 send_debug ┐
+          # send_debug = {
+          #   # ACC_05 纵向执行请求（OP 主动发送）
+          #   "ACC_05.Status"        : acc_control,        # 0关/2待命/3激活/4超驰/6故障
+          #   "ACC_05.FM"            : 1 if torque_active and not gas_override_stock else 0,
+          #   "ACC_05.Mom"           : "跟随accel(扭矩请求)",
+          #   "ACC_05.Verz"          : "减速请求(Verz_anf)",
+          #   "ACC_05.Loes"          : loes_active,         # SnG 起步释放请求
+          #   # ACC_02 显示（OP 自算）
+          #   "ACC_02.Status_Anzeige": acc_hud_status,
+          #   "ACC_02.Wunschgeschw"  : round(set_speed, 1),  # OP vCruise(km/h)
+          #   "ACC_02.Abstandsindex" : lead_distance,        # 视觉换算距离
+          #   "ACC_02.PrimAnz"       : 1 if acc_hud_status == 3 else 0,
+          #   # ACC_04 提示文本
+          #   "ACC_04.Texte_Zusatz"  : {0:1,2:2,3:8,4:3}.get(acc_control_p, 0),
+          #   "ACC_04.ZielV"         : lead_speed_kph,       # 目标前车速度(km/h)
+          # }
+          # 启用方式（任选其一）：
+          #   A. 前端：走 state reader 把这些字段加入 latest()，WebUI HUD 实时渲染；
+          #   B. 后端：把 send_debug 写入 cloudlog.debug 或独立 param 供事后比对；
+          #   C. 仅注释展示：保持现状（推荐，本分支状态）。
+          # 注意：ACC_05.Jahr/Mom 是「力矩请求通道」，纯OP 超驰(gas_override_stock)时
+          #       FM=0/Mom=0 撤力矩交棒给驾驶员——显示时需一并标注「超驰中勿显示为激活」，
+          #       避免与驾驶员接管语义冲突。
+          # ================================================================
           # ---------- 纯OP纵向 HUD（MacanFusionMode=0）----------
           # 雷达停用，原厂不再发 ACC_02/04。OP 自算显示：
           #   Wunschgeschw=OP vCruise；Abstandsindex=视觉 lead 换算（配合 MacanRadarFusion
