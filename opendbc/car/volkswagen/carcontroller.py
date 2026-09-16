@@ -147,6 +147,9 @@ class CarController(CarControllerBase, SnGCarController):
     self.ls_tip_setzen_last = 0           # 物理拨杆 LS_Tip_Setzen 上一帧值（下降沿检测用）
     self.ls_set_repulse_until = 0         # SET 重发脉冲窗口截止（单调时钟纳秒）
     self.ls_set_repulse_active = False    # 重发脉冲窗口进行中
+    self.ls_tip_wiedaufnahme_last = 0     # 物理拨杆 LS_Tip_Wiederaufnahme 上一帧值（下降沿检测用）
+    self.ls_resume_repulse_until = 0      # RESUME 重发脉冲窗口截止（单调时钟纳秒）
+    self.ls_resume_repulse_active = False # 重发脉冲窗口进行中
     self.controls_allowed_prev = False       # control_allowed(CC.enabled) 上一帧值（上升沿检测）
     self.eps_timer_soft_disable_alert = False
     self.hca_frame_timer_running = 0
@@ -850,6 +853,25 @@ class CarController(CarControllerBase, SnGCarController):
           else:
             self.ls_set_repulse_active = False
           self.ls_tip_setzen_last = 1 if ls_setzen else 0
+
+          # ---- RESUME 重发脉冲补偿（仅融合模式，与 SET 同构）----
+          # RESUME 同为 pcmCruise 关闭下的接合/再接合按键（update_button_enable 对
+          # resumeCruise 下降沿同样置位 control_allowed），再接合时 OP control_allowed
+          # 上升沿与物理 RESUME 下降沿同窗，转发路径同样可能丢那一帧 RESUME →
+          # 原厂雷达收不到 RESUME 需按第二次。故做与 SET 相同构型的下降沿+上升沿
+          # 补偿，50ms 窗口内主动重发 LS_Tip_Wiederaufnahme=1 脉冲。
+          ls_resume = bool(CS.gra_stock_values.get("LS_Tip_Wiederaufnahme", 0))
+          if (self.ls_tip_wiedaufnahme_last and not ls_resume) and engage_edge:
+            self.ls_resume_repulse_until = now_nanos + 50_000_000
+            self.ls_resume_repulse_active = True
+          if self.ls_resume_repulse_active and now_nanos <= self.ls_resume_repulse_until:
+            can_sends.append(self.CCS.create_acc_buttons_control(
+              self.packer_pt, self.CAN.ext, CS.gra_stock_values,
+              cancel=0, resume=1, set_increase=0, set_decrease=0,
+              distance_increase=False, distance_decrease=False))
+          else:
+            self.ls_resume_repulse_active = False
+          self.ls_tip_wiedaufnahme_last = 1 if ls_resume else 0
         self.dist_key_last = int(CS.gra_stock_values.get("LS_Verstellung_Zeitluecke", 0) or 0)
 
     new_actuators = actuators.as_builder()
