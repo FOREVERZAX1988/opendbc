@@ -144,6 +144,10 @@ class CarController(CarControllerBase, SnGCarController):
     # 仍严格按 00000033 退出同步（原厂中途撤力/退出场景不受影响）。
     self.macan_fusion_engage_until = 0
     self.macan_fusion_engaged_prev = False
+    self.ls_tip_setzen_last = 0           # 物理拨杆 LS_Tip_Setzen 上一帧值（下降沿检测用）
+    self.ls_set_repulse_until = 0         # SET 重发脉冲窗口截止（单调时钟纳秒）
+    self.ls_set_repulse_active = False    # 重发脉冲窗口进行中
+    self.controls_allowed_prev = False       # control_allowed(CC.enabled) 上一帧值（上升沿检测）
     self.eps_timer_soft_disable_alert = False
     self.hca_frame_timer_running = 0
     self.hca_frame_same_torque = 0
@@ -813,6 +817,14 @@ class CarController(CarControllerBase, SnGCarController):
             can_sends.append(self.CCS.create_ls01_standby_control(
               self.packer_pt, self.CAN.ext, CS.gra_stock_values))
         else:
+          # 融合模式：bus1 物理拨杆帧按 COUNTER 变化原样转发到 bus2（OP 是 bus2 LS_01 唯一源）。
+          # + SET 重发补偿（2026-09-15 00000078 实锤修复，替代旧 1s 被动宽限）：
+          #   首按 SET 时 OP longActive 先置位、原厂 ACC_05 仍处待命(2)，physical LS_01 的
+          #   LS_Tip_Setzen 下降沿恰逢 control_allowed(CC.enabled) 上升沿——此交叠窗口内 OP
+          #   已接管纵向、转发路径偶发丢掉那一帧 SET，原厂雷达收不到 SET → 需按第二次。
+          #   方案（用户拍板，比 1s 豁免更精准）：做 LS_Tip_Setzen 下降沿检测，当下降沿
+          #   且 CC.enabled 上升沿（control_allowed 变 true）形成时，主动在 bus2 上重发一个
+          #   LS_Tip_Setzen=1 脉冲，50ms 窗口（100Hz 下约 5 帧）补足丢帧，让原厂雷达收到 SET。
           if CS.gra_stock_values["COUNTER"] != self.gra_acc_counter_last:
             can_sends.append(self.CCS.create_acc_buttons_control(
               self.packer_pt, self.CAN.ext, CS.gra_stock_values,
@@ -822,6 +834,22 @@ class CarController(CarControllerBase, SnGCarController):
               set_decrease=bool(CS.gra_stock_values.get("LS_Tip_Runter", 0)),
               distance_increase=(int(CS.gra_stock_values.get("LS_Verstellung_Zeitluecke", 0)) == 2),
               distance_decrease=(int(CS.gra_stock_values.get("LS_Verstellung_Zeitluecke", 0)) == 1)))
+          # ---- SET 重发脉冲补偿（仅融合模式，纯原厂/纯OP 不触发）----
+          ls_setzen = bool(CS.gra_stock_values.get("LS_Tip_Setzen", 0))  # 物理拨杆当前 SET 位
+          engage_edge = CC.enabled and not self.controls_allowed_prev      # control_allowed 上升沿
+          # 下降沿：SET 位从 1→0（拨杆按下→松开），且正好落在 control_allowed 上升沿
+          if (self.ls_tip_setzen_last and not ls_setzen) and engage_edge:
+            self.ls_set_repulse_until = now_nanos + 50_000_000   # 开 50ms 重发窗口
+            self.ls_set_repulse_active = True
+          # 窗口内主动重发 LS_Tip_Setzen=1 脉冲（补足 bus2 丢帧的唯一来源）
+          if self.ls_set_repulse_active and now_nanos <= self.ls_set_repulse_until:
+            can_sends.append(self.CCS.create_acc_buttons_control(
+              self.packer_pt, self.CAN.ext, CS.gra_stock_values,
+              cancel=0, resume=0, set_increase=1, set_decrease=0,
+              distance_increase=False, distance_decrease=False))
+          else:
+            self.ls_set_repulse_active = False
+          self.ls_tip_setzen_last = 1 if ls_setzen else 0
         self.dist_key_last = int(CS.gra_stock_values.get("LS_Verstellung_Zeitluecke", 0) or 0)
 
     new_actuators = actuators.as_builder()
@@ -832,6 +860,7 @@ class CarController(CarControllerBase, SnGCarController):
 
     self.lead_distance_bars_last = hud_control.leadDistanceBars
     self.gra_acc_counter_last = CS.gra_stock_values["COUNTER"]
+    self.controls_allowed_prev = CC.enabled   # 更新 control_allowed 上一帧状态（供下帧下降沿/上升沿检测）
     self.dist_key_last = int(CS.gra_stock_values.get("LS_Verstellung_Zeitluecke", 0) or 0)
     self.frame += 1
     return new_actuators, can_sends
