@@ -66,12 +66,12 @@ static void volkswagen_mlb_rx_hook(const CANPacket_t *msg) {
           controls_allowed = false;
         }
 
-        // Enter controls on falling edge of Set or Resume with main switch on
+        // Enter controls on RISING edge (button press) of Set or Resume with main switch on
         // Signal: LS_01.LS_Tip_Setzen
         // Signal: LS_01.LS_Tip_Wiederaufnahme
         bool set_button = GET_BIT(msg, 16U);
         bool resume_button = GET_BIT(msg, 19U);
-        if ((volkswagen_set_button_prev && !set_button) || (volkswagen_resume_button_prev && !resume_button)) {
+        if ((set_button && !volkswagen_set_button_prev) || (resume_button && !volkswagen_resume_button_prev)) {
           controls_allowed = acc_main_on;
         }
         volkswagen_set_button_prev = set_button;
@@ -108,7 +108,7 @@ static void volkswagen_mlb_rx_hook(const CANPacket_t *msg) {
       bool cruise_engaged = (acc_status == 1) || (acc_status == 2);
 
       // 2026-08-16 Macan(MLB) 适配：LONG 模式（OP 纵向）跳过 pcm_cruise_check——
-      // controls_allowed 由 LS_01 按键（SET/Resume 下降沿+主开关）管理。
+      // controls_allowed 由 LS_01 按键（SET/Resume 按下上升沿+主开关）管理。
       // 无条件执行会在原厂巡航未激活（停车等红灯 TSK_04∉1/2）时撤 controls_allowed，
       // 而 OP 已 enabled → selfdrived mismatch_counter 200 帧 → controlsMismatch 报警。
       // 与 volkswagen_mqb.h / volkswagen_meb.h 处理一致。
