@@ -42,6 +42,7 @@ bool volkswagen_brake_pressure_detected = false;
 #define MSG_ACC_04      0x324U   // RX from radar, ACC status texts (HUD/Cluster). Blocked from fwd in LONG mode
 
 static void volkswagen_common_init(void) {
+  volkswagen_longitudinal = false;
   volkswagen_set_button_prev = false;
   volkswagen_resume_button_prev = false;
   volkswagen_brake_pedal_switch = false;

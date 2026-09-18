@@ -40,14 +40,16 @@ class CarControllerParams:
   # Lane Tracing Assist (LTA) control limits
   ANGLE_LIMITS: AngleSteeringLimits = AngleSteeringLimits(
     # EPS ignores commands above this angle and causes PCS to fault
-    94.9461,  # deg
+    # Increased from 94.9461 to 180.0 for testing; revert if PCS faults occur.
+    180.0,  # deg
     # Assuming a steering ratio of 13.7:
     # Limit to ~2.0 m/s^3 up (7.5 deg/s), ~3.5 m/s^3 down (13 deg/s) at 75 mph
     # Worst case, the low speed limits will allow ~4.0 m/s^3 up (15 deg/s) and ~4.9 m/s^3 down (18 deg/s) at 75 mph,
     # however the EPS has its own internal limits at all speeds which are less than that:
     # Observed internal torque rate limit on TSS 2.5 Camry and RAV4 is ~1500 units/sec up and down when using LTA
-    ([5, 25], [0.3, 0.15]),
-    ([5, 25], [0.36, 0.26]),
+    # [放宽] 中高速段 +20% 帮助上下闸道弯跟随更顺；低速段仅 +17% 以免触发 EPS PCS fault
+    ([5, 25], [0.35, 0.18]),
+    ([5, 25], [0.42, 0.30]),
   )
 
   MAX_LTA_DRIVER_TORQUE_ALLOWANCE = 150  # slightly above steering pressed allows some resistance when changing lanes
@@ -543,6 +545,7 @@ TOYOTA_VERSION_REQUEST_KWP = b'\x1a\x88\x01'
 TOYOTA_VERSION_RESPONSE_KWP = b'\x5a\x88\x01'
 
 FW_QUERY_CONFIG = FwQueryConfig(
+  fw_version_regex=br"[\x00-\x03A-Z0-9 ]{16,49}",
   # TODO: look at data to whitelist new ECUs effectively
   requests=[
     Request(

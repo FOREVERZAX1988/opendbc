@@ -79,6 +79,7 @@ legend = ["LAT_ACCEL_FACTOR", "MAX_LAT_ACCEL_MEASURED", "FRICTION"]
 "KIA_K8_HEV_1ST_GEN" = [2.5, 2.5, 0.1]
 "HYUNDAI_CUSTIN_1ST_GEN" = [2.5, 2.5, 0.1]
 "LEXUS_GS_F" = [2.5, 2.5, 0.08]
+"MG_5_EV" = [1.2, 2.5, 0.18]
 "HYUNDAI_STARIA_4TH_GEN" = [1.8, 2.0, 0.15]
 "GENESIS_GV70_ELECTRIFIED_1ST_GEN" = [1.9, 1.9, 0.09]
 "GENESIS_G80_2ND_GEN_FL" = [2.5819356441497803, 2.5, 0.11244568973779678]
@@ -115,3 +116,13 @@ legend = ["LAT_ACCEL_FACTOR", "MAX_LAT_ACCEL_MEASURED", "FRICTION"]
 # port extensions
 "HONDA_CLARITY" = [0.96, 0.4018518740819229, 0.19]
 "CHEVROLET_MALIBU_NON_ACC_9TH_GEN" = [1.85, 1.85, 0.075]
+
+# Mazda 3 2019 GEN2 + Torque Interceptor — empirical tune sourced from
+# MoreTore's FrogPilot mazda port (conversun/openpilot @ edfc0dfc7).
+# Default substitute → MAZDA_CX9_2021 (1.76/0.18) is undertuned for this
+# platform; observed ~11% engaged-time driver steer override on highway.
+"MAZDA_3_2019"     = [1.45, 3.0, 0.33]
+"MAZDA_CX_30"      = [1.45, 3.0, 0.33]
+"MAZDA_CX_50"      = [1.45, 3.0, 0.33]
+"MAZDA_3_2023"     = [1.45, 3.0, 0.33]
+"MAZDA_CX_30_2023" = [1.45, 3.0, 0.33]

@@ -1,5 +1,6 @@
 from typing import NamedTuple
 
+from opendbc.car.byd.values import CAR as BYD
 from opendbc.car.chrysler.values import CAR as CHRYSLER
 from opendbc.car.gm.values import CAR as GM
 from opendbc.car.ford.values import CAR as FORD
@@ -16,6 +17,8 @@ from opendbc.car.values import Platform
 from opendbc.car.volkswagen.values import CAR as VOLKSWAGEN
 from opendbc.car.body.values import CAR as COMMA
 from opendbc.car.psa.values import CAR as PSA
+from opendbc.car.mg.values import CAR as MG
+from opendbc.car.byd.values import CAR as BYD
 
 # FIXME: add routes for these cars
 non_tested_cars = [
@@ -35,7 +38,6 @@ non_tested_cars = [
   TOYOTA.TOYOTA_RAV4H,
 
   # port extensions
-  HYUNDAI.KIA_CEED_PHEV_2022_NON_SCC,
   HYUNDAI.HYUNDAI_KONA_EV_NON_SCC,
   HYUNDAI.HYUNDAI_BAYON_1ST_GEN_NON_SCC,
   HYUNDAI.HYUNDAI_ELANTRA_2022_NON_SCC,
@@ -54,6 +56,17 @@ non_tested_cars = [
   GM.CHEVROLET_TRAILBLAZER_NON_ACC_2ND_GEN,
   GM.CHEVROLET_MALIBU_NON_ACC_9TH_GEN,
   GM.CADILLAC_XT5_NON_ACC_1ST_GEN,
+
+  BYD.BYD_HAN_DM_20, #byd routes to be added later with official device
+  BYD.BYD_HAN_EV_20,
+  BYD.BYD_QIN_PLUS_DMI_23,
+  BYD.BYD_SONG_PLUS_DMI_21,
+  BYD.BYD_SONG_PLUS_DMI_22,
+  BYD.BYD_SONG_PLUS_DMI_23,
+  BYD.BYD_SONG_PRO_DMI_22,
+  BYD.BYD_TANG_DM,
+  BYD.BYD_TANG_DMI_21,
+  BYD.BYD_YUAN_PLUS_DMI_22
 ]
 
 
@@ -65,6 +78,8 @@ class CarTestRoute(NamedTuple):
 
 routes = [
   CarTestRoute("efdf9af95e71cd84/2022-05-13--19-03-31", COMMA.COMMA_BODY),
+
+  CarTestRoute("b8b2d1a1df1b3aad/000000a0--7c51639c22", BYD.BYD_ATTO3, segment=0),
 
   CarTestRoute("c5e3aa51055c8f47|2023-12-06--20-01-44", CHRYSLER.JEEP_CHEROKEE_5TH_GEN),
   CarTestRoute("0c94aa1e1296d7c6/2021-05-05--19-48-37", CHRYSLER.JEEP_GRAND_CHEROKEE),
@@ -373,7 +388,12 @@ routes = [
   CarTestRoute("2c912ca5de3b1ee9/0000025d--6eb6bcbca4", TESLA.TESLA_MODEL_Y, segment=4),
   CarTestRoute("bdda168c0c35fad7/00000001--5c5a36ec06", TESLA.TESLA_MODEL_X), # openpilot longitudinal
 
+  CarTestRoute("5d61e2f6e1f247f3/00000054--d3dfb01b34", MG.MG_5_EV),
+
   # Segments that test specific issues
   # Controls mismatch due to standstill threshold
   CarTestRoute("bec2dcfde6a64235/2022-04-08--14-21-32", HONDA.HONDA_CRV_HYBRID, segment=22),
+
+  # port extensions
+  CarTestRoute("dc7bf18c8af12e37/00000006--ea06255cd0", HYUNDAI.KIA_CEED_PHEV_2022_NON_SCC),
 ]
