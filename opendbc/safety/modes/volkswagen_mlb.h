@@ -27,12 +27,17 @@ static safety_config volkswagen_mlb_init(uint16_t param) {
     {.msg = {{MSG_LS_01, 0, 4, 10U, .ignore_checksum = true, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
   };
 
+  // NOTE: common_init() must run BEFORE reading the flag: it resets volkswagen_longitudinal to false.
+  // Order matters and is a safety bug if reversed (panda would install the STOCK tx list while
+  // openpilot believes it has longitudinal control, silently dropping all ACC frames).
+  // Same ordering as volkswagen_mqb.h / volkswagen_pq.h.
+  volkswagen_common_init();
+
 #ifdef ALLOW_DEBUG
   volkswagen_longitudinal = GET_FLAG(param, FLAG_VOLKSWAGEN_LONG_CONTROL);
 #else
   SAFETY_UNUSED(param);
 #endif
-  volkswagen_common_init();
 
   return volkswagen_longitudinal ? BUILD_SAFETY_CFG(volkswagen_mlb_rx_checks, VOLKSWAGEN_MLB_LONG_TX_MSGS) : \
                                    BUILD_SAFETY_CFG(volkswagen_mlb_rx_checks, VOLKSWAGEN_MLB_STOCK_TX_MSGS);
