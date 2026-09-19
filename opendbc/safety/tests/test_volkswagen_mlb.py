@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 import unittest
 from opendbc.car.structs import CarParams
+from opendbc.car.volkswagen.values import VolkswagenSafetyFlags
 from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
-from opendbc.safety.tests.common import CANPackerSafety
+from opendbc.safety.tests.common import CANPackerSafety, make_msg
+
+MSG_ACC_02 = 0x30C
+MSG_ACC_05 = 0x10D
+MSG_ACC_04 = 0x324
 
 MSG_LS_01 = 0x10B       # TX by OP, ACC control buttons for cancel/resume
 MSG_HCA_01 = 0x126      # TX by OP, Heading Control Assist steering torque
@@ -130,6 +135,47 @@ class TestVolkswagenMlbStockSafety(TestVolkswagenMlbSafetyBase):
     self.safety.set_controls_allowed(1)
     self._rx(self._ls_01_msg(cancel=True, bus=0))
     self.assertFalse(self.safety.get_controls_allowed(), "controls allowed after cancel")
+
+
+class TestVolkswagenMlbLongSafety(TestVolkswagenMlbSafetyBase):
+  # Regression guard for the panda tx whitelist with openpilot longitudinal enabled.
+  # volkswagen_common_init() zeroes volkswagen_longitudinal, so the flag must be read AFTER it
+  # (as volkswagen_mqb.h / volkswagen_pq.h already do). With the reversed order panda installed
+  # VOLKSWAGEN_MLB_STOCK_TX_MSGS while openpilot believed it had longitudinal control, so every
+  # ACC_02/ACC_05/ACC_04 frame was rejected on the bus and the car silently fell back to the
+  # stock radar ACC (route 0000007b: src=192 rejected frames every 20ms).
+  TX_MSGS = [[MSG_HCA_01, 0], [MSG_LDW_02, 0], [MSG_ACC_02, 0], [MSG_ACC_05, 0], [MSG_ACC_04, 0],
+             [MSG_LS_01, 0], [MSG_LS_01, 2]]
+  FWD_BLACKLISTED_ADDRS = {0: [MSG_LS_01], 2: [MSG_HCA_01, MSG_LDW_02, MSG_ACC_02, MSG_ACC_05, MSG_ACC_04]}
+  RELAY_MALFUNCTION_ADDRS = {0: (MSG_HCA_01, MSG_LDW_02, MSG_ACC_02, MSG_ACC_05, MSG_ACC_04), 2: (MSG_LS_01,)}
+
+  def setUp(self):
+    self.packer = CANPackerSafety("vw_mlb")
+    self.safety = libsafety_py.libsafety
+    self.safety.set_safety_hooks(CarParams.SafetyModel.volkswagenMlb, VolkswagenSafetyFlags.LONG_CONTROL.value)
+    self.safety.init_tests()
+
+  # stock cruise engagement is bypassed under openpilot longitudinal control (LS_01 buttons instead)
+  def test_disable_control_allowed_from_cruise(self):
+    pass
+
+  def test_enable_control_allowed_from_cruise(self):
+    pass
+
+  def test_cruise_engaged_prev(self):
+    pass
+
+  def test_long_control_flag_installs_long_tx_msgs(self):
+    for addr in (MSG_ACC_02, MSG_ACC_05, MSG_ACC_04):
+      self.assertTrue(self._tx(make_msg(0, addr, 8)),
+                      f"0x{addr:x} rejected: the long control flag was cleared by volkswagen_common_init()")
+
+  def test_long_control_flag_is_required_for_acc_tx(self):
+    # without the flag panda must install the stock tx list and reject the ACC frames
+    self.safety.set_safety_hooks(CarParams.SafetyModel.volkswagenMlb, 0)
+    self.safety.init_tests()
+    for addr in (MSG_ACC_02, MSG_ACC_05, MSG_ACC_04):
+      self.assertFalse(self._tx(make_msg(0, addr, 8)), f"0x{addr:x} allowed without the long control flag")
 
 
 if __name__ == "__main__":
