@@ -84,14 +84,16 @@ class CarController(CarControllerBase, SnGCarController):
       self.slope_comp_unlimited = False
       self.macan_verz_bridge_ttc = False
     # ---- Macan(MLB) 融合控制模式 / 纯OP纵向 / 雷达融合开关（重启生效）----
-    # MacanFusionMode：1=融合(原厂ACC+OP纵向,当前模式)；0=纯OP纵向(雷达停用,OP自算ACC02/04/05)。
-    # 纯OP纵向时 LS_01 在 bus2 只发待命(LS_Hauptschalter=1, 不激活原厂雷达)，ACC02/04 显示完全
-    # 由 OP 自算（原厂雷达不再发，无 st6 矛盾源）。
+    # 2026-09-20 重新锁定为"恒定融合控制"：纯 OP 纵向未通过路试，运行期不再读 MacanFusionMode
+    # 切到纯 OP 路径 —— macan_pure_op 恒 False（UI 开关同步锁死为开，参数只读 1）。
+    # MacanFusionMode 参数保留：后续纯 OP 纵向验证通过后，恢复下面两行注释掉的读取即可解禁。
+    # 融合模式=原厂ACC雷达+OP纵向；纯OP(雷达停用, OP自算ACC02/04/05)代码保留但当前不可达。
     try:
-      self.macan_fusion_on = (CP.carFingerprint == "PORSCHE_MACAN_MK1" and
-                              self._mp.get_bool("MacanFusionMode"))
-      self.macan_pure_op = (CP.carFingerprint == "PORSCHE_MACAN_MK1" and CP.openpilotLongitudinalControl
-                            and not self.macan_fusion_on)
+      self.macan_fusion_on = (CP.carFingerprint == "PORSCHE_MACAN_MK1")
+      # self.macan_fusion_on = (CP.carFingerprint == "PORSCHE_MACAN_MK1" and self._mp.get_bool("MacanFusionMode"))
+      self.macan_pure_op = False
+      # self.macan_pure_op = (CP.carFingerprint == "PORSCHE_MACAN_MK1" and CP.openpilotLongitudinalControl
+      #                       and not self.macan_fusion_on)
       self.macan_radar_fusion = (CP.carFingerprint == "PORSCHE_MACAN_MK1" and
                                  self._mp.get_bool("MacanRadarFusion"))
     except Exception:
