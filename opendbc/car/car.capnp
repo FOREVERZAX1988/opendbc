@@ -205,6 +205,12 @@ struct CarState {
   blockPcmEnable @60 :Bool;  # whether to allow PCM to enable this frame
   carNotReady @61 :Bool;  # car is transiently refusing engagement, used to prevent a fault if engaged
 
+  # Gap/personality the car's own cruise control reports, for cars where the PCM owns
+  # the distance button. 0 = the vehicle does not report it, 1..4 = its gap setting.
+  # Used to sync LongitudinalPersonality when the driver cycles gaps on a
+  # PCM-controlled car, instead of counting presses blindly. Ported from cp.
+  pcmCruiseGap @62 :Int16;
+
   # cruise state
   cruiseState @10 :CruiseState;
 

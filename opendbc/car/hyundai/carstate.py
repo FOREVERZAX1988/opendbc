@@ -139,6 +139,11 @@ class CarState(CarStateBase, EsccCarStateBase, MadsCarState, CarStateExt):
       ret.cruiseState.nonAdaptive = cp_cruise.vl["SCC11"]["SCCInfoDisplay"] == 2.  # Shows 'Cruise Control' on dash
       ret.cruiseState.speed = cp_cruise.vl["SCC11"]["VSetDis"] * speed_conv
 
+      # The gap the PCM is set to, so CruiseHelper can follow it instead of counting
+      # distance-button presses. Ported from cp carstate.py:499. 0 means the car does
+      # not report one.
+      ret.pcmCruiseGap = int(cp_cruise.vl["SCC11"]["TauGapSet"])
+
     ret.brakePressed = cp.vl["TCS13"]["DriverOverride"] == 2  # 2 includes regen braking by user on HEV/EV
     ret.brakeHoldActive = cp.vl["TCS15"]["AVH_LAMP"] == 2  # 0 OFF, 1 ERROR, 2 ACTIVE, 3 READY
     ret.parkingBrake = cp.vl["TCS13"]["PBRAKE_ACT"] == 1
@@ -278,6 +283,11 @@ class CarState(CarStateBase, EsccCarStateBase, MadsCarState, CarStateExt):
       ret.cruiseState.enabled = cp_cruise_info.vl["SCC_CONTROL"]["ACCMode"] in (1, 2)
       ret.cruiseState.standstill = cp_cruise_info.vl["SCC_CONTROL"]["CRUISE_STANDSTILL"] == 1
       ret.cruiseState.speed = cp_cruise_info.vl["SCC_CONTROL"]["VSetDis"] * speed_factor
+
+      # Ported from cp carstate.py:1154. Clipped to 1..4 because DISTANCE_SETTING is a
+      # raw signal and the cluster only has four gap positions; min/max rather than
+      # np.clip since this module has no numpy dependency.
+      ret.pcmCruiseGap = int(min(max(cp_cruise_info.vl["SCC_CONTROL"]["DISTANCE_SETTING"], 1), 4))
       self.cruise_info = copy.copy(cp_cruise_info.vl["SCC_CONTROL"])
 
     # Manual Speed Limit Assist is a feature that replaces non-adaptive cruise control on EV CAN FD platforms.
