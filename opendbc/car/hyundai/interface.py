@@ -164,6 +164,11 @@ class CarInterface(CarInterfaceBase):
     # Common longitudinal control setup
 
     ret.radarUnavailable = RADAR_START_ADDR not in fingerprint[1] or Bus.radar not in DBC[ret.carFingerprint]
+
+    # Track filters need the documented radar period; the estimate path is the fallback.
+
+    ret.radarTimeStep = 0.05
+
     ret.openpilotLongitudinalControl = alpha_long and ret.alphaLongitudinalAvailable
     ret.pcmCruise = not ret.openpilotLongitudinalControl
     ret.longitudinalActuatorDelay = 0.5

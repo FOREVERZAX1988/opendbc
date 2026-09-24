@@ -219,6 +219,16 @@ struct CarState {
   # A request, not a command: the brand controller still decides how to press the button.
   activateCruise @64 :Int16;
 
+  # Stock-navigation CAN state (cp L6). Filled by the Hyundai carstate when the car's own
+  # head unit broadcasts its route profile on 0x4B4/0x4B9/0x4BE; carrot's navi gates read
+  # them so VehicleNaviCanControl finally has its data source.
+  speedBumpDistance @65 :Float32;
+  schoolZoneActive @66 :Bool;
+  vehicleNaviActive @67 :Bool;
+  vehicleNaviSectionActive @68 :Bool;
+  vehicleNaviSpeed @69 :Float32;
+  vehicleNaviAvailable @70 :Bool;
+
   # cruise state
   cruiseState @10 :CruiseState;
 
@@ -505,6 +515,10 @@ struct CarParams {
   # actually broadcast" facts detected at fingerprint time. Kept separate so adding
   # one cannot disturb HyundaiFlags, whose values the panda safety code reads.
   extFlags @78 :UInt32;
+
+  # Period at which the radar broadcasts object frames, when the platform documents one.
+  # Lets the track filters use the right dt instead of estimating it from arrival times.
+  radarTimeStep @79 :Float32;
 
   safetyConfigs @62 :List(SafetyConfig);
   alternativeExperience @65 :Int16;      # panda flag for features like no disengage on gas
