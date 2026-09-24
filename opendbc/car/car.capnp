@@ -491,6 +491,13 @@ struct CarParams {
   minEnableSpeed @7 :Float32;
   minSteerSpeed @8 :Float32;
   steerAtStandstill @77 :Bool;  # is steering available at standstill? just check if it faults
+
+  # Carrot/fork capability bits that do not belong in the safety-relevant `flags`
+  # enum: optional sensor groups, cluster features and other "what does this car
+  # actually broadcast" facts detected at fingerprint time. Kept separate so adding
+  # one cannot disturb HyundaiFlags, whose values the panda safety code reads.
+  extFlags @78 :UInt32;
+
   safetyConfigs @62 :List(SafetyConfig);
   alternativeExperience @65 :Int16;      # panda flag for features like no disengage on gas
 
