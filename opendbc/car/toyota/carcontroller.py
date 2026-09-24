@@ -11,7 +11,8 @@ from opendbc.car.toyota import toyotacan
 from opendbc.car.toyota.values import CAR, NO_STOP_TIMER_CAR, TSS2_CAR, \
                                         CarControllerParams, ToyotaFlags, CanBus
 from opendbc.can import CANPacker
-
+from opendbc.sunnypilot.car.toyota.auto_brake_hold import AutoBrakeHoldCarController
+from opendbc.sunnypilot.car.toyota.enhanced_bsm import EnhancedBsmCarController
 from opendbc.sunnypilot.car.toyota.gas_interceptor import GasInterceptorCarController
 from opendbc.sunnypilot.car.toyota.values import ToyotaFlagsSP
 
@@ -19,6 +20,7 @@ Ecu = structs.CarParams.Ecu
 LongCtrlState = structs.CarControl.Actuators.LongControlState
 SteerControlType = structs.CarParams.SteerControlType
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
+GearShifter = structs.CarState.GearShifter
 
 # The up limit allows the brakes/gas to unwind quickly leaving a stop,
 # the down limit roughly matches the rate of ACCEL_NET, reducing PCM compensation windup
@@ -36,11 +38,21 @@ MAX_STEER_RATE_FRAMES = 17  # tx control frames needed before torque can be cut
 # EPS allows user torque above threshold for 50 frames before permanently faulting
 MAX_USER_TORQUE = 500
 
+CRUISE_CANCEL_DELAY_FRAMES = 10
 
-def get_long_tune(CP, params):
+def get_long_tune(CP, CP_SP, params):
   if CP.flags & ToyotaFlags.TSS2:
-    kiBP = [2., 5.]
-    kiV = [0.5, 0.25]
+    if CP_SP.flags & ToyotaFlagsSP.TSS2_LONG_TUNING:
+      #kiBP = [0.,   2.0,  9.0,  14.,  20.,  27.]
+      #kiV =  [0.25, 0.25, 0.15, 0.12, 0.12, 0.12]
+      #kiBP= [0.,  1.0,  2.0,   3.0,   4.0,   5.0,   7.,  20.,  27.,  36.]
+      #kiV  = [0.31, 0.32, 0.301, 0.280,  0.259,  0.226, 0.15, 0.15, 0.101, 0.10]
+      # Route replay indicates a smoother integral response across the Prius TSS2 speed range.
+      kiBP = [0., 3., 5., 10., 25., 36.]
+      kiV = [0.41, 0.41, 0.36, 0.20, 0.18, 0.18]
+    else:
+      kiBP = [2., 5.]
+      kiV = [0.5, 0.25]
   else:
     kiBP = [0., 5., 35.]
     kiV = [3.6, 2.4, 1.5]
@@ -64,9 +76,10 @@ class CarController(CarControllerBase, GasInterceptorCarController):
     self.permit_braking = True
     self.steer_rate_counter = 0
     self.distance_button = 0
+    self.cancel_counter = 0
 
     # *** start long control state ***
-    self.long_pid = get_long_tune(self.CP, self.params)
+    self.long_pid = get_long_tune(self.CP, self.CP_SP, self.params)
     self.aego = FirstOrderFilter(0.0, 0.25, DT_CTRL * 3)
     self.pitch = FirstOrderFilter(0, 0.5, DT_CTRL)
     self.pitch_hp = HighPassFilter(0.0, 0.25, 1.5, DT_CTRL)
@@ -82,11 +95,20 @@ class CarController(CarControllerBase, GasInterceptorCarController):
     self.secoc_acc_message_counter = 0
     self.secoc_prev_reset_counter = 0
 
+    self.enhanced_bsm = EnhancedBsmCarController(CP, CP_SP)
+    self.auto_brake_hold = AutoBrakeHoldCarController(CP, CP_SP)
+
+    self._auto_lock_speed = 0.0
+
+    self._auto_lock_once = False
+    self._gear_prev = GearShifter.park
+
   def update(self, CC, CC_SP, CS, now_nanos):
     actuators = CC.actuators
     stopping = actuators.longControlState == LongCtrlState.stopping
     hud_control = CC.hudControl
-    pcm_cancel_cmd = CC.cruiseControl.cancel
+    self.cancel_counter = self.cancel_counter + 1 if CC.cruiseControl.cancel else 0
+    pcm_cancel_cmd = self.cancel_counter > CRUISE_CANCEL_DELAY_FRAMES
     lat_active = CC.latActive and abs(CS.out.steeringTorque) < MAX_USER_TORQUE
 
     if len(CC.orientationNED) == 3:
@@ -196,6 +218,9 @@ class CarController(CarControllerBase, GasInterceptorCarController):
           self.standstill_req = True
 
     self.last_standstill = CS.out.standstill
+
+    if self.auto_brake_hold.enabled:
+      can_sends.extend(self.auto_brake_hold.update(CS, self.frame, self.packer))
 
     # handle UI messages
     fcw_alert = hud_control.visualAlert == VisualAlert.fcw
@@ -319,6 +344,9 @@ class CarController(CarControllerBase, GasInterceptorCarController):
     # keep radar disabled
     if self.frame % 20 == 0 and self.CP.flags & ToyotaFlags.DISABLE_RADAR.value:
       can_sends.append(make_tester_present_msg(0x750, self.CAN.pt, 0xF))
+
+    if self.enhanced_bsm.enabled:
+      can_sends.extend(self.enhanced_bsm.update(CS, self.frame))
 
     new_actuators = actuators.as_builder()
     new_actuators.torque = apply_torque / self.params.STEER_MAX
