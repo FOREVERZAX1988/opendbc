@@ -81,36 +81,36 @@ class CarState(CarStateBase, EsccCarStateBase, MadsCarState, CarStateExt):
 
     self.params = CarControllerParams(CP)
 
-  # Stock-navigation CAN state (cp L6). Only the legacy 0x4BE-family profile exists here;
-  # the PV5 wrapped-navigation variant is not in this fork.
-  self.navi_profile_msg = "NEW_MSG_4BE"
-  self.navi_position_4b4 = None
-  self.navi_segment_4b9 = None
-  self.navi_profile_4be = None
-  self.hda_info_4a3 = None  # not decoded in this fork; navi helpers None-guard it
-  self.pv5_section_start_prev = False
-  self.totalDistance = 0.0
-  self.vehicleSpeedCameraParamsCounter = 0
-  self.vehicleSpeedCameraDistanceTime = 0.0
-  self.vehicleNaviCanControl = min(3, max(0, self.params.get_int("VehicleNaviCanControl")))
-  self.vehicleNaviSchoolZoneControl = self.params.get_bool("VehicleNaviSchoolZoneControl")
-  self.vehicleNaviEvents = []
-  self.vehicleNaviSegmentTimestamp = 0
-  self.vehicleNaviProfileTimestamp = 0
-  self.vehicleNaviAvailable = False
-  self.vehicleNaviRouteResetTimestamp = 0
-  self.vehicleNaviRouteState = 0
-  self.vehicleNaviRoutePathIndex = None
-  self.vehicleNaviRoadClass = 7
-  self.vehicleNaviCameraTarget = None
-  self.vehicleNaviCameraStatusEvent = None
-  self.vehicleNaviCameraStatusSpeed = 0.0
-  self.vehicleNaviCameraStatusTarget = None
-  self.vehicleNaviSpeedZoneActive = False
-  self.vehicleNaviSpeedZoneSpeed = 0.0
-  self.vehicleNaviSchoolZoneActive = False
-  self.vehicleNaviSchoolZoneStartDistance = 0.0
-  self.vehicleNaviSchoolZoneUsesCameraStatus = False
+    # Stock-navigation CAN state (cp L6). Only the legacy 0x4BE-family profile exists here;
+    # the PV5 wrapped-navigation variant is not in this fork.
+    self.navi_profile_msg = "NEW_MSG_4BE"
+    self.navi_position_4b4 = None
+    self.navi_segment_4b9 = None
+    self.navi_profile_4be = None
+    self.hda_info_4a3 = None  # not decoded in this fork; navi helpers None-guard it
+    self.pv5_section_start_prev = False
+    self.totalDistance = 0.0
+    self.vehicleSpeedCameraParamsCounter = 0
+    self.vehicleSpeedCameraDistanceTime = 0.0
+    self.vehicleNaviCanControl = min(3, max(0, self.params.get_int("VehicleNaviCanControl")))
+    self.vehicleNaviSchoolZoneControl = self.params.get_bool("VehicleNaviSchoolZoneControl")
+    self.vehicleNaviEvents = []
+    self.vehicleNaviSegmentTimestamp = 0
+    self.vehicleNaviProfileTimestamp = 0
+    self.vehicleNaviAvailable = False
+    self.vehicleNaviRouteResetTimestamp = 0
+    self.vehicleNaviRouteState = 0
+    self.vehicleNaviRoutePathIndex = None
+    self.vehicleNaviRoadClass = 7
+    self.vehicleNaviCameraTarget = None
+    self.vehicleNaviCameraStatusEvent = None
+    self.vehicleNaviCameraStatusSpeed = 0.0
+    self.vehicleNaviCameraStatusTarget = None
+    self.vehicleNaviSpeedZoneActive = False
+    self.vehicleNaviSpeedZoneSpeed = 0.0
+    self.vehicleNaviSchoolZoneActive = False
+    self.vehicleNaviSchoolZoneStartDistance = 0.0
+    self.vehicleNaviSchoolZoneUsesCameraStatus = False
 
   def recent_button_interaction(self) -> bool:
     # On some newer model years, the CANCEL button acts as a pause/resume button based on the PCM state
