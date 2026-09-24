@@ -211,6 +211,14 @@ struct CarState {
   # PCM-controlled car, instead of counting presses blindly. Ported from cp.
   pcmCruiseGap @62 :Int16;
 
+  # Soft-hold state while cruise is cancelled, published from the cruise helper:
+  # 0 = not active, 1 = ready, 2 = activated. Lets brand controllers hold the car after a
+  # cancel instead of resuming normally. Ported from cp.
+  softHoldActive @63 :Int16;
+  # Set by the cruise helper when the car should be auto-engaged (GM auto-cruise).
+  # A request, not a command: the brand controller still decides how to press the button.
+  activateCruise @64 :Int16;
+
   # cruise state
   cruiseState @10 :CruiseState;
 
