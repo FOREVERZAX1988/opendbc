@@ -345,12 +345,13 @@ struct RadarData @0x888ad6581cf0aacb {
     dRel @1 :Float32;    # m from the front bumper of the car
     yRel @2 :Float32;    # m
     vRel @3 :Float32;    # m/s
-
-    deprecated :group {
-      aRel @4 :Float32; # m/s^2
-      yvRel @5 :Float32; # m/s
-      measured @6 :Bool;  # measurement VS estimate flag
-    }
+    aRel @4 :Float32;    # m/s^2
+    yvRel @5 :Float32;   # m/s
+    measured @6 :Bool;   # measurement VS estimate flag
+    vLead @7 :Float32;   # absolute lead speed (m/s)
+    radarSource @8 :Text; # "scc", "radar", etc.
+    aLead @9 :Float32;   # filtered lead accel (m/s^2), written by radar_tracks
+    jLead @10 :Float32;  # filtered lead jerk (m/s^3), written by radar_tracks
   }
 
   enum ErrorDEPRECATED {
