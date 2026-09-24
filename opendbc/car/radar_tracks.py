@@ -56,7 +56,7 @@ class MyTrack:
   def __init__(self, track_id: int, radar_point, dt: float):
     self.track_id = track_id
     self.reused_corner_slot = radar_track_id_is_reused_corner_slot(track_id)
-    self.radar_source = str(radar_point.radarSource)
+    self.radar_source = str(getattr(radar_point, 'radarSource', ''))
     self.cnt = 0
     self.dRel = radar_point.dRel
     self.vRel = radar_point.vRel
@@ -98,7 +98,7 @@ class MyTrack:
     self.jLead_v_history.append(self.vLead)
 
   def init_point(self, radar_point):
-    self.radar_source = str(radar_point.radarSource)
+    self.radar_source = str(getattr(radar_point, 'radarSource', ''))
     self.dRel = radar_point.dRel
     self.vRel = radar_point.vRel
     self.yRel = radar_point.yRel
