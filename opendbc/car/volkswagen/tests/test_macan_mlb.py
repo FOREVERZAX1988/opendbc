@@ -132,6 +132,26 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     self.assertAlmostEqual(wg3 * 0.32, 327.04, delta=0.5,
                            msg=f"st=0 未设定应显示 327.04(无显示，对齐原厂)，实际 {wg3*0.32:.1f}")
 
+  def test_wg_low_op_speed_relays_stock(self):
+    """ACC_Wunschgeschw_02：OP 设定速度跌破"有意义"下界(<30 km/h)时不得把被钳到
+    最小值(_cruise_speed_min=5)的 OP 值写进仪表——否则待机/未设定过渡窗口仪表出现
+    莫名的 "5 km/h"。此时透传原厂 bus2 ACC_02 设定(stdock)；原厂无显示(>=250)则回退
+    327.04 无显示。OP 设定 >=30 时仍沿用 OP 值(保持 test_wg_op_writeback 语义)。"""
+    from opendbc.car.volkswagen import mlbcan
+
+    def wg_of(set_speed, stock):
+      msg = mlbcan.create_acc_hud_control(PACKER, 0, 3, set_speed, 100, 2, lead_object=1,
+                                          stock_wunschgeschw=stock)
+      d = bytes(msg[1])
+      return ((d[1] >> 4) | (d[2] << 4)) * 0.32
+
+    # 被钳到最小值 5 + 原厂无显示 -> 不显示速度(327.04)，不出现 5
+    self.assertAlmostEqual(wg_of(5.0, 327.04), 327.04, delta=0.5)
+    # 被钳到最小值 5 + 原厂有效设定 45 -> 透传原厂 45
+    self.assertAlmostEqual(wg_of(5.0, 45.0), 45.0, delta=0.5)
+    # OP 有意义设定 40 -> 仍用 OP 值(不随 stock 53.8 透传)
+    self.assertAlmostEqual(wg_of(40.0, 53.8), 40.0, delta=0.5)
+
   def test_hud_no_contradiction_frame(self):
     """HUD 矛盾帧回归（2026-08-26 修复）：无目标时 create_acc_hud_control
     不得输出 ab=0 + relev=1（仪表显示"一辆很近的车"幻觉，00000061 seg0 实测 67 帧）。
@@ -453,3 +473,50 @@ class TestMacanPureOPLongStateMachine(unittest.TestCase):
     self.assertEqual(st, 2)
     prim = (dat[2] >> 6) & 0x3
     self.assertEqual(prim, 0)
+
+
+class TestMacanCanHealthGating(unittest.TestCase):
+  """2026-09-26 回归：点火窗口 "CAN Bus Error: Check Connections" 误报防护。
+
+  背景（实车 2026-09-26 日志实锤）：Macan(MLB) 的 get_can_parsers 为融合/仲裁
+  额外新增两条报文——
+    * ACC_05（bus2/cam）：融合仲裁用 acc05_stock_*（全部 getattr 默认值读取）
+    * LS_01 （bus1/alt）：gra_stock_values 拨杆时间档阈值
+  它们被登记为 canValid 的判定项：只要这两条在窗口内没收到，interfaces.py 的
+  `ret.canValid = all(cp.can_valid ...)` 即 False → selfdrived 报 canError
+  （IMMEDIATE_DISABLE + 永驻告警），点火瞬间总线未唤醒时必然触发。
+  二者均为"可选监控"信号，故必须以 NaN 频率注册（pycapnp: ignore_alive）。
+  核心车身报文（ESP_*/Motor_03/LWI_01/LH_EPS_03/Kombi_01/BCM/Airbag_01，
+  carstate 访问时自动注册）保持严格校验 —— 真实接线故障依旧能检出。
+  """
+
+  def _parsers(self):
+    from opendbc.car import structs
+    from opendbc.car.volkswagen.carstate import CarState
+    from opendbc.car.volkswagen.values import VolkswagenFlags
+    CP = structs.CarParams.new_message()
+    CP.carFingerprint = "PORSCHE_MACAN_MK1"
+    CP.flags = int(VolkswagenFlags.MLB)
+    CP.networkLocation = structs.CarParams.NetworkLocation.gateway
+    # MLB 分支不使用 CP_SP，传 None 即可
+    return CarState.get_can_parsers(CP, None)
+
+  def test_fusion_monitor_messages_are_ignore_alive(self):
+    from opendbc.car import Bus
+    parsers = self._parsers()
+    for key, name in ((Bus.cam, "ACC_05"), (Bus.alt, "LS_01")):
+      cp = parsers[key]
+      states = list(cp.message_states.values())
+      self.assertEqual(len(states), 1, f"{key} 应只注册 {name}，实际 {[s.name for s in states]}")
+      self.assertTrue(states[0].ignore_alive,
+                      f"{name} 必须以 NaN 频率注册(ignore_alive)，否则会 gate canValid 造成 CAN 误报")
+      # 空数据（模拟点火瞬间总线未唤醒）：不得判为 CAN 无效
+      cp.update([(0, [])])
+      self.assertTrue(cp.can_valid, f"{name} 缺失时不得把整条 CAN 判成无效")
+
+  def test_strict_message_without_data_still_invalid(self):
+    """反向保证：没标 ignore_alive 的报文缺数据必须判无效（真实故障检出未被削弱）。"""
+    from opendbc.can import CANParser
+    cp = CANParser("vw_mlb", [("ACC_05", 100)], 2)
+    cp.update([(0, [])])
+    self.assertFalse(cp.can_valid)

@@ -610,7 +610,11 @@ class CarState(CarStateBase):
       # 同步检查形同虚设 → OP 单方面代发 st=4 与原厂 st=0 矛盾 → 仪表报 ACC/PAS
       # 需要服务（62-26 段实锤，2026-08-28）。固定从 bus2（cam_cp）读原厂帧。
       cam_messages += [
-        ("ACC_05", 100),
+        # 2026-09-26: 频率传 NaN -> ignore_alive（只影响 canValid 判定，不影响取值）。
+        # ACC_05 仅用于 Macan 融合/仲裁（acc05_stock_*，均 getattr 默认值读取），
+        # 点火瞬间 bus2 未唤醒时不应把整条 CAN 判成故障（否则界面报
+        # "CAN Bus Error: Check Connections" 并 IMMEDIATE_DISABLE）。
+        ("ACC_05", float("nan")),
       ]
     if CP.flags & VolkswagenFlags.STOCK_HCA_PRESENT:
       cam_messages += [
@@ -621,7 +625,9 @@ class CarState(CarStateBase):
       # bus0->bus2 不再硬件转发 LS_01，由 OP 从 bus1 复制转发到 bus2（原厂 ACC 雷达侧）——
       # 消除 bus2 上原厂信号与 OP 代发信号双源冲突（st=6 根因之一）。
       alt_messages += [
-        ("LS_01", 10),  # 原厂物理巡航拨杆（bus1），10Hz
+        # 2026-09-26: 同上 NaN -> ignore_alive。LS_01 只作 gra_stock_values
+        # （MLB 从 bus1 读取的拨杆阈值/时间档），属可选监控信号，不 gate canValid。
+        ("LS_01", float("nan")),  # 原厂物理巡航拨杆（bus1）
       ]
 
     return {

@@ -598,7 +598,7 @@ def create_acc_hud_control(packer, bus, acc_hud_status, set_speed, lead_distance
     #   st=0 时 set_speed=255→327.04 自然清空，与原厂"st=0 清空为 327"语义一致。
     # 注意：本帧是纯显示件(接收方 HUD_C7/Kombi_D4)，改写不影响原厂 ACC 内部闭环设定，零执行风险。
     #   纯显示件（接收方 HUD_C7/Kombi_D4），改写不影响原厂 ACC 内部闭环设定；无效值(=0/st=0)统一 327.04"无显示"(对齐MLB原厂)。
-    "ACC_Wunschgeschw_02": (set_speed if set_speed < 250 else _WUNSCH_NO_DISPLAY),
+    "ACC_Wunschgeschw_02": _mlb_dash_set_speed(set_speed, stock_wunschgeschw),
     "ACC_Gesetzte_Zeitluecke": zeitluecke,  # Mirror stock radar's ZL from ext bus (responds to DIST button)
     "ACC_Abstandsindex": lead_distance,
     "ACC_Relevantes_Objekt": lead_obj,
@@ -651,3 +651,25 @@ def volkswagen_mlb_checksum(address: int, sig, d: bytearray) -> int:
     return xor_checksum(address, sig, d, xor_starting_value[address])
   else:
     return volkswagen_mqb_meb_checksum(address, sig, d)
+
+
+# ---------------------------------------------------------------------------
+# 仪表巡航设定速度（ACC_Wunschgeschw_02, km/h）取值策略
+# 融合模式下 bus2->bus0/bus128 的 ACC_02 转发被屏蔽，由 OP 在 bus0/bus128 复现整帧。
+# 若把 OP 的 v_cruise 直接回写到该字段：OP 在待机 / 未设定的过渡窗口会把 v_cruise
+# 钳到下界 _cruise_speed_min(=5 km/h)，仪表随即出现一个莫名的 "5 km/h"（用户实测）。
+# 原厂语义：未设定时该字段为 327.04("keine Anzeige")，不显示速度。
+# 因此：仅当 OP 有"有意义"的设定(>=30 km/h, 即 V_CRUISE_INITIAL)时才用 OP 值；
+# 否则透传原厂 bus2 的设定速度（无效则回退 327.04 无显示）。纯显示件，无执行风险。
+# 未传 stock_wunschgeschw(None, 非 MLB 平台)时保持原有行为。
+def _mlb_dash_set_speed(set_speed, stock_wunschgeschw=None):
+  if stock_wunschgeschw is None:
+    return set_speed if set_speed < 250 else _WUNSCH_NO_DISPLAY
+  try:
+    sv = float(stock_wunschgeschw)
+  except (TypeError, ValueError):
+    sv = 0.0
+  stock_valid = 0.0 < sv < 250.0
+  if set_speed < 30.0:
+    return sv if stock_valid else _WUNSCH_NO_DISPLAY
+  return set_speed if set_speed < 250.0 else _WUNSCH_NO_DISPLAY
