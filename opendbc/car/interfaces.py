@@ -95,6 +95,13 @@ class RadarInterfaceBase(ABC):
       return structs.RadarData()
     return None
 
+  def update_carrot(self, v_ego: float, a_ego: float, rcv_time: float,
+                    can_packets: list[tuple[int, list[CanData]]]) -> structs.RadarDataT | None:
+    # Carrot radar layer entry point. Runs the brand's update() and (for brands
+    # with a dedicated smoothing layer) smooths the tracks with ego motion.
+    # This base implementation is identical to update(); subclasses may override.
+    return self.update(can_packets)
+
 
 class CarInterfaceBase(ABC, CarInterfaceBaseSP):
   CarState: type['CarStateBase']
