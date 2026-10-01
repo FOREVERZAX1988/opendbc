@@ -14,7 +14,7 @@ from opendbc.car import structs
 from opendbc.car.can_definitions import CanRecvCallable, CanSendCallable
 from opendbc.car.hyundai.values import HyundaiFlags
 from opendbc.car.subaru.values import SubaruFlags
-from opendbc.car.toyota.values import ToyotaSafetyFlags
+from opendbc.car.toyota.values import RADAR_ACC_CAR, SECOC_CAR, TSS2_CAR, ToyotaSafetyFlags
 from opendbc.sunnypilot.car.hyundai.enable_radar_tracks import enable_radar_tracks as hyundai_enable_radar_tracks
 from opendbc.sunnypilot.car.hyundai.longitudinal.helpers import LongitudinalTuningType
 from opendbc.sunnypilot.car.hyundai.values import HyundaiFlagsSP
@@ -157,6 +157,9 @@ def _initialize_toyota(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params
   if CP.brand == 'toyota':
     toyota_stock_long = int(params_dict.get("ToyotaEnforceStockLongitudinal", 0)) == 1
     toyota_stop_and_go_hack = int(params_dict.get("ToyotaStopAndGoHack", 0)) == 1
+    toyota_tss2_long_tuning = int(params_dict.get("ToyotaTSS2Long", 0)) == 1
+    toyota_enhanced_bsm = int(params_dict.get("ToyotaEnhancedBsm", 0)) == 1
+    toyota_auto_brake_hold = int(params_dict.get("ToyotaAutoHold", 0)) == 1
 
     if toyota_stock_long:
       CP_SP.flags |= ToyotaFlagsSP.STOCK_LONGITUDINAL.value
@@ -166,3 +169,12 @@ def _initialize_toyota(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params
 
     if toyota_stop_and_go_hack and CP.openpilotLongitudinalControl:
       CP_SP.flags |= ToyotaFlagsSP.STOP_AND_GO_HACK.value
+
+    if toyota_tss2_long_tuning:
+      CP_SP.flags |= ToyotaFlagsSP.TSS2_LONG_TUNING.value
+
+    if toyota_enhanced_bsm and CP.carFingerprint in (TSS2_CAR - SECOC_CAR):
+      CP_SP.flags |= ToyotaFlagsSP.SP_ENHANCED_BSM.value
+
+    if toyota_auto_brake_hold and CP.carFingerprint in (TSS2_CAR - RADAR_ACC_CAR - SECOC_CAR):
+      CP_SP.flags |= ToyotaFlagsSP.SP_AUTO_BRAKE_HOLD.value

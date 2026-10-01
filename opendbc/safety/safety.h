@@ -66,6 +66,8 @@ bool safety_rx_checks_invalid = false;
 bool enable_gas_interceptor = false;
 int gas_interceptor_prev = 0;
 
+// FrogPilot variables
+
 // for safety modes with torque steering control
 int desired_torque_last = 0;       // last desired steer torque
 int rt_torque_last = 0;            // last desired torque for real time check
@@ -100,6 +102,8 @@ uint16_t current_safety_param = 0;
 uint16_t current_safety_param_sp = 0;
 static const safety_hooks *current_hooks = &nooutput_hooks;
 safety_config current_safety_config;
+
+// OPGM variables
 
 static void generic_rx_checks(void);
 static void stock_ecu_check(bool stock_ecu_detected);
@@ -223,6 +227,8 @@ bool safety_rx_hook(const CANPacket_t *msg) {
   if (controls_allowed && !controls_allowed_prev) {
     heartbeat_engaged_mismatches = 0;
   }
+
+  // FrogPilot variables
 
   return valid;
 }
@@ -378,6 +384,8 @@ static void generic_rx_checks(void) {
     controls_allowed = false;
   }
   steering_disengage_prev = steering_disengage;
+
+  // FrogPilot variables
 }
 
 static void stock_ecu_check(bool stock_ecu_detected) {
@@ -485,6 +493,8 @@ int set_safety_hooks(uint16_t mode, uint16_t param) {
   relay_malfunction_reset();
   safety_rx_checks_invalid = false;
 
+  // OPGM variables
+
   current_safety_config.rx_checks = NULL;
   current_safety_config.rx_checks_len = 0;
   current_safety_config.tx_msgs = NULL;
@@ -513,6 +523,9 @@ int set_safety_hooks(uint16_t mode, uint16_t param) {
       current_safety_config.rx_checks[j].status = (RxStatus){0};
     }
   }
+
+  // FrogPilot variables
+
   return set_status;
 }
 

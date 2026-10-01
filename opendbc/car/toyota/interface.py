@@ -122,6 +122,13 @@ class CarInterface(CarInterfaceBase):
     ret.openpilotLongitudinalControl = ((bool(ret.flags & ToyotaFlags.TSS2) and not (ret.flags & ToyotaFlags.RADAR_ACC)) or
                                         bool(ret.flags & ToyotaFlags.DISABLE_RADAR.value))
 
+    # This platform only uses openpilot for lateral control. All longitudinal
+    # control and its SecOC traffic remain stock.
+    if ret.flags & ToyotaFlags.EPS_BYPASS_SECOC.value:
+      ret.openpilotLongitudinalControl = False
+      ret.alphaLongitudinalAvailable = False
+      ret.flags &= ~ToyotaFlags.DISABLE_RADAR.value
+
     ret.autoResumeSng = ret.openpilotLongitudinalControl and candidate in NO_STOP_TIMER_CAR
 
     if not ret.openpilotLongitudinalControl:
@@ -133,6 +140,7 @@ class CarInterface(CarInterfaceBase):
 
     if ret.flags & ToyotaFlags.TSS2:
       ret.flags |= ToyotaFlags.RAISED_ACCEL_LIMIT.value
+      #ret.stopAccel = -0.02
 
       # Hybrids have much quicker longitudinal actuator response
       if ret.flags & ToyotaFlags.HYBRID.value:
@@ -157,6 +165,9 @@ class CarInterface(CarInterfaceBase):
                      car_fw: list[structs.CarParams.CarFw], alpha_long: bool, is_release_sp: bool, docs: bool) -> structs.CarParamsSP:
     if candidate in UNSUPPORTED_DSU_CAR:
       ret.safetyParam |= ToyotaSafetyFlagsSP.UNSUPPORTED_DSU
+
+    if candidate == CAR.TOYOTA_PRIUS_TSS2:
+      ret.flags |= ToyotaFlagsSP.SP_NEED_DEBUG_BSM.value
 
     # Detect smartDSU, which intercepts ACC_CMD from the DSU (or radar) allowing openpilot to send it
     # 0x2AA is sent by a similar device which intercepts the radar instead of DSU on NO_DSU_CARs

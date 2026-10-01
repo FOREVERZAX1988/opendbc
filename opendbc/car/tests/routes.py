@@ -66,7 +66,10 @@ non_tested_cars = [
   BYD.BYD_SONG_PRO_DMI_22,
   BYD.BYD_TANG_DM,
   BYD.BYD_TANG_DMI_21,
-  BYD.BYD_YUAN_PLUS_DMI_22
+  BYD.BYD_YUAN_PLUS_DMI_22,
+
+  # no uploadable route for this PRC-market patched platform
+  TOYOTA.TOYOTA_SIENNA_PATCHED,
 ]
 
 
