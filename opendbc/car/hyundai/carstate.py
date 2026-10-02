@@ -13,6 +13,7 @@ from opendbc.sunnypilot.car.hyundai.carstate_ext import CarStateExt
 from opendbc.sunnypilot.car.hyundai.escc import EsccCarStateBase
 from opendbc.sunnypilot.car.hyundai.mads import MadsCarState
 from opendbc.sunnypilot.car.hyundai.values import HyundaiFlagsSP
+from opendbc.sunnypilot.car.params_access import get_bool as _params_get_bool, get_int as _params_get_int
 
 ButtonType = structs.CarState.ButtonEvent.Type
 
@@ -25,11 +26,21 @@ ENABLE_BUTTONS = (Buttons.RES_ACCEL, Buttons.SET_DECEL, Buttons.CANCEL)
 BUTTONS_DICT = {Buttons.RES_ACCEL: ButtonType.accelCruise, Buttons.SET_DECEL: ButtonType.decelCruise,
                 Buttons.GAP_DIST: ButtonType.gapAdjustCruise, Buttons.CANCEL: ButtonType.cancel}
 
-
 CANFD_NAVI_PROFILE_MSG = "CANFD_NAVI_PROFILE_093"
 CANFD_NAVI_STATUS_MSG = "CANFD_NAVI_STATUS_380"
 CANFD_NAVI_CAMERA_ACTIVE_BIT = 0x40
 CANFD_NAVI_STATUS_TIMEOUT_NS = 1_000_000_000
+# 车速摄像头/Navi 相关 Params 的刷新节流：carState 100 Hz，每 10 帧读一次 = 10 Hz，
+# 与 carrot_serv 的 `_param_frame % 10` 保持一致。
+VEHICLE_SPEED_CAMERA_PARAM_UPDATE_FRAMES = 10  # frames @100Hz -> 10 Hz
+
+# --- Hyundai/Kia stock-navigation CAN port (INCOMPLETE) ----------------------
+# `_update_vehicle_navi_events` and its helpers reference tuning constants
+# (VEHICLE_NAVI_*, CANFD_HDA_INFO_MSG) that are not defined anywhere in this repo,
+# nor in upstream `mouxangithub/opendbc@tn-c3`, so invoking them raises NameError.
+# The port is therefore disabled until those values are sourced from the original
+# implementation. Flip this to True only after the constants are defined.
+HYUNDAI_NAVI_CAN_ENABLED = False
 
 
 def is_canfd_navi_camera_active(values) -> bool:
@@ -89,11 +100,14 @@ class CarState(CarStateBase, EsccCarStateBase, MadsCarState, CarStateExt):
     self.navi_profile_4be = None
     self.hda_info_4a3 = None  # not decoded in this fork; navi helpers None-guard it
     self.pv5_section_start_prev = False
+    self.canfd_wrapped_navi = False  # PV5 wrapped-navigation variant is not in this fork
+    self.navi_status_380 = None  # 0x380 navi status is not decoded in this fork
+    self.vehicleNaviZoneControlSupported = False  # no producer in this fork; part of the incomplete navi port
     self.totalDistance = 0.0
     self.vehicleSpeedCameraParamsCounter = 0
     self.vehicleSpeedCameraDistanceTime = 0.0
-    self.vehicleNaviCanControl = min(3, max(0, self.params.get_int("VehicleNaviCanControl")))
-    self.vehicleNaviSchoolZoneControl = self.params.get_bool("VehicleNaviSchoolZoneControl")
+    self.vehicleNaviCanControl = min(3, max(0, _params_get_int("VehicleNaviCanControl", 0)))
+    self.vehicleNaviSchoolZoneControl = _params_get_bool("VehicleNaviSchoolZoneControl", False)
     self.vehicleNaviEvents = []
     self.vehicleNaviSegmentTimestamp = 0
     self.vehicleNaviProfileTimestamp = 0
@@ -372,10 +386,12 @@ class CarState(CarStateBase, EsccCarStateBase, MadsCarState, CarStateExt):
     # Stock-navigation CAN state machine (cp L6). Writes the vehicleNavi*/schoolZone
     # fields carrot's navi gates read; without it those gates permanently see defaults.
     self._update_vehicle_speed_camera_params()
-    self._update_vehicle_navi_events(cp, ret, False, None)
+    if HYUNDAI_NAVI_CAN_ENABLED:
+      self._update_vehicle_navi_events(cp, ret, False, None)
 
     return ret, ret_sp
 
+  @staticmethod
   def _vehicle_speed_camera_distance_time(raw_value):
     return min(200, max(10, raw_value)) / 10.0
 
@@ -389,13 +405,13 @@ class CarState(CarStateBase, EsccCarStateBase, MadsCarState, CarStateExt):
       return False
 
     self.vehicleSpeedCameraParamsCounter = 0
-    distance_time_tenths = self.params.get_int("VehicleSpeedCameraDistanceTime")
+    distance_time_tenths = _params_get_int("VehicleSpeedCameraDistanceTime", 60)
     distance_time = self._vehicle_speed_camera_distance_time(distance_time_tenths)
     changed = distance_time != self.vehicleSpeedCameraDistanceTime
     self.vehicleSpeedCameraDistanceTime = distance_time
     if changed and self.vehicleNaviCameraStatusTarget is not None:
       self.vehicleNaviCameraStatusTarget = self.totalDistance + self.vehicleNaviCameraStatusSpeed * distance_time
-    vehicle_navi_can_control = self._vehicle_navi_can_control_mode(self.params.get_int("VehicleNaviCanControl"))
+    vehicle_navi_can_control = self._vehicle_navi_can_control_mode(_params_get_int("VehicleNaviCanControl", 0))
     if vehicle_navi_can_control != self.vehicleNaviCanControl:
       self.vehicleNaviCanControl = vehicle_navi_can_control
       if not vehicle_navi_can_control:
@@ -403,7 +419,7 @@ class CarState(CarStateBase, EsccCarStateBase, MadsCarState, CarStateExt):
         self._clear_vehicle_navi_speed_zone()
       elif vehicle_navi_can_control >= 2:
         self._clear_vehicle_navi_route_filtered_events()
-    vehicle_navi_school_zone_control = self.params.get_bool("VehicleNaviSchoolZoneControl")
+    vehicle_navi_school_zone_control = _params_get_bool("VehicleNaviSchoolZoneControl", False)
     if vehicle_navi_school_zone_control != self.vehicleNaviSchoolZoneControl:
       self.vehicleNaviSchoolZoneControl = vehicle_navi_school_zone_control
       if not vehicle_navi_school_zone_control:

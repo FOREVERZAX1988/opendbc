@@ -6,7 +6,7 @@ from opendbc.car.gm import gmcan
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.gm.values import CAR, DBC, CanBus, CarControllerParams, CruiseButtons
 from opendbc.car.interfaces import CarControllerBase
-from openpilot.common.params import Params
+from opendbc.sunnypilot.car.params_access import get_int, put_bool
 
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
 NetworkLocation = structs.CarParams.NetworkLocation
@@ -60,7 +60,7 @@ class CarController(CarControllerBase):
     already owns that state machine in card.py, and a second copy here would have its own
     frame counter and unit factor.
     """
-    return Params().get_int("AutoCruiseControl")
+    return get_int("AutoCruiseControl", 0)
 
   def update(self, CC, CC_SP, CS, now_nanos):
     actuators = CC.actuators
@@ -193,7 +193,7 @@ class CarController(CarControllerBase):
               idx = (self.frame // 4) % 4
               apply_brake = self.brake_input(-0.5)
               can_sends.append(gmcan.create_brake_command(self.packer_ch, CanBus.CHASSIS, apply_brake, idx))
-              Params().put_bool_nonblocking("ActivateCruiseAfterBrake", True)
+              put_bool("ActivateCruiseAfterBrake", True)
               self.activateCruise_after_brake = True
         else:
           if (CS.out.activateCruise or self._auto_cruise_control() > 0) and not CS.out.cruiseState.enabled:

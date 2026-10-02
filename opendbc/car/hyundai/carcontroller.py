@@ -1,6 +1,5 @@
 import numpy as np
 from opendbc.can import CANPacker
-from openpilot.common.params import Params
 from opendbc.car import Bus, DT_CTRL, make_tester_present_msg, structs
 from opendbc.car.lateral import apply_driver_steer_torque_limits, common_fault_avoidance
 from opendbc.car.common.conversions import Conversions as CV
@@ -8,6 +7,7 @@ from opendbc.car.hyundai import hyundaicanfd, hyundaican
 from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.values import HyundaiFlags, Buttons, CarControllerParams, CAR
 from opendbc.car.interfaces import CarControllerBase
+from opendbc.sunnypilot.car.params_access import get_int, put_bool
 
 from opendbc.sunnypilot.car.hyundai.escc import EsccCarController
 from opendbc.sunnypilot.car.hyundai.icbm import IntelligentCruiseButtonManagementInterface
@@ -77,9 +77,9 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     IntelligentCruiseButtonManagementInterface.__init__(self, CP, CP_SP)
     self.CAN = CanBus(CP)
     self.params = CarControllerParams(CP)
-    # Persistent params for the speed-camera haptic feedback. A separate Params handle
-    # because self.params is the CarControllerParams tuning container, not the store.
-    self._haptic_params = Params()
+    # NOTE: `self.params` is the CarControllerParams tuning container, not the Params
+    # store, so the speed-camera haptic tunable is read via sunnypilot's typed
+    # accessor (get_int) rather than off `self.params`.
     # Frame at which the current haptic burst ends, -1 when idle. The burst is
     # started on the rising edge of activeCarrot == 3 (see create_can_msgs).
     self._speed_camera_haptic_end_frame = -1
@@ -198,7 +198,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     # Elapsed is measured from the recorded start frame, not recomputed from `end`:
     # `end` is cleared below once the burst expires, so deriving the start from it would
     # read differently on the frame the burst closes.
-    haptic = self._haptic_params.get_int("HapticFeedbackWhenSpeedCamera")
+    haptic = get_int("HapticFeedbackWhenSpeedCamera", 0)
     if (haptic > 0 and self._speed_camera_haptic_start_frame >= 0
         and 0 <= self._speed_camera_haptic_end_frame - self.frame < int(VIBRATE_DURATION_S / DT_CTRL)):
       elapsed = (self.frame - self._speed_camera_haptic_start_frame) * DT_CTRL
@@ -236,7 +236,8 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       can_sends.extend(hyundaican.create_acc_commands(self.packer, CC.enabled, accel, jerk, int(self.frame / 2),
                                                       self.lead_data, hud_control, set_speed_in_units, stopping,
                                                       CC.cruiseControl.override, use_fca, self.CP,
-                                                      CS.main_cruise_enabled, self.tuning, self.ESCC, int(getattr(CS, "softHoldActive", 0) or 0)))
+                                                      CS.main_cruise_enabled, self.tuning, int(getattr(CS, "softHoldActive", 0) or 0),
+                                                      self.ESCC))
 
     # 20 Hz LFA MFA message
     if self.frame % 5 == 0 and self.CP.flags & HyundaiFlags.SEND_LFA.value:
