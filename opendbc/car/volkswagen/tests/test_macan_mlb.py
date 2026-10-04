@@ -15,11 +15,14 @@ v2 校准（2026-08-20 回归核实）：
 import unittest
 
 from opendbc.can import CANPacker
+from opendbc.car import structs
+from opendbc.car.car_helpers import interfaces
 from opendbc.car.volkswagen import mlbcan
 from opendbc.car.volkswagen.carcontroller import (CarController, MACAN_B1_T_A, MACAN_B1_T_B,
                                                  MACAN_DISP_REL_TH)
 
 PACKER = CANPacker('vw_mlb')
+_FP_ALL = dict.fromkeys(range(8), {})
 
 
 def parse_acc05(d):
@@ -61,6 +64,51 @@ def run_frames(n, **kw):
   for _ in range(n):
     r = make_acc(**kw)
   return r
+
+
+class FakeCarState:
+  """仪表显示源用例的最小 CarState（未显式定义的字段走 0.0 兜底）。"""
+
+  def __init__(self, v_ego, stock_idx, stock_obj, op_drel, op_vlead=0.0, op_vrel=0.0):
+    self.out = structs.CarState()
+    self.out.vEgo = v_ego
+    self.out.vEgoRaw = v_ego
+    self.out.aEgo = 0.0
+    self.out.gasPressed = False
+    self.out.brakePressed = False
+    self.out.steeringPressed = False
+    self.out.steeringTorque = 0.0
+    self.out.standstill = v_ego < 0.3
+    self.out.accFaulted = False
+    self.out.cruiseState.available = True
+    self.stock_lead_distance = stock_idx
+    self.stock_lead_object = stock_obj
+    self.op_lead_dRel = op_drel
+    self.op_lead_vLead = op_vlead
+    self.op_lead_vRel = op_vrel
+    self.stock_zeitluecke = 3
+    self.stock_prim_anz = 1
+    self.stock_status_anzeige = 3
+    self.stock_display_prio = 2
+    self.stock_texte_prim = 0
+    self.stock_wunschgeschw = 100.0
+    self.stock_lead_speed_kph = 60.0
+    self.stock_acc04_texte_zusatz = 0
+    self.stock_acc04_charisma_status = 1
+    self.acc_type = 0
+    self.curvature_meas = 0.0
+    self.travel_assist_available = False
+    self.esp_hold_confirmation = False
+    self.gra_stock_values = {'COUNTER': 0, 'LS_Hauptschalter': 1, 'LS_Typ_Hauptschalter': 0,
+                             'LS_Codierung': 1, 'LS_Tip_Stufe_2': 0, 'LS_Abbrechen': 0,
+                             'LS_Tip_Wiederaufnahme': 0, 'LS_Tip_Setzen': 0, 'LS_Tip_Hoch': 0,
+                             'LS_Tip_Runter': 0, 'LS_Verstellung_Zeitluecke': 0}
+    self.klr_stock_values = {}
+    self.ldw_stock_values = {}
+    self.eps_stock_values = {}
+
+  def __getattr__(self, name):
+    return 0.0
 
 
 class TestMacanMLBLongitudinal(unittest.TestCase):
@@ -333,10 +381,6 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
     self.assertLessEqual(r15['verz'], -0.25, "收敛后 verz 接近 accel 深度")
 
 
-if __name__ == '__main__':
-  unittest.main()
-
-
 class TestMacanDisplayMapping(unittest.TestCase):
   """仪表车距显示源换算（第三处映射，2026-09-10 统一到 B1 单表 + 判据物理化）。
 
@@ -390,6 +434,113 @@ class TestMacanDisplayMapping(unittest.TestCase):
     rel = 0.27
     self.assertGreater(rel * amp, MACAN_DISP_REL_TH)
     self.assertLess(rel, MACAN_DISP_REL_TH)
+
+
+class TestMacanDisplaySourceFused(unittest.TestCase):
+  """2.A（2026-10-04 用户拍板）：Macan 仪表"前车车距"显示源 = 控制源。
+
+  背景：显示层（OP 代发 ACC_02.Abstandsindex / Relevantes_Objekt）原先"原厂 idx 有效就透传"，
+  与控制层（radard 融合 leadOne → planner → ACC_05）只共用输入、不共用判据，于是出现
+  「仪表显示有车、控制侧已丢目标」（实车 8f--4 段 14 帧）以及迟滞单向锁
+  （1 帧融合缺失 → 整段锁在原厂 idx）。
+  2.A 改法：Macan 只用 `CS.op_lead_dRel`（radard 融合 leadOne = planner 同一对象，card.py 注入）
+  反算显示，删掉原厂透传、30%/20% 迟滞与 2s hold；其他 MLB（AUDI_Q5_MK1 等）恒走上游原行为。
+
+  驱动**真实 CarController**（确定性、无需上车）：interfaces[fingerprint] 建 CP/CP_SP，
+  喂最小 FakeCarState，解码本帧发往 bus0 的 ACC_02。
+  """
+
+  V = 20.0        # 20 m/s：原厂 idx=400 ≙ 78.4 m；融合 40 m ≙ idx 186
+
+  @staticmethod
+  def _build(car):
+    CI = interfaces[car]
+    CP = CI.get_params(car, _FP_ALL, [], alpha_long=True, is_release=False, docs=False)
+    CP_SP = CI.get_params_sp(CP, car, _FP_ALL, [], alpha_long=True, is_release_sp=False, docs=False)
+    return CI(CP, CP_SP).CC, CP
+
+  @staticmethod
+  def _reset(cc):
+    cc.disp_src_radar = False
+    cc.disp_abstand = None
+    cc.lead_hold_expire = 0
+    cc.lead_hold_distance = 0
+
+  def _step(self, cc, stock_idx, op_drel, frame, v=None):
+    """驱动真实 controller 一帧，返回 (发出的 Abstandsindex, Relevantes_Objekt)。"""
+    v = self.V if v is None else v
+    cs = FakeCarState(v, stock_idx, 1 if stock_idx else 0, op_drel)
+    CC = structs.CarControl()
+    CC.enabled = True
+    CC.longActive = True
+    CC.latActive = False
+    CC.actuators.accel = 0.0
+    CC.cruiseControl.override = False
+    CC.hudControl.setSpeed = 30.0
+    CC.hudControl.leadVisible = op_drel > 0
+    CC.hudControl.leadDistanceBars = 1
+    CC.hudControl.visualAlert = structs.CarControl.HUDControl.VisualAlert.none
+    cc.frame = frame * cc.CCP.ACC_HUD_STEP
+    sends = cc.update(CC.as_reader(), structs.CarControlSP(), cs, frame * 50_000_000)[1]
+    for addr, dat, _bus in sends:
+      if addr == 780:                      # ACC_02
+        d = bytes(dat)
+        return (d[3] | (d[4] << 8)) & 0x3FF, (d[5] >> 6) & 0x3
+    raise AssertionError('Macan/Q5 HUD 帧缺失：ACC_02 未发送（openpilotLongitudinalControl 门控？）')
+
+  def _run(self, cc, sched, tail=0):
+    """按 sched 逐帧驱动，sched 用完后重复末项 tail 帧；返回全部帧的 (ab, rele)。"""
+    out = []
+    for i in range(len(sched) + tail):
+      stock, drel = sched[i] if i < len(sched) else sched[-1]
+      out.append(self._step(cc, stock, drel, i))
+    return out
+
+  def test_macan_display_is_control_lead_not_stock_idx(self):
+    """核心 2.A 断言：原厂 idx 有效且与融合明显不同时，仪表发的是**融合**换算值。"""
+    cc, CP = self._build('PORSCHE_MACAN_MK1')
+    self.assertTrue(CP.openpilotLongitudinalControl)
+    self.assertTrue(cc.macan_disp_fused, 'Macan 必须启用显示=控制源（2.A）')
+    self._reset(cc)
+    exp = CarController.op_lead_to_index(40.0, self.V)          # 186
+    rows = self._run(cc, [(400, 40.0)], tail=9)                 # 原厂 78.4 m / 融合 40 m
+    self.assertEqual(rows[-1][0], exp,
+                     f'仪表应显示融合距离换算 idx={exp}，实际 {rows[-1][0]}（原厂 idx=400 不应透传）')
+    self.assertEqual(rows[-1][1], 1, '有融合 lead 时 Relevantes_Objekt 必须=1')
+
+  def test_macan_no_stock_passthrough_when_control_has_no_lead(self):
+    """原厂有目标、控制侧无 lead → 仪表必须显示"无前车"（0/0），不得透传原厂 idx。
+
+    这是 2.A 要消灭的不一致：旧逻辑在 radar_valid 且融合缺失时 latch 到原厂 idx（实车 8f--4 段
+    14 帧「仪表有车 / 控制无车」）。"""
+    cc, CP = self._build('PORSCHE_MACAN_MK1')
+    self._reset(cc)
+    rows = self._run(cc, [(400, 0.0)], tail=9)
+    self.assertEqual([r for r in rows], [(0, 0)] * len(rows),
+                     f'控制无 lead 时仪表必须恒为 (0,0)，实际 {rows}')
+
+  def test_macan_no_hold_tail(self):
+    """融合 lead 连续存在后消失 → 当帧即清（无 2s hold 尾巴），与 planner 同步丢目标。"""
+    cc, CP = self._build('PORSCHE_MACAN_MK1')
+    self._reset(cc)
+    rows = self._run(cc, [(0, 12.8)] * 5 + [(0, 0.0)], tail=9)
+    self.assertEqual(rows[4][1], 1, '第 5 帧仍应有目标')
+    self.assertEqual(rows[5], (0, 0), f'lead 消失当帧即应清 0，实际 {rows[5]}（旧逻辑有 2s hold）')
+    self.assertEqual(rows[-1], (0, 0), f'之后保持无目标，实际 {rows[-1]}')
+
+  def test_other_mlb_keeps_upstream_display_source(self):
+    """非 Macan 的 MLB 车型（AUDI_Q5_MK1）必须保持上游行为：原厂透传 + 迟滞单向锁不变。"""
+    cc, CP = self._build('AUDI_Q5_MK1')
+    self.assertFalse(getattr(cc, 'macan_disp_fused', True), 'Q5 不得被 Macan 改动波及')
+    self._reset(cc)
+    # 原厂 78.4 m / 融合 78 m：偏离<30% → 保持视觉源（上游默认在视觉源，偏离才切雷达）
+    rows = self._run(cc, [(400, 78.0)], tail=9)
+    self.assertEqual(rows[-1][0], CarController.op_lead_to_index(78.0, self.V))
+    # 中间 1 帧融合缺失 → 上游迟滞立即切回原厂并锁死（2.A 的 Macan 分支已无此行为）
+    rows = self._run(cc, [(400, 78.0)] * 5 + [(400, 0.0)] + [(400, 78.0)] * 12)[5:]
+    self.assertEqual({r[0] for r in rows}, {400},
+                     f'上游行为应锁在原厂 idx=400，实际 {sorted({r[0] for r in rows})}')
+    self.assertTrue(cc.disp_src_radar)
 
 
 class TestMacanPureOPLongStateMachine(unittest.TestCase):
@@ -453,3 +604,7 @@ class TestMacanPureOPLongStateMachine(unittest.TestCase):
     self.assertEqual(st, 2)
     prim = (dat[2] >> 6) & 0x3
     self.assertEqual(prim, 0)
+
+
+if __name__ == '__main__':
+  unittest.main()

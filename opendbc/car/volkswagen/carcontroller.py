@@ -96,10 +96,15 @@ class CarController(CarControllerBase, SnGCarController):
       #                       and not self.macan_fusion_on)
       self.macan_radar_fusion = (CP.carFingerprint == "PORSCHE_MACAN_MK1" and
                                  self._mp.get_bool("MacanRadarFusion"))
+      # 仪表显示源 = 控制源（2.A，2026-10-04 用户拍板，仅 Macan）：
+      # 仪表 ACC_Abstandsindex/Relevantes_Objekt 只跟随 radard 融合 lead（planner 同一对象），
+      # 不再"原厂 idx 有效就透传"+迟滞+2s hold。其他 MLB 车型（Q5 等）恒 False，走上游原行为。
+      self.macan_disp_fused = (CP.carFingerprint == "PORSCHE_MACAN_MK1")
     except Exception:
       self.macan_fusion_on = True
       self.macan_pure_op = False
       self.macan_radar_fusion = False
+      self.macan_disp_fused = False
 
     if CP.flags & VolkswagenFlags.PQ:
       self.CCS = pqcan
@@ -673,37 +678,48 @@ class CarController(CarControllerBase, SnGCarController):
           lead_distance = getattr(CS, 'stock_lead_distance', 0)
         lead_object = getattr(CS, 'stock_lead_object', 0)
         op_drel = getattr(CS, 'op_lead_dRel', 0.0)
-        # 仪表盘车距显示（用户设计意图）：雷达距离有效(>0且非错误值) -> 透传原厂雷达；
-        # 雷达无信号(0或错误值) -> 用视觉换算补位，让仪表显示视觉识别的前车。
-        # 之前"lead_object==0 就走视觉换算"的 bug：原厂雷达有效(316)时也切去视觉(243)，
-        # 导致 OP 代发背离原厂（00000052 seg9、00000051 9退出点）。现改为"雷达有效才透传，
-        # 雷达无效才视觉补位"。
-        # ---- 显示源选择 + 迟滞（2026-08-25）：进视觉补位阈值 30%、退出阈值 20%，
-        # 防两源在边界来回切（0058 实测 28.2% 帧 Abstandsindex 大差异即此抖动）。
-        radar_valid = 0 < lead_distance < 1021
+        # ================= 仪表车距显示源（两条路径，按车型门控）=================
+        # 【Macan / 2.A 显示=控制源】（2026-10-04 用户拍板，carFingerprint 门控）
+        #   诉求：仪表"有没有前车"必须与控制链同源 —— 仪表显示有车 ⇒ 视觉融合确实捕捉到
+        #   障碍物，可再等 OP 动作；仪表无车而前方有车 ⇒ 驾驶员应立即人工介入。
+        #   做法：只用 radard 融合后的 leadOne（= 控制链 planner 用的同一对象，
+        #   card.py 注入的 CS.op_lead_dRel）反算 Abstandsindex/Relevantes_Objekt；
+        #   不再"原厂 idx 有效就透传"，也不再做 30%/20% 迟滞与 2s hold ——
+        #   这两者正是"仪表显示有车、控制侧已丢目标"（8f--4 实测 14 帧）的来源。
+        # 【其他 MLB（Q5 等）/ 上游原行为】：原厂 idx 有效透传；无效时视觉补位；
+        #   30%/20% 迟滞 + 2s hold 防抖动。此分支即上游实现，Macan 改动不影响它们。
+        # =======================================================================
         vis_raw = self.op_lead_to_index(op_drel, CS.out.vEgo) if op_drel > 0 else 0
-        if radar_valid and not self.disp_src_radar:
-          # 视觉源中：仅当视觉也明显偏离才切回雷达（迟滞进入条件）。
-          # 【判据物理化 2026-09-10】比较改在距离域、且与 A2 判据/复核工具同一口径：
-          #   |d_stock - d_vis| / d_stock   （d_stock 由原厂 idx 经 B1 正解得到）
-          # 旧实现比值 = |Δt|/(t-B)，B1 下阈值随距离变严（名义 30% 实为 23~27%）；
-          # 物理化后 rel=|Δt|/t_stock，换表不再漂移（分母也统一用原厂距离，与 A2 一致）。
-          d_stock = self.op_index_to_drel(lead_distance, CS.out.vEgo)
-          if vis_raw == 0 or abs(d_stock - op_drel) > MACAN_DISP_REL_TH * max(d_stock, 1.0):
-            self.disp_src_radar = True
-        elif not radar_valid:
-          self.disp_src_radar = False
-        use_radar = radar_valid and self.disp_src_radar
-        if use_radar:
-          raw_abstand = lead_distance
-        elif op_drel > 0:
+        if self.macan_disp_fused:
           raw_abstand = vis_raw
-        elif now_nanos < self.lead_hold_expire and self.lead_hold_distance > 0:
-          raw_abstand = self.lead_hold_distance   # 保持窗（2s）：两源都无目标
+          use_radar = False
         else:
-          raw_abstand = 0
+          radar_valid = 0 < lead_distance < 1021
+          if radar_valid and not self.disp_src_radar:
+            # 视觉源中：仅当视觉也明显偏离才切回雷达（迟滞进入条件）。
+            # 【判据物理化 2026-09-10】比较改在距离域、且与 A2 判据/复核工具同一口径：
+            #   |d_stock - d_vis| / d_stock   （d_stock 由原厂 idx 经 B1 正解得到）
+            # 旧实现比值 = |Δt|/(t-B)，B1 下阈值随距离变严（名义 30% 实为 23~27%）；
+            # 物理化后 rel=|Δt|/t_stock，换表不再漂移（分母也统一用原厂距离，与 A2 一致）。
+            d_stock = self.op_index_to_drel(lead_distance, CS.out.vEgo)
+            if vis_raw == 0 or abs(d_stock - op_drel) > MACAN_DISP_REL_TH * max(d_stock, 1.0):
+              self.disp_src_radar = True
+          elif not radar_valid:
+            self.disp_src_radar = False
+          use_radar = radar_valid and self.disp_src_radar
+          if use_radar:
+            raw_abstand = lead_distance
+          elif op_drel > 0:
+            raw_abstand = vis_raw
+          elif now_nanos < self.lead_hold_expire and self.lead_hold_distance > 0:
+            raw_abstand = self.lead_hold_distance   # 保持窗（2s）：两源都无目标
+          else:
+            raw_abstand = 0
 
-        if use_radar:
+        if self.macan_disp_fused:
+          # 显示=控制源：有融合 lead 才有目标标志；丢目标当帧即清（无 2s hold 尾巴）
+          lead_object = 1 if raw_abstand > 0 else 0
+        elif use_radar:
           lead_object = max(lead_object, 1)
           self.lead_hold_expire = now_nanos + 2_000_000_000
           self.lead_hold_distance = lead_distance
