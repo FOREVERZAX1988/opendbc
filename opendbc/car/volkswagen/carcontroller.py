@@ -7,6 +7,7 @@ from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.volkswagen import mebcan, mlbcan, mqbcan, pqcan
 from opendbc.car.volkswagen.values import CanBus, CarControllerParams, VolkswagenFlags
 from opendbc.sunnypilot.car.volkswagen.stop_and_go import SnGCarController, StartupGapSyncCarController
+from opendbc.sunnypilot.car.volkswagen import macan_calib as _macan_calib
 
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
 LongCtrlState = structs.CarControl.Actuators.LongControlState
@@ -18,8 +19,11 @@ LongCtrlState = structs.CarControl.Actuators.LongControlState
 # radard.py(A2 融合) / radar_interface.py(A3 雷达点) 不在同一尺度（idx=400: 0902 表 3.128 s
 # vs B1 3.92 s，差 +25%）。现三处同源到 B1 直线，旧表已删（git 历史可回退）。
 # 注意：A2/A3/此处三份常量必须一起改（ai/tools/verify_planB_code_0910.py 有同源断言）。
-MACAN_B1_T_A = 0.008969
-MACAN_B1_T_B = 0.332
+# 【同源收敛 2026-10-09】A2/A3/此处 + SnG 起步门 统一从 macan_calib 单一源取标定。
+# 旧况：SnG 门用 idx*0.0424 线性近似（丢 +0.332 截距）→ idx=188 得 7.97 m，
+# 而此处/融合/仪表同 idx 得 10.09 m，同一距离两个数字 = bug，已修。
+MACAN_B1_T_A = _macan_calib.MACAN_B1_T_A
+MACAN_B1_T_B = _macan_calib.MACAN_B1_T_B
 # 仪表显示源迟滞阈值（物理化）：|d_stock - d_vis| / d_stock（与 A2 判据、复核工具同口径）。
 # 旧实现是 idx 域 30%，而 idx 域比值 = |Δt|/(t-B)，B1 下等效物理 ~25%（t=2 s）；
 # 物理化后为真实 30%（门槛略放宽 3~5pp）。仪表若出现"该切雷达没切"再调此值。
@@ -167,8 +171,7 @@ class CarController(CarControllerBase, SnGCarController):
   @staticmethod
   def op_index_to_drel(idx, vego):
     """原厂 ACC_Abstandsindex -> 距离（B1 正解，与 A2/A3 同源）。低速用等效 t*max(v,5)。"""
-    t = MACAN_B1_T_A * idx + MACAN_B1_T_B
-    return t * (vego if vego > 5.0 else 5.0)
+    return _macan_calib.idx_to_drel(idx, vego)
 
   @staticmethod
   def op_lead_to_index(drel, vego):
@@ -177,8 +180,7 @@ class CarController(CarControllerBase, SnGCarController):
     0910 方案B / B1 直线反解（与 A2 融合、A3 雷达点同源）：t = d/max(v,5)，
     idx = clip((t - B)/A, 1, 1020)。旧实现用 0902 全量标定 v4 的 153 点表
     （idx 27..1021、t 0.81..7.149 s），与 A2/A3 尺度差 25%，已删。"""
-    t = drel / vego if vego > 5.0 else drel / 5.0
-    return int(round(float(np.clip((t - MACAN_B1_T_B) / MACAN_B1_T_A, 1.0, 1020.0))))
+    return int(round(_macan_calib.drel_to_idx(drel, vego)))
 
   def update(self, CC, CC_SP, CS, now_nanos):
     actuators = CC.actuators

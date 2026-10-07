@@ -5,12 +5,12 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
 
-from opendbc.car import DT_CTRL, structs
-from opendbc.car.common.conversions import Conversions as CV
+from opendbc.car import structs
 from opendbc.car.can_definitions import CanData
 from opendbc.car.interfaces import CarStateBase
 
 from opendbc.sunnypilot.car.volkswagen.values_ext import VolkswagenFlagsSP
+from opendbc.sunnypilot.car.volkswagen.macan_calib import idx_to_drel as _idx_to_drel
 
 # OP 判定可起步的加速度阈值（m/s²）。停车保持态时 OP 的 aTarget≈0 或负（前车未动时
 # accel 恒 -0.55），前车起步/绿灯时视觉模型输出正加速度请求（0000004c 全29段实测
@@ -60,7 +60,10 @@ _LEAD_MOVE_MIN_V = 0.28             # m/s ≈ 1 km/h，低于此值视为"前车
 _STOCK_LEAD_NO_TARGET_KPH = 320.0   # ACC_Geschw_Zielfahrzeug=327.36 为无目标满量程
 _IDX_STALE_VEGO = 2.0               # m/s 以下为低速域（实测冻结只发生在 ≤2.19 m/s）
 _IDX_STALE_FRAMES = 50              # 0.5 s @100 Hz：低速域内 idx 静默超此时长即判冻结
-_IDX_TO_M = 0.0424                  # ab→米（实车标定 ab250≈10.6 m；P3 三源同源改造前保持）
+# 【同源收敛 2026-10-09】distance 换算改走 macan_calib（B1 时距表 t*max(v,5)），
+# 与 radard A2 / radar_interface A3 / carcontroller 仪表同源。
+# 旧 _IDX_TO_M=0.0424 是线性近似、丢掉 +0.332 截距：idx=188 给 7.97 m（融合/仪表 10.09 m）
+# —— 门与执行层对同一车距判断不一致，会让“看起来有效”的冻结 idx 蒙混过距离门。
 
 class SnGCarController:
   """Macan (MLB) 起步跟停：
@@ -251,7 +254,7 @@ class SnGCarController:
       self._idx_change_frame = frame
     idx_fresh = (frame - self._idx_change_frame) <= _IDX_STALE_FRAMES
     idx_usable = idx_valid and (idx_fresh or CS.out.vEgo >= _IDX_STALE_VEGO)
-    radar_dist = idx * _IDX_TO_M if idx_usable else 0.0
+    radar_dist = _idx_to_drel(idx, CS.out.vEgo) if idx_usable else 0.0
     # 视觉侧用 modelV2 原始判定（controlsd_ext 传入），不用被融合过的 CS.op_lead_dRel
     vis_dist = self._vis_lead_dist if self._vis_lead_dist is not None else 0.0
     if vis_dist > 0.0 and radar_dist > 0.0:

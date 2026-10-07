@@ -608,3 +608,34 @@ class TestMacanPureOPLongStateMachine(unittest.TestCase):
 
 if __name__ == '__main__':
   unittest.main()
+
+
+class TestMacanRadarCalibSameSource(unittest.TestCase):
+  """2026-10-09 同源收敛回归：idx->距离 在 4 处（radard A2 / radar_interface A3 /
+  carcontroller 仪表 / SnG 起步门）必须给同一个数字。
+
+  修前：SnG 门用 idx*0.0424（丢 +0.332 截距）→ idx=188 得 7.97 m，
+  而融合/仪表/A3 得 10.09 m。同一个车距两个数字 = bug（门与执行层判断不一致）。
+  """
+
+  def test_constants_identical_across_modules(self):
+    from opendbc.sunnypilot.car.volkswagen import macan_calib as mc
+    from opendbc.car.volkswagen import radar_interface as ri
+    self.assertEqual((MACAN_B1_T_A, MACAN_B1_T_B), (mc.MACAN_B1_T_A, mc.MACAN_B1_T_B))
+    self.assertEqual((ri.MACAN_B1_T_A, ri.MACAN_B1_T_B), (mc.MACAN_B1_T_A, mc.MACAN_B1_T_B))
+
+  def test_sng_gate_same_formula_as_carcontroller(self):
+    from opendbc.sunnypilot.car.volkswagen import macan_calib as mc
+    from opendbc.sunnypilot.car.volkswagen.stop_and_go import _idx_to_drel
+    for idx in (1, 77, 188, 250, 400, 700, 1020):
+      for v in (0.0, 2.0, 5.0, 15.0, 30.0):
+        self.assertEqual(_idx_to_drel(idx, v), CarController.op_index_to_drel(idx, v))
+        self.assertEqual(_idx_to_drel(idx, v), mc.idx_to_drel(idx, v))
+
+  def test_frozen_idx_188_same_distance_everywhere(self):
+    from opendbc.sunnypilot.car.volkswagen import macan_calib as mc
+    from opendbc.sunnypilot.car.volkswagen.stop_and_go import _idx_to_drel
+    # 0091 seg9 病灶帧：idx=188 冻结、v~0（等效 max(v,5)=5）→ 三处都必须 10.09 m
+    self.assertAlmostEqual(CarController.op_index_to_drel(188, 0.0), 10.09, places=2)
+    self.assertAlmostEqual(_idx_to_drel(188, 0.0), 10.09, places=2)
+    self.assertAlmostEqual(mc.idx_to_drel(188, 0.0), 10.09, places=2)

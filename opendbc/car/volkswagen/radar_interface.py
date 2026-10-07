@@ -1,9 +1,9 @@
-import numpy as np
 
 from opendbc.can import CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.interfaces import RadarInterfaceBase
 from opendbc.car.volkswagen.values import DBC, VolkswagenFlags, CanBus
+from opendbc.sunnypilot.car.volkswagen import macan_calib as _macan_calib
 
 NO_OBJECT_ID = 0
 LANE_TYPES = ("Same_Lane", "Left_Lane", "Right_Lane")
@@ -25,8 +25,8 @@ SIGNAL_SETS = tuple(
 # （旧 0909 新线性 0.008718/+1.0178：中位差 -7.10 m、仅 17.5% <=5 m、替换率 35.3%）。
 # 注意：openpilot radard.py 的 A2（_macan_t_from_idx / _macan_drel_to_idx）使用同一组
 # 系数，必须同源修改，否则融合两源会落在不同尺度上。详见 ai/docs/MLB_MACAN_PLANB_FIT_0910.md
-MACAN_B1_T_A = 0.008969
-MACAN_B1_T_B = 0.332
+MACAN_B1_T_A = _macan_calib.MACAN_B1_T_A
+MACAN_B1_T_B = _macan_calib.MACAN_B1_T_B
 
 
 class RadarInterface(RadarInterfaceBase):
@@ -97,8 +97,7 @@ class RadarInterface(RadarInterfaceBase):
     # Abstandsindex -> 时距 t -> 距离（0910 方案B / B1 单表直线，无人工分段）
     # 旧 idx<100 锚 0.8 s / idx>560 截顶 6.0 s 已删除：前者在 idx=100 处会造成
     # 0.8 -> 1.89 s 的突跳，且两者都是与 radard A2 反解不一致的阶梯源。
-    t = MACAN_B1_T_A * idx + MACAN_B1_T_B
-    d_rel = t * max(v_ego, 5.0)
+    d_rel = _macan_calib.idx_to_drel(idx, v_ego)
     v_lead = lead_spd / 3.6  # 前车绝对速度 (m/s)
     ret = structs.RadarData()
     point = structs.RadarData.RadarPoint()
