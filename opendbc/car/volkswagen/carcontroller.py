@@ -191,6 +191,8 @@ class CarController(CarControllerBase, SnGCarController):
     # SnG 判定输入用 planner 原始 aTarget（controlsd_ext 经 CC_SP.params 传入）
     # ——LoC 在停车保持态压 accel≤0，CC.actuators.accel 看不到正信号（0000004d 实测）。
     a_target = None
+    vis_lead_dist = None    # SnG 闸门2 视觉源：modelV2 原始前车距离（非融合值）
+    vis_lead_vlead = None   # SnG 闸门1 视觉源：modelV2 原始前车速度（原厂无目标时补位）
     self.slope_pct = 0.0
     self.slope_oem_filtered = 0.0  # 原厂坡度低通滤波（v2 双源）
     for _p in CC_SP.params:
@@ -201,9 +203,19 @@ class CarController(CarControllerBase, SnGCarController):
           a_target = float(_v.decode() if isinstance(_v, bytes) else _v)
         elif _k == "slopePct":
           self.slope_pct = float(_v.decode() if isinstance(_v, bytes) else _v)
+        elif _k == "visLeadDist":
+          vis_lead_dist = float(_v.decode() if isinstance(_v, bytes) else _v)
+        elif _k == "visLeadVLead":
+          vis_lead_vlead = float(_v.decode() if isinstance(_v, bytes) else _v)
       except (ValueError, TypeError, AttributeError):
         if _k == "aTarget":
           a_target = None
+        elif _k == "visLeadDist":
+          vis_lead_dist = None
+        elif _k == "visLeadVLead":
+          vis_lead_vlead = None
+    # 视觉源每帧覆盖（闸门1/2 用原始 modelV2 前车，不用融合值）
+    self.set_vision_lead(vis_lead_dist, vis_lead_vlead)
     sng_resume_ready = self.update_stop_and_go(CC, CS, self.frame, a_target=a_target)
     # loes 窗口延长：RESUME 代发上升沿起保持 0.6s（对齐原厂踩油门起步确认窗口+余量），
     # 车动（standstill→False）不再截断 loes——原厂 ACC 无油门起步完全依赖该信号确认。

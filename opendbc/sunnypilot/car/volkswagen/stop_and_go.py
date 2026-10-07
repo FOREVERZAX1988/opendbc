@@ -40,6 +40,28 @@ _START_STOP_DIST_MIN = 3.0
 _START_STOP_DIST_MAX = 10.0
 _START_STOP_DIST_DEFAULT = 6.0
 
+# ---- SnG 起步闸门（2026-10-07，待办 T4 / 方案 P6①）：三源确认后才代发 RESUME ----
+# 背景：route 00000091 seg9 实测——原厂 idx 冻结在 188（×0.0424=7.97 m，"看起来有效"），
+# 而本车已蠕行靠近前车 2.4 m（视觉 6.09→3.69 m），OP 仍代发 LS_01 RESUME → 误起步
+# （12 ms 后原厂 loes=1 / anh 1→0 放行），随后 st=6 退出纵向。
+# 闸门1：前车必须确实在动——原厂 ACC_04 前车速度（原厂对同一目标有跟踪）优先，
+#        无原厂目标时用视觉 vLead 补位；>1 km/h 且连续 ≥1 s 才算"在动"。
+# 闸门2：判定车距 d_used 必须 > max(3 m, MacanStartStopDistance)，其中
+#        d_used = min(视觉, 新鲜 idx 换算值)。两侧都有值时 min>门 ⟺ 两侧都>门
+#        （用户要求"视觉和 idx 都要过门"）；只有一侧有目标时由该侧单独兜底
+#        （静止车队原厂雷达常无目标 → 靠视觉；视觉漏检 → 靠雷达）。
+#        ⚠️ 低速域（vEgo<2 m/s）内 idx 静默 ≥0.5 s 判为冻结：原厂 v→0 后停止重算该
+#        显示量（实测冻结域 vEgo 上限 2.19 m/s），冻结值不得参与距离门。
+# 说明：原方案②"同一停车周期只允许 1 次 RESUME"按用户 2026-10-07 决定**不做**
+#       （前车临近绿灯先挪一下又停再起步时会让 SnG 失效）；
+#       原方案③"停车过远改蠕行/loes 跟随"待在实车验证 Anhalten=1 时能否纯 accel 蠕行。
+_LEAD_MOVE_CONFIRM_FRAMES = 100     # 100 Hz 控制帧率 → 1.0 s
+_LEAD_MOVE_MIN_V = 0.28             # m/s ≈ 1 km/h，低于此值视为"前车没动"
+_STOCK_LEAD_NO_TARGET_KPH = 320.0   # ACC_Geschw_Zielfahrzeug=327.36 为无目标满量程
+_IDX_STALE_VEGO = 2.0               # m/s 以下为低速域（实测冻结只发生在 ≤2.19 m/s）
+_IDX_STALE_FRAMES = 50              # 0.5 s @100 Hz：低速域内 idx 静默超此时长即判冻结
+_IDX_TO_M = 0.0424                  # ab→米（实车标定 ab250≈10.6 m；P3 三源同源改造前保持）
+
 class SnGCarController:
   """Macan (MLB) 起步跟停：
 
@@ -85,6 +107,11 @@ class SnGCarController:
     self._pulse_frames_left = 0     # 脉冲锁定剩余帧（>0=发送中，无视 aTarget 抖动）
     self._cooldown_frames_left = 0  # 冷却剩余帧（防连续短脉冲成簇）
     self.prev_close_distance = 0.0
+    self._lead_move_frames = 0      # 闸门1：前车"在动"连续帧计数
+    self._idx_prev = -1             # 闸门2：上一帧 idx（冻结检测）
+    self._idx_change_frame = -10**9
+    self._vis_lead_dist = None      # 视觉源：modelV2 原始前车距离（米，雷达/保险杠口径）
+    self._vis_lead_vlead = 0.0      # 视觉源：modelV2 原始前车速度（m/s）
 
   @staticmethod
   def _read_distance_m(params) -> float:
@@ -101,6 +128,16 @@ class SnGCarController:
     if not (_START_STOP_DIST_MIN <= v <= _START_STOP_DIST_MAX):
       return _START_STOP_DIST_DEFAULT
     return float(v)
+
+  def set_vision_lead(self, dist_m: float | None, vlead: float | None) -> None:
+    """喂入本帧的**原始视觉**前车（modelV2 leadsV3[0]，controlsd_ext → CC_SP.params
+    → carcontroller 每帧调用）。无目标/模型未捕捉时传 None。
+
+    必须用原始视觉而不是 CS.op_lead_dRel：后者是 radard 融合值，原厂 idx 冻结时会被
+    钉成常数（00000091 seg9 钉在 10.09 m），拿它当距离门等于门失效。每帧覆盖，不会残留。
+    """
+    self._vis_lead_dist = dist_m if (dist_m is not None and dist_m > 0.0) else None
+    self._vis_lead_vlead = vlead if vlead is not None else 0.0
 
   def update_stop_and_go(self, CC: structs.CarControl, CS: CarStateBase, frame: int,
                             a_target: float | None = None) -> bool:
@@ -121,6 +158,7 @@ class SnGCarController:
     if not CC.enabled:
       self._pulse_frames_left = 0
       self._cooldown_frames_left = 0
+      self._lead_move_frames = 0
       return False
 
     # 驾驶员干预时绝不代发（踩油门/刹车归驾驶员控制）
@@ -129,6 +167,7 @@ class SnGCarController:
       self.confirm_frames = 0
       self._pulse_frames_left = 0
       self._cooldown_frames_left = 0
+      self._lead_move_frames = 0
       return False
 
     # ---- RESUME 脉冲锁定（方案A 2026-08-31）：触发后无视 aTarget 抖动，发满一个
@@ -186,14 +225,40 @@ class SnGCarController:
     # 00000053 seg7 实测 OP 未代发 RESUME 仍 st=6（主因是 ACC_02 Prim_Anz 不一致），
     # 与起步距离条件无关——故改为可调车距（用户2026-08-22需求；2026-10-07 取消 Off、默认 6 米）。
     # 阈值 = 用户设定值（3~10），并以 3 m 作绝对下限兜底（防参数读到无效值）。
-    # 注：d_used 语义的 min(视觉, 新鲜雷达) 收紧待 SnG 闸门专项处理时一并做（见待办）。
+    # ---- 闸门1（2026-10-07 新增）：前车必须确实在动（>1 km/h 连续 ≥1 s）----
+    # 原厂 ACC_04 前车速度优先；原厂无目标（ACC_Relevantes_Objekt≠1 或速度=满量程
+    # 327.36）时改用视觉 vLead。前车静止（红绿灯跟停/事故场景）一律不代发。
+    stock_v = getattr(CS, 'stock_lead_speed_kph', _STOCK_LEAD_NO_TARGET_KPH)
+    stock_tracking = (getattr(CS, 'stock_lead_object', 0) == 1 and stock_v < _STOCK_LEAD_NO_TARGET_KPH)
+    vis_vlead = self._vis_lead_vlead
+    lead_v = (stock_v / 3.6) if stock_tracking else vis_vlead
+    if lead_v > _LEAD_MOVE_MIN_V:
+      self._lead_move_frames += 1
+    else:
+      self._lead_move_frames = 0
+    if self._lead_move_frames < _LEAD_MOVE_CONFIRM_FRAMES:
+      self.resume_frames_sent = 0
+      self.confirm_frames = 0
+      return False
+
+    # ---- 闸门2：判定车距 > max(3 m, 设定起步安全距离) ----
     dist_gate = max(_START_STOP_DIST_MIN, self._distance_m)
-    radar_dist = getattr(CS, 'stock_lead_distance', 0)  # 原厂 ACC_Abstandsindex（0-1021 索引）
-    vis_dist = getattr(CS, 'op_lead_dRel', 0.0)         # 视觉前车距离（米）
-    # ab→米换算：实车标定 ab250≈10.6m → 0.0424 m/ab（00000004/0052 路试配对数据）
-    radar_ok = radar_dist * 0.0424 > dist_gate
-    vis_ok = vis_dist > dist_gate
-    if not (radar_ok or vis_ok):
+    idx = int(getattr(CS, 'stock_lead_distance', 0))    # 原厂 ACC_Abstandsindex（0-1021）
+    idx_valid = 0 < idx < 1021
+    # idx 新鲜度：低速域内静默 ≥0.5 s = 原厂 v→0 后停止重算 → 不得参与距离门
+    if idx != self._idx_prev:
+      self._idx_prev = idx
+      self._idx_change_frame = frame
+    idx_fresh = (frame - self._idx_change_frame) <= _IDX_STALE_FRAMES
+    idx_usable = idx_valid and (idx_fresh or CS.out.vEgo >= _IDX_STALE_VEGO)
+    radar_dist = idx * _IDX_TO_M if idx_usable else 0.0
+    # 视觉侧用 modelV2 原始判定（controlsd_ext 传入），不用被融合过的 CS.op_lead_dRel
+    vis_dist = self._vis_lead_dist if self._vis_lead_dist is not None else 0.0
+    if vis_dist > 0.0 and radar_dist > 0.0:
+      d_used = min(vis_dist, radar_dist)   # 两侧都有值 → 都必须过门
+    else:
+      d_used = vis_dist if vis_dist > 0.0 else radar_dist  # 单侧兜底
+    if d_used <= dist_gate:
       self.resume_frames_sent = 0
       self.confirm_frames = 0
       return False
