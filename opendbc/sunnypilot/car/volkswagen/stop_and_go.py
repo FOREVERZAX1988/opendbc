@@ -33,6 +33,13 @@ _RESUME_VEGO_RESET = 0.5
 _RESUME_PULSE_FRAMES = 8        # 脉冲总长度：80ms @100Hz 控制帧率（用户指定 80ms 窗口，信号更干净）
 _RESUME_COOLDOWN_FRAMES = 300   # 冷却：3s 内不重发（人不会 3 秒内按两次 RESUME）
 
+# 起步安全距离（MacanStartStopDistance，单位米）：有效范围 3~10，默认 6。
+# 2026-10-07 取消 Off(0) 语义——"Off=无距离条件"在 idx 冻结场景下没有保护作用；
+# 现在任何无效/越界读数一律回退默认 6 米，且门本身再取 3 米作绝对下限兜底。
+_START_STOP_DIST_MIN = 3.0
+_START_STOP_DIST_MAX = 10.0
+_START_STOP_DIST_DEFAULT = 6.0
+
 class SnGCarController:
   """Macan (MLB) 起步跟停：
 
@@ -57,17 +64,17 @@ class SnGCarController:
     # 无需重启 car 进程即生效（0000004f 实测根因：CP_SP.flags 开机后固定，
     # 中途开开关 enabled 仍 False，SnG 永不触发）。
     self.enabled = self._platform_ok and CP.openpilotLongitudinalControl and bool(CP_SP.flags & VolkswagenFlagsSP.STOP_AND_GO)
-    # 起步安全距离（MacanStartStopDistance，INT 米；0=Off/V1纯意图起步，3~10=需前车距离>阈值）：
-    # 开（>0）时：需 原厂雷达距离(ab) 或 视觉前车距离 换算后 > 阈值才起步（防误起步）。
-    # 关（0）：V1 纯意图起步（仅 aTarget>0.15+5帧确认）——拥堵防加塞。仅 SnG 开启时生效。
-    self._distance_m = 5  # 默认 5 米（与历史 v2 视觉>5m 行为一致）
+    # 起步安全距离（MacanStartStopDistance，INT 米；范围 3~10，默认 6，已无 Off）：
+    # 需 原厂雷达距离(ab) 或 视觉前车距离 换算后 > 阈值才起步（防误起步）。
+    # 读数无效/越界（含历史遗留的 0=Off）一律回退默认 6 米。仅 SnG 开启时生效。
+    self._distance_m = _START_STOP_DIST_DEFAULT
     self._mp = None
     try:
       from openpilot.common.params import Params
       self._mp = Params()
       # 门控补强(2026-09-07)：仅 OP 纵向开启时才启用（纯原厂ACC下OP不介入原厂起步）
       self.enabled = self._platform_ok and CP.openpilotLongitudinalControl and self._mp.get_bool("MacanStartStop")
-      self._distance_m = int(self._mp.get("MacanStartStopDistance") or 5)
+      self._distance_m = self._read_distance_m(self._mp)
     except Exception:
       pass  # opendbc 测试环境无 openpilot 包：保持 flags 判断
 
@@ -79,6 +86,22 @@ class SnGCarController:
     self._cooldown_frames_left = 0  # 冷却剩余帧（防连续短脉冲成簇）
     self.prev_close_distance = 0.0
 
+  @staticmethod
+  def _read_distance_m(params) -> float:
+    """读取起步安全距离（米）。有效域 3~10；缺失/<=0/越界 → 回退默认 6 米。
+
+    取消 Off 后不再有"0=无距离条件"分支：历史遗留的 0（或非法值）会走默认值，
+    保证门始终存在（另有 _START_STOP_DIST_MIN=3 m 作绝对下限兜底）。
+    """
+    try:
+      raw = params.get("MacanStartStopDistance")
+      v = int(raw) if raw not in (None, b"", "") else 0
+    except Exception:
+      v = 0
+    if not (_START_STOP_DIST_MIN <= v <= _START_STOP_DIST_MAX):
+      return _START_STOP_DIST_DEFAULT
+    return float(v)
+
   def update_stop_and_go(self, CC: structs.CarControl, CS: CarStateBase, frame: int,
                             a_target: float | None = None) -> bool:
     """返回 True 表示本帧应代发 RESUME 按键帧。"""
@@ -88,7 +111,7 @@ class SnGCarController:
       self._last_refresh_frame = frame
       try:
         self.enabled = self._platform_ok and self._mp.get_bool("MacanStartStop")
-        self._distance_m = int(self._mp.get("MacanStartStopDistance") or 5)
+        self._distance_m = self._read_distance_m(self._mp)
       except Exception:
         pass
 
@@ -157,21 +180,23 @@ class SnGCarController:
       return False
 
     # 起步目标确认（MacanStartStopDistance 可调车距，米）：
-    # - 0=Off：V1 纯意图起步（仅 aTarget>0.15+5帧确认，无距离条件）——拥堵防加塞
-    # - 3~10米：需 原厂雷达距离(ab) 或 视觉前车距离 换算后 > 阈值才起步——防误起步
+    # - 3~10米（默认6）：需 原厂雷达距离(ab) 或 视觉前车距离 换算后 > 阈值才起步——防误起步
+    # - Off(0) 语义已取消：无效读数回退默认 6 米（见 _read_distance_m）
     # 大前提（挡位/无油门刹车/st==3）仍须满足。说明：v3"必须雷达ab>0"曾收紧此条件，但
     # 00000053 seg7 实测 OP 未代发 RESUME 仍 st=6（主因是 ACC_02 Prim_Anz 不一致），
-    # 与起步距离条件无关——故改为可调车距（用户2026-08-22需求：tizi 0/3-10米、mici 3/5/10）。
-    if self._distance_m > 0:
-      radar_dist = getattr(CS, 'stock_lead_distance', 0)  # 原厂 ACC_Abstandsindex（0-1021 索引）
-      vis_dist = getattr(CS, 'op_lead_dRel', 0.0)          # 视觉前车距离（米）
-      # ab→米换算：实车标定 ab250≈10.6m → 0.0424 m/ab（00000004/0052 路试配对数据）
-      radar_ok = radar_dist * 0.0424 > self._distance_m
-      vis_ok = vis_dist > self._distance_m
-      if not (radar_ok or vis_ok):
-        self.resume_frames_sent = 0
-        self.confirm_frames = 0
-        return False
+    # 与起步距离条件无关——故改为可调车距（用户2026-08-22需求；2026-10-07 取消 Off、默认 6 米）。
+    # 阈值 = 用户设定值（3~10），并以 3 m 作绝对下限兜底（防参数读到无效值）。
+    # 注：d_used 语义的 min(视觉, 新鲜雷达) 收紧待 SnG 闸门专项处理时一并做（见待办）。
+    dist_gate = max(_START_STOP_DIST_MIN, self._distance_m)
+    radar_dist = getattr(CS, 'stock_lead_distance', 0)  # 原厂 ACC_Abstandsindex（0-1021 索引）
+    vis_dist = getattr(CS, 'op_lead_dRel', 0.0)         # 视觉前车距离（米）
+    # ab→米换算：实车标定 ab250≈10.6m → 0.0424 m/ab（00000004/0052 路试配对数据）
+    radar_ok = radar_dist * 0.0424 > dist_gate
+    vis_ok = vis_dist > dist_gate
+    if not (radar_ok or vis_ok):
+      self.resume_frames_sent = 0
+      self.confirm_frames = 0
+      return False
 
     # OP 判定可起步：优先用 planner 原始 aTarget（经 CC_SP.params 传入）而非
     # CC.actuators.accel——LoC 在停车保持态（原厂 cruise_standstill=True）
