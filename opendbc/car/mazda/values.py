@@ -60,7 +60,7 @@ class CarControllerParams:
   # Retry one unanswered body-latched release, then return control to the plan.
   RESUME_REPULSE_T = 1.0  # s after a latched release, GEAR.BRAKE_HOLD still set
 
-  CANCEL_CONTEXT_T = 0.5      # retain wheel-cancel context until PEDALS responds
+  MAIN_OFF_DEBOUNCE_T = 0.1   # both PEDALS cruise bits low this long is a main-off; no transient dropout in 4026 segments
 
   # Debounce movement requests before releasing a standstill hold.
   RELEASE_DEBOUNCE_T = 0.2

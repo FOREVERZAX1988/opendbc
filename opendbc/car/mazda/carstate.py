@@ -11,7 +11,7 @@ ButtonType = structs.CarState.ButtonEvent.Type
 FSC_SETTLE_FRAMES = int(CarControllerParams.FSC_SETTLE_T / DT_CTRL)
 STOCK_RADAR_ALIVE_FRAMES = int(CarControllerParams.STOCK_RADAR_ALIVE_T / DT_CTRL)
 STOCK_RADAR_GUARD_FRAMES = round(CarControllerParams.STOCK_RADAR_GUARD_T / DT_CTRL)
-CANCEL_CONTEXT_FRAMES = int(CarControllerParams.CANCEL_CONTEXT_T / DT_CTRL)
+MAIN_OFF_DEBOUNCE_SAMPLES = round(CarControllerParams.MAIN_OFF_DEBOUNCE_T * 100)  # PEDALS is 100 Hz
 CAM_LANEINFO_FRESH_FRAMES = int(CarControllerParams.CAM_LANEINFO_FRESH_T / DT_CTRL)
 LKAS_REARM_FRAMES = round(CarControllerParams.LKAS_REARM_T / DT_CTRL)
 LKAS_REARM_FAULT_FRAMES = round(CarControllerParams.LKAS_REARM_FAULT_T / DT_CTRL)
@@ -85,10 +85,9 @@ class CarState(CarStateBase, CarStateExt):
     self.cruise_available = False
     self.cruise_enabled = False
     self.cruise_enabled_blocked = True
-    self.brake_pressed_prev = False
     self.stock_radar_silent_frames = 0
     self.radar_was_silenced = False
-    self.cancel_context_frames = 0
+    self.main_off_samples = 0
     self.cam_laneinfo_seen = False
     self.cam_laneinfo_silent_frames = 0
     self.cam_empty_seen = False
@@ -244,22 +243,23 @@ class CarState(CarStateBase, CarStateExt):
                    ped["PED_WARNING"] == 1 or ped["BRAKE_WARNING"] == 1
 
     if self.CP.openpilotLongitudinalControl:
-      # After radar teardown, derive cruise state from PEDALS. Hold the previous state through
-      # brake-only samples where both cruise bits are transiently low.
+      # After radar teardown, derive cruise state from PEDALS. Main follows arming and falls once
+      # both bits have been low for MAIN_OFF_DEBOUNCE_T of PEDALS samples, counted per sample so
+      # the panda's acc_main_on falls on the same one. Brake or no brake: every both-low run
+      # under braking in the corpus was a real main-off, by CAN_OFF, either main-button encoding,
+      # or no visible button at all.
       acc_armed = cp.vl["PEDALS"]["ACC_OFF"] == 1
       acc_active = cp.vl["PEDALS"]["ACC_ACTIVE"] == 1
-      brake_free = not ret.brakePressed and not self.brake_pressed_prev
-      # Retain wheel-cancel context until PEDALS reflects the main-state change.
-      if cp.vl["CRZ_BTNS"]["CAN_OFF"] == 1:
-        self.cancel_context_frames = CANCEL_CONTEXT_FRAMES
-      elif self.cancel_context_frames > 0:
-        self.cancel_context_frames -= 1
-      if acc_armed or acc_active:
-        self.cruise_available = True
-      elif brake_free or self.cancel_context_frames > 0:
-        self.cruise_available = False
-      if acc_armed or acc_active or self.cruise_enabled or brake_free:
-        self.cruise_enabled = acc_active
+      pedals = cp.vl_all["PEDALS"]
+      for off, active in zip(pedals["ACC_OFF"], pedals["ACC_ACTIVE"], strict=True):
+        if off or active:
+          self.cruise_available = True
+          self.main_off_samples = 0
+        else:
+          self.main_off_samples = min(self.main_off_samples + 1, MAIN_OFF_DEBOUNCE_SAMPLES)
+          if self.main_off_samples >= MAIN_OFF_DEBOUNCE_SAMPLES:
+            self.cruise_available = False
+      self.cruise_enabled = acc_active
 
       # Block engagement until stock radar ownership is clear. Radar traffic after a completed
       # teardown is a fault and triggers the alpha-long recovery path.
@@ -296,7 +296,6 @@ class CarState(CarStateBase, CarStateExt):
       # CRZ_AVAILABLE represents adaptive-cruise availability, not the main switch.
       ret.cruiseState.available = cp.vl["CRZ_CTRL"]["CRZ_AVAILABLE"] == 1
       ret.cruiseState.enabled = cp.vl["CRZ_CTRL"]["CRZ_ACTIVE"] == 1
-    self.brake_pressed_prev = ret.brakePressed
     # PEDALS.STANDSTILL means wheels stopped, not ACC hold. Reporting it under openpilot
     # longitudinal would prevent LongControl from leaving its stopping state.
     ret.cruiseState.standstill = cp.vl["PEDALS"]["STANDSTILL"] == 1 and not self.CP.openpilotLongitudinalControl
