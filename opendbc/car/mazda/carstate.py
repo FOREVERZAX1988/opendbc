@@ -399,6 +399,8 @@ class CarState(CarStateBase, CarStateExt):
     cam_messages = [
       # Read these optional camera messages without making them part of canValid.
       ("CAM_LANEINFO", float("nan")),
+      ("CAM_SETTINGS", float("nan")),
+      ("CAM_LKAS", float("nan")),
       ("CAM_TRAFFIC_SIGNS", float("nan")),
       ("CAM_EMPTY", float("nan")),
       ("CAM_PEDESTRIAN", float("nan")),
