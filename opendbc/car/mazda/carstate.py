@@ -86,6 +86,9 @@ class CarState(CarStateBase, CarStateExt):
     self.cruise_enabled = False
     self.cruise_enabled_blocked = True
     self.stock_radar_silent_frames = 0
+    self.stock_radar_seen = False
+    self.main_can_silent_frames = {name: fresh for name, (_, fresh) in MAIN_CAN_WITNESSES.items()}
+    self.radar_bus_healthy = False
     self.radar_was_silenced = False
     self.main_off_samples = 0
     self.cam_laneinfo_seen = False
@@ -102,7 +105,7 @@ class CarState(CarStateBase, CarStateExt):
 
   @property
   def stock_radar_alive(self) -> bool:
-    return self.stock_radar_silent_frames < STOCK_RADAR_ALIVE_FRAMES
+    return self.stock_radar_seen and self.stock_radar_silent_frames < STOCK_RADAR_ALIVE_FRAMES
 
   @property
   def stock_radar_gone(self) -> bool:
@@ -263,10 +266,20 @@ class CarState(CarStateBase, CarStateExt):
 
       # Block engagement until stock radar ownership is clear. Radar traffic after a completed
       # teardown is a fault and triggers the alpha-long recovery path.
+      self.radar_bus_healthy = True
+      for name, (signal, fresh) in MAIN_CAN_WITNESSES.items():
+        silent = 0 if len(cp.vl_all[name][signal]) > 0 else min(self.main_can_silent_frames[name] + 1, fresh)
+        self.main_can_silent_frames[name] = silent
+        self.radar_bus_healthy &= silent < fresh
       if len(cp.vl_all["CRZ_INFO"]["CTR"]) > 0:
+        self.stock_radar_seen = True
         self.stock_radar_silent_frames = 0
-      else:
+      elif self.radar_bus_healthy:
         self.stock_radar_silent_frames += 1
+      else:
+        # A missing vehicle bus is not proof of a silenced radar. Restart the observation
+        # guard on recovery instead of adopting an outage accumulated while disconnected.
+        self.stock_radar_silent_frames = STOCK_RADAR_ALIVE_FRAMES
 
       # Accept positive session responses and NRC 0x78, which means response pending.
       resp = cp.vl_all["RADAR_UDS_RESPONSE"]
