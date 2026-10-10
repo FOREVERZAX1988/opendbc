@@ -41,6 +41,29 @@ def parse_acc05(d):
   return dict(st=st, anh=anh, mom=mom, verz=verz, fm=fm, fv=fv, loes=loes, axg=axg)
 
 
+def parse_ls01(d):
+  """解析 LS_01 物理巡航拨杆报文（vw_mlb.dbc BO_ 267，4 字节，@1+ 大端位序）。"""
+  return dict(
+    checksum=d[0],                          # CHECKSUM 0|8
+    counter=d[1] & 0xF,                     # COUNTER 8|4
+    hauptschalter=(d[1] >> 4) & 0x1,        # LS_Hauptschalter 12|1（ACC 主开关）
+    abbrechen=(d[1] >> 5) & 0x1,            # LS_Abbrechen 13|1（CANCEL）
+    typ_hauptschalter=(d[1] >> 6) & 0x1,    # LS_Typ_Hauptschalter 14|1
+    limiter=(d[1] >> 7) & 0x1,              # LS_Limiter 15|1
+    setzen=d[2] & 0x1,                      # LS_Tip_Setzen 16|1
+    hoch=(d[2] >> 1) & 0x1,                 # LS_Tip_Hoch 17|1
+    runter=(d[2] >> 2) & 0x1,               # LS_Tip_Runter 18|1
+    wiederaufnahme=(d[2] >> 3) & 0x1,       # LS_Tip_Wiederaufnahme 19|1（RESUME）
+    zeitluecke=(d[2] >> 4) & 0x3,           # LS_Verstellung_Zeitluecke 20|2（1=拉近 / 2=拉远）
+    codierung=(d[3] >> 2) & 0x7,            # LS_Codierung 26|3
+    stufe_2=(d[3] >> 5) & 0x1,              # LS_Tip_Stufe_2 29|1
+  )
+
+
+# LS_01 按键位（"无按键帧"断言用；透传状态位、COUNTER/CHECKSUM 不算按键）
+LS01_BUTTON_KEYS = ('abbrechen', 'setzen', 'hoch', 'runter', 'wiederaufnahme', 'zeitluecke')
+
+
 def make_acc(**kw):
   """调用 mlbcan.create_acc_accel_control，返回 ACC_05 解析后的信号字典"""
   defaults = dict(acc_type=0, acc_enabled=True, accel=0.0, acc_control=2,
@@ -69,7 +92,7 @@ def run_frames(n, **kw):
 class FakeCarState:
   """仪表显示源用例的最小 CarState（未显式定义的字段走 0.0 兜底）。"""
 
-  def __init__(self, v_ego, stock_idx, stock_obj, op_drel, op_vlead=0.0, op_vrel=0.0):
+  def __init__(self, v_ego, stock_idx, stock_obj, op_drel, op_vlead=0.0, op_vrel=0.0, gra=None):
     self.out = structs.CarState()
     self.out.vEgo = v_ego
     self.out.vEgoRaw = v_ego
@@ -99,10 +122,12 @@ class FakeCarState:
     self.curvature_meas = 0.0
     self.travel_assist_available = False
     self.esp_hold_confirmation = False
-    self.gra_stock_values = {'COUNTER': 0, 'LS_Hauptschalter': 1, 'LS_Typ_Hauptschalter': 0,
-                             'LS_Codierung': 1, 'LS_Tip_Stufe_2': 0, 'LS_Abbrechen': 0,
-                             'LS_Tip_Wiederaufnahme': 0, 'LS_Tip_Setzen': 0, 'LS_Tip_Hoch': 0,
-                             'LS_Tip_Runter': 0, 'LS_Verstellung_Zeitluecke': 0}
+    # gra=bus1 物理拨杆 LS_01 原始信号（按键链用例注入）；默认无按键帧
+    self.gra_stock_values = gra if gra is not None else {
+      'COUNTER': 0, 'LS_Hauptschalter': 1, 'LS_Typ_Hauptschalter': 0,
+      'LS_Codierung': 1, 'LS_Tip_Stufe_2': 0, 'LS_Abbrechen': 0,
+      'LS_Tip_Wiederaufnahme': 0, 'LS_Tip_Setzen': 0, 'LS_Tip_Hoch': 0,
+      'LS_Tip_Runter': 0, 'LS_Verstellung_Zeitluecke': 0}
     self.klr_stock_values = {}
     self.ldw_stock_values = {}
     self.eps_stock_values = {}
@@ -606,10 +631,6 @@ class TestMacanPureOPLongStateMachine(unittest.TestCase):
     self.assertEqual(prim, 0)
 
 
-if __name__ == '__main__':
-  unittest.main()
-
-
 class TestMacanRadarCalibSameSource(unittest.TestCase):
   """2026-10-09 同源收敛回归：idx->距离 在 4 处（radard A2 / radar_interface A3 /
   carcontroller 仪表 / SnG 起步门）必须给同一个数字。
@@ -639,3 +660,121 @@ class TestMacanRadarCalibSameSource(unittest.TestCase):
     self.assertAlmostEqual(CarController.op_index_to_drel(188, 0.0), 10.09, places=2)
     self.assertAlmostEqual(_idx_to_drel(188, 0.0), 10.09, places=2)
     self.assertAlmostEqual(mc.idx_to_drel(188, 0.0), 10.09, places=2)
+
+
+class TestMacanLS01ForwardBus1ToBus2(unittest.TestCase):
+  """按键链回归：bus1 物理拨杆 LS_01 → bus2 原厂 ACC 雷达（融合模式，
+  `create_acc_buttons_control` + COUNTER 门控）。
+
+  为什么必须有这一层用例：
+  - OP 纵向时 relay 断开，bus0->bus2 不再硬件转发，OP 是 bus2 LS_01 的**唯一来源**
+    （safety 侧 MSG_LS_01 bus2 `check_relay=true`，见 MLB_MACAN_FOLLOWUP_0914B.md）。
+    漏转发 = 原厂雷达收不到拨杆按键（SET/RESUME/±/DIST/CANCEL 全部失效）。
+  - 双源混叠（原厂硬件转发 + OP 代发）会引发 st=6，所以"按 COUNTER 变化去重"是按键链的
+    **核心机制**，不是可选优化。
+  - 此前只有 mlbcan 信号级用例（`create_acc_buttons_control` 本身），没有覆盖
+    carcontroller 是否真的把帧发到 **bus2**、门控是否生效。
+
+  驱动真实 CarController（`interfaces[fingerprint]` 建 CP/CP_SP），无车、确定性。
+  """
+
+  @staticmethod
+  def _build(car='PORSCHE_MACAN_MK1'):
+    CI = interfaces[car]
+    CP = CI.get_params(car, _FP_ALL, [], alpha_long=True, is_release=False, docs=False)
+    CP_SP = CI.get_params_sp(CP, car, _FP_ALL, [], alpha_long=True, is_release_sp=False, docs=False)
+    return CI(CP, CP_SP).CC, CP
+
+  @staticmethod
+  def _gra(counter, **kw):
+    """bus1 物理拨杆 LS_01 原始信号（默认无按键、主开关=开）。"""
+    v = dict(COUNTER=counter, LS_Hauptschalter=1, LS_Typ_Hauptschalter=0, LS_Codierung=1,
+             LS_Tip_Stufe_2=0, LS_Abbrechen=0, LS_Tip_Wiederaufnahme=0, LS_Tip_Setzen=0,
+             LS_Tip_Hoch=0, LS_Tip_Runter=0, LS_Verstellung_Zeitluecke=0)
+    v.update(kw)
+    return v
+
+  def _ls01(self, cc, frame, gra, v=20.0):
+    """驱动真实 controller 一帧，返回本帧全部 LS_01 帧 [(bus, raw_bytes), ...]。"""
+    cs = FakeCarState(v, 0, 0, 0.0, gra=gra)
+    CC = structs.CarControl()
+    CC.enabled = True
+    CC.longActive = True
+    CC.latActive = False
+    CC.cruiseControl.override = False
+    CC.hudControl.setSpeed = 30.0
+    sends = cc.update(CC.as_reader(), structs.CarControlSP(), cs, frame * 50_000_000)[1]
+    return [(bus, bytes(dat)) for addr, dat, bus in sends if addr == 267]
+
+  def test_forward_to_bus2_gated_by_counter(self):
+    """核心断言：bus1 拨杆帧按 COUNTER 变化转发到 bus2；COUNTER 不变则去重不发。"""
+    cc, CP = self._build()
+    self.assertTrue(CP.openpilotLongitudinalControl, 'Macan 用例必须走 OP 纵向')
+    self.assertFalse(cc.macan_pure_op, '当前锁定融合模式：bus2 必须转发物理拨杆按键')
+
+    # 帧0：bus1 COUNTER=0 ≠ 上次(None) → 必须转发一帧到 bus2，且只发 bus2
+    sends = self._ls01(cc, 0, self._gra(0))
+    self.assertEqual(len(sends), 1, f'COUNTER 变化应转发 1 帧 LS_01，实际 {len(sends)}')
+    bus, raw = sends[0]
+    self.assertEqual(bus, cc.CAN.ext, f'LS_01 必须发到 bus2(CAN.ext={cc.CAN.ext})，实际 bus={bus}')
+    p = parse_ls01(raw)
+    self.assertEqual(p['counter'], 1, 'OP 重发时 COUNTER = 原厂+1（OP 是 bus2 唯一源）')
+    self.assertEqual(p['hauptschalter'], 1, 'ACC 主开关必须保持原厂值=1')
+    for k in LS01_BUTTON_KEYS:
+      self.assertEqual(p[k], 0, f'无按键帧不得带按键位 {k}={p[k]}')
+
+    # 帧1：bus1 COUNTER 未变 → 门控去重，不得重复发（防双源/重复按键 → st=6）
+    self.assertEqual(self._ls01(cc, 1, self._gra(0)), [],
+                     'COUNTER 未变化时必须去重不发（否则按键重复触发 / 双源混叠）')
+
+    # 帧2：COUNTER=1 变化 → 再转发一帧
+    sends = self._ls01(cc, 2, self._gra(1))
+    self.assertEqual(len(sends), 1, 'COUNTER 再次变化应恢复转发')
+    self.assertEqual(parse_ls01(sends[0][1])['counter'], 2)
+
+    # 帧3：COUNTER 回绕 15→0 也要被识别为"变化"（%16 域）
+    self._ls01(cc, 3, self._gra(15))
+    sends = self._ls01(cc, 4, self._gra(0))
+    self.assertEqual(len(sends), 1, 'COUNTER 15→0 回绕仍是变化，必须转发')
+
+  def test_physical_buttons_forwarded_to_bus2(self):
+    """物理拨杆各按键必须按位透传到 bus2（原厂 ACC 侧行为等价）。"""
+    cases = [
+      ('SET / +（原厂 SET 同时置 SET+Up）', dict(LS_Tip_Setzen=1), dict(setzen=1, hoch=1)),
+      ('RESUME', dict(LS_Tip_Wiederaufnahme=1), dict(wiederaufnahme=1)),
+      ('-（减速）', dict(LS_Tip_Runter=1), dict(runter=1)),
+      ('CANCEL', dict(LS_Abbrechen=1), dict(abbrechen=1)),
+      ('DIST 拉远(+)', dict(LS_Verstellung_Zeitluecke=2), dict(zeitluecke=2)),
+      ('DIST 拉近(-)', dict(LS_Verstellung_Zeitluecke=1), dict(zeitluecke=1)),
+    ]
+    for name, gra_kw, expect in cases:
+      cc, _ = self._build()                     # 每例新建 controller，隔离 COUNTER 状态
+      sends = self._ls01(cc, 0, self._gra(0, **gra_kw))
+      self.assertEqual(len(sends), 1, f'{name}：按键帧未转发到 bus2')
+      p = parse_ls01(sends[0][1])
+      for k, want in expect.items():
+        self.assertEqual(p[k], want, f'{name}：LS_01.{k} 应为 {want}，实际 {p[k]}')
+      # 未涉及的按键位必须保持 0（不得误置位其它按键）
+      for k in LS01_BUTTON_KEYS:
+        if k not in expect:
+          self.assertEqual(p[k], 0, f'{name}：不得误置 LS_01.{k}={p[k]}')
+
+  def test_pure_op_standby_clears_buttons(self):
+    """纯OP(bus2 只发待命帧)：主开关=1、按键全清、每帧保活——**不得**把物理按键复制到
+    bus2，否则会把已停用的原厂雷达重新激活（该路径当前被 MacanFusionMode 锁定，此用例
+    是保留路径的行为守卫）。"""
+    cc, _ = self._build()
+    cc.macan_pure_op = True
+    sends = self._ls01(cc, 0, self._gra(0, LS_Tip_Setzen=1, LS_Abbrechen=1))
+    self.assertEqual(len(sends), 1, '纯OP 每帧应保活待命帧')
+    self.assertEqual(sends[0][0], cc.CAN.ext)
+    p = parse_ls01(sends[0][1])
+    self.assertEqual(p['hauptschalter'], 1, '待命帧必须 LS_Hauptschalter=1（雷达待命）')
+    for k in LS01_BUTTON_KEYS:
+      self.assertEqual(p[k], 0, f'纯OP 待命帧不得带按键位 {k}={p[k]}（否则雷达被激活）')
+    # COUNTER 不变也必须继续保活（与融合模式的去重语义相反）
+    self.assertEqual(len(self._ls01(cc, 1, self._gra(0))), 1, '纯OP 待命帧需每帧保活')
+
+
+if __name__ == '__main__':
+  unittest.main()
