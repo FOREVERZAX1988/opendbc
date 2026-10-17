@@ -9,7 +9,7 @@ from opendbc.car import structs, DT_CTRL
 from opendbc.car.can_definitions import CanData
 from opendbc.car.mazda import mazdacan
 from opendbc.car.mazda.values import Buttons
-from opendbc.sunnypilot.car.icbm_actuation_profile import get_actuation_profile
+from opendbc.sunnypilot.car.icbm_actuation_profile import get_actuation_profile, tap_equivalent
 from opendbc.sunnypilot.car.intelligent_cruise_button_management_interface_base import IntelligentCruiseButtonManagementInterfaceBase
 
 ButtonType = structs.CarState.ButtonEvent.Type
@@ -18,10 +18,7 @@ SendButtonState = structs.IntelligentCruiseButtonManagement.SendButtonState
 BUTTONS = {
   SendButtonState.increase: Buttons.SET_PLUS,
   SendButtonState.decrease: Buttons.SET_MINUS,
-  SendButtonState.increaseHold: Buttons.SET_PLUS,
-  SendButtonState.decreaseHold: Buttons.SET_MINUS,
 }
-HOLD_BUTTONS = (SendButtonState.increaseHold, SendButtonState.decreaseHold)
 
 # The body ECU registers at most ~1 discrete press per 200 ms and drops presses sent faster.
 # Hold frames go out at CRZ_BTNS's native 10 Hz, which is what a real held button looks like
@@ -49,10 +46,10 @@ class IntelligentCruiseButtonManagementInterface(IntelligentCruiseButtonManageme
       return can_sends
 
     if self.ICBM.sendButton != SendButtonState.none:
-      send_button = BUTTONS[self.ICBM.sendButton]
+      send_button = BUTTONS[tap_equivalent(self.ICBM.sendButton)]
       since_last_send = (self.frame - self.last_button_frame) * DT_CTRL
 
-      if self.ICBM.sendButton in HOLD_BUTTONS:
+      if CC_SP.zoompilot.icbmHold:
         # sustained hold: one frame per native 10 Hz slot, so the fixed +1 offset stays unique
         if since_last_send > HOLD_PERIOD:
           can_sends.append(mazdacan.create_button_cmd(packer, self.CP, CS.crz_btns_counter + 1, send_button))

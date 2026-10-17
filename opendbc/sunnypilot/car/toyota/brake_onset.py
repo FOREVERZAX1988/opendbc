@@ -21,11 +21,11 @@ ONSET_T_BP = [0.0, 0.15, 0.6]  # s
 # 80 km/h, which stays as it was. The planner's light-onset margin (long_mpc) supplies the extra distance.
 # Driver 2026-10-05, same drive: "at 40-50 km/h the build from light to firm is still not smooth, a bit abrupt" -> the
 # jerk the onset ramps UP TO is also scheduled: 2.0 m/s^3 up to 60 km/h (was the stock 4.0 from 0.9 s on), stock at 80.
-ONSET_V_BP = [16.7, 22.2]  # m/s (60, 80 km/h)
-ONSET_T1_V = [0.3, 0.1]
-ONSET_T3_V = [0.9, 0.4]
-ONSET_J1_V = [0.3, 1.0]  # m/s^3 during the first phase
-ONSET_J3_V = [2.0, 4.0]  # m/s^3 the ramp ends at (the shaper never exceeds the stock limit)
+ONSET_V_BP = [2.8, 6.9, 16.7, 22.2]  # m/s (10, 25, 60, 80 km/h)
+ONSET_T1_V = [0.3, 0.3, 0.3, 0.1]
+ONSET_T3_V = [0.9, 1.2, 1.2, 0.4]
+ONSET_J1_V = [0.3, 0.3, 0.3, 1.0]  # m/s^3 during the first phase
+ONSET_J3_V = [2.0, 1.5, 1.5, 4.0]  # m/s^3 the ramp ends at (the shaper never exceeds the stock limit)
 ONSET_J_DOWN = [1.0, 1.0, 4.0]  # m/s^3 (reference shape; the first two entries follow ONSET_J1_V)
 # Engaging ACC (SET-) while creeping up to a lead (driver 2026-10-04: "the car used to brake hard the moment I press
 # SET-; the first ~0.2 s must be a light touch, then blend into the decel the speed needs"). Route 000000ee 11:48:07:
@@ -50,6 +50,13 @@ URGENT_T_RAMP = 0.1  # s
 # braking: below CREEP_GAS_V the positive part of the command is now taken away at the stock rate; the soft onset
 # starts from zero, where the braking starts.
 CREEP_GAS_V = 8.0 / 3.6  # m/s
+# Above CREEP_GAS_V the gas is taken away at GAS_RELEASE_J (owner 2026-10-12, route 0000013a 00:01:44: engaged at
+# 27 km/h while accelerating, a stopped car seen at 43.5 m at 30 km/h; controlsd went +0.85 -> -1.0 in 1.0 s but the
+# soft onset ran from the first down step, so the command stayed positive for 0.9 s (+0.85 -> +0.07) and the car kept
+# accelerating: stopped 1.1 m behind the car). Replay with this shaper: gas released at 2.0 m/s^3 -> zero after 0.50 s
+# instead of 0.92, stop ~3.3 m behind (4.0 m/s^3: 0.35 s, ~5.3 m). Owner chose 2.0. The soft brake onset still starts
+# from zero, where the braking starts, so the brake side is unchanged.
+GAS_RELEASE_J = 2.0  # m/s^3
 
 
 # Friction entry (hybrid). Owner 2026-10-09: "no heavy-press jolt at the start of a brake - this is what I most want
@@ -134,9 +141,11 @@ class BrakeOnsetShaper:
 
   def _down_step(self, accel_request: float, prev_accel: float, v_ego: float, urgent: bool,
                  t_engaged: float | None) -> float:
-    if prev_accel > 0.0 and v_ego < CREEP_GAS_V and accel_request < prev_accel:
+    if prev_accel > 0.0 and accel_request < prev_accel:
+      # taking away gas is not braking: release it, then start the soft onset from zero
       self.t_onset = 0.0
-      return -min(self.stock_down_jerk * self.dt, prev_accel - max(accel_request, 0.0))
+      j_gas = self.stock_down_jerk if v_ego < CREEP_GAS_V else min(GAS_RELEASE_J, self.stock_down_jerk)
+      return -min(j_gas * self.dt, prev_accel - max(accel_request, 0.0))
 
     if urgent:
       t_bp, j_bp = [0.0, URGENT_T, URGENT_T + max(URGENT_T_RAMP, self.dt)], [URGENT_J, URGENT_J, self.stock_down_jerk]
@@ -258,17 +267,43 @@ OVERSHOOT_MOD_KEEP = 0.75
 # The moderate band works as a slow trim, not a fast limiter: a replay of 17:38:36-38 with the hard band's logic
 # (predicted aEgo, 3.0 / 2.0 m/s^3) pulsed the command by 0.2-0.3 m/s^2 for 0.2 s at a time on the noisy aEgo (-1.2 ..
 # -1.8 at a steady request), and the stock PID was already lifting the command (-1.6 asked, ~-1.1 sent). So the band
-# uses the overshoot of the measured aEgo, low-passed over OVERSHOOT_MOD_TAU, and moves at OVERSHOOT_MOD_RATE.
-# Relaxed personality only (owner 2026-10-08). A process_replay of 14 Aggressive-mode segments (routes fe/100/101/104/
-# 107/109) found the band acting mostly in CLOSE following: 0000109 23:19:44, lead 16 m away and still braking, request
-# -1.99/-1.75 at 26-21 km/h, the car delivered -2.73/-2.27 and the band lifted the command by up to 0.35 - taking away a
+# low-passes the overshoot over OVERSHOOT_MOD_TAU and moves at OVERSHOOT_MOD_RATE. What it reads is the PREDICTED
+# decel (a_ego_future), the same quantity the PID error and the hard band use - see the 0000074a note below for why
+# the current aEgo cannot work here.
+# Gate (owner 2026-10-08 Relaxed only, widened to standard 2026-10-12). A process_replay of 14 Aggressive segments
+# (routes fe/100/101/104/107/109) found the band acting mostly in CLOSE following: 0000109 23:19:44, lead 16 m away and
+# still braking, request -1.99/-1.75 at 26-21 km/h, the car delivered -2.73/-2.27 and the band lifted the command by up to
+# 0.35 - taking away a
 # margin the close gap needs (open loop, no planner reaction: +6 m travelled). Tonight's Relaxed drives (routes
 # 00000112-00000116) never triggered it. Owner: "keep D in Relaxed". The carcontroller passes
 # hud_control.leadDistanceBars == 3 (controlsd: personality + 1; relaxed = 2 -> 3 bars).
 # OFF since 2026-10-08 (owner: "so D never acted in Relaxed last night? then switch it off and try"): routes
-# 00000112-00000116 never triggered it, and in Aggressive close following it removes margin. Kept in the code; set True
-# to bring it back (Relaxed only).
-OVERSHOOT_MOD_ENABLED = False
+# 00000112-00000116 never triggered it, and in Aggressive close following it removes margin. Kept in the code.
+# ON since 2026-10-12, route 0000074a (Prius TSS2, standard personality, 9 segments): the "firm" decel the driver
+# reports in that band is the car holding MORE decel than the request (delivered peak -2.74 .. -2.79 against a
+# -2.26 .. -2.48 request) and nothing taking it back - the hard band above never opened, because nothing on the route
+# reached its -2.5 gate. Replayed through the logged inputs at the 33 Hz command rate:
+#  - The excess is there, on the PREDICTED decel (a_ego_future, the quantity the PID error and the hard band already
+#    act on): the car runs 0.55 .. 1.05 m/s^2 past the request for 0.5 .. 2.2 s at each braking event over 12 km/h.
+#    Peak overshoot of the delivered decel over the request, summed over the 8 events where the trim acts: 3.01 ->
+#    2.42 m/s^2 (seg 19: 0.54 -> 0.35, seg 9: 0.48 -> 0.36, seg 15: 0.41 -> 0.32). Where the trim's peak and the
+#    overshoot peak fall at different moments (seg 2, 13) it does little: a 0.10 .. 0.35 m/s^2 lift, not a ceiling.
+#  - What the band READS matters more than any of its numbers: reading the *current* aEgo leaves it nearly dead,
+#    because the PID has already driven that onto the request (delivered minus the pre-PID request in firm braking at
+#    30 mph and below: -0.02 .. -0.10 m/s^2, so it lifted > 0.05 on only 4 of 9 segments and moved the peak command on
+#    1). Hence a_ego_future, and the a_ego argument is gone from the limiter.
+#  - It cannot step the brake: the lift moves at OVERSHOOT_MOD_RATE (0.5 m/s^3), so the command's own down-rate only
+#    ever gets GENTLER (seg 9 -3.44 -> -2.94 m/s^3; worst change over all events -0.43, never steeper), and
+#    OVERSHOOT_MOD_KEEP caps the removal at 25% of the command (checked frame by frame: |cmd| never fell below 75%).
+#  - OVERSHOOT_MOD_TAU = 0.5 s is at the right point, not a leftover: sweeping it over the route, 0.5 -> 0.08 s buys
+#    only 0.59 -> 0.70 m/s^2 of overshoot removed and reintroduces command pulses (lift above 0.15 gone within 0.5 s:
+#    0 at 0.5 s, 2 at 0.3 s, 7 at 0.08 s) - the 17:38 replay above still holds, it is the fast rate that pulses.
+#  - The settled decel is not touched: in steady firm braking the measured aEgo is on the request, so this trims the
+#    BUILD of the brake, not its level. The level is whatever the planner's own cost trade-off asks for: long_mpc
+#    weighs the distance error against (a - a_prev) and jerk inside ACCEL_MIN, and it carries no cost on |a_ego|
+#    itself (A_EGO_COST = 0), so nothing here can change it and the request runs to what the gap demands.
+# Now allowed at standard as well as relaxed (leadDistanceBars >= 2); aggressive keeps full margin.
+OVERSHOOT_MOD_ENABLED = True
 OVERSHOOT_MOD_TAU = 0.5  # s
 OVERSHOOT_MOD_RATE = 0.5  # m/s^3
 
@@ -279,24 +314,25 @@ class BrakeOvershootLimiter:
     self.moderate = moderate  # also the moderate band (OVERSHOOT_MOD_*)
     self.lift = 0.0
     self.in_moderate = False
+    self.mod_lift = False
     self.mod_excess = 0.0
 
   def reset(self) -> None:
     self.lift = 0.0
     self.in_moderate = False
+    self.mod_lift = False
     self.mod_excess = 0.0
 
   def update(self, accel_request: float, a_ego_future: float, active: bool = True, v_ego: float = 0.0,
-             a_ego: float | None = None, moderate_allowed: bool = True) -> float:
+             moderate_allowed: bool = True) -> float:
     """returns the lift (>= 0, m/s^2) to add to the command"""
     target = 0.0
     hard = accel_request < OVERSHOOT_ACTIVE_ACCEL
     self.in_moderate = (self.moderate and moderate_allowed and not hard and accel_request < OVERSHOOT_MOD_ACCEL and
                         v_ego > OVERSHOOT_MOD_V)
     if self.in_moderate:
-      measured = a_ego_future if a_ego is None else a_ego
       alpha = self.dt / (OVERSHOOT_MOD_TAU + self.dt)
-      self.mod_excess += alpha * ((accel_request - measured) - self.mod_excess)
+      self.mod_excess += alpha * ((accel_request - a_ego_future) - self.mod_excess)
     else:
       self.mod_excess = 0.0
     if active and hard:
@@ -304,17 +340,20 @@ class BrakeOvershootLimiter:
       target = float(np.clip(OVERSHOOT_GAIN * excess, 0.0, OVERSHOOT_MAX))
     elif active and self.in_moderate:
       target = float(np.clip(OVERSHOOT_GAIN * (self.mod_excess - OVERSHOOT_MOD_DEADBAND), 0.0, OVERSHOOT_MAX))
-    if self.in_moderate and not hard:
+    self.mod_lift = (self.in_moderate or self.mod_lift) and not hard
+    if self.mod_lift:
       step = OVERSHOOT_MOD_RATE * self.dt
       self.lift = float(np.clip(target, self.lift - step, self.lift + step))
     else:
       self.lift = float(np.clip(target, self.lift - OVERSHOOT_RATE_DOWN * self.dt, self.lift + OVERSHOOT_RATE_UP * self.dt))
+    if self.lift <= 0.0:
+      self.mod_lift = False
     return self.lift
 
   def apply(self, accel_cmd: float) -> float:
     if self.lift <= 0.0:
       return accel_cmd
-    ceiling = OVERSHOOT_MOD_KEEP * accel_cmd if self.in_moderate else OVERSHOOT_CMD_CEIL
+    ceiling = OVERSHOOT_MOD_KEEP * accel_cmd if self.in_moderate or self.mod_lift else OVERSHOOT_CMD_CEIL
     return min(accel_cmd + self.lift, max(accel_cmd, ceiling))
 
 
@@ -344,6 +383,16 @@ HANDOVER_RATE = 1.0  # m/s^3
 # -1.46, delivered -1.72), so the extra fades out between these requests (full at -1.0 and lighter, none at -1.5).
 HANDOVER_REQ_BP = [-1.5, -1.0]  # m/s^2
 HANDOVER_REQ_W = [0.0, 1.0]
+# Owner 2026-10-10 (route 0000011c 00:19:10, Aggressive stop 1.6 m behind the lead): "the end of the stop slides too
+# much, the last two metres feel too light". With the PID held below PID_HOLD_V nothing makes up the under-delivery
+# below the hand-over band; asked / delivered by band (m/s^2), three stops of 11c (00:18:07 / 00:19:10 / 00:20:58):
+#   8-7 km/h -0.75/-0.62  -0.89/-0.58  -0.77/-0.54     6-5 km/h -0.63/-0.45  -0.75/-0.50  -0.66/-0.49
+#   5-4 km/h -0.60/-0.40  -0.67/-0.28  -0.64/-0.35     4-3 km/h -0.58/-0.62  -0.62/-0.45  -0.61/-0.57
+#   3-2 km/h on target or above. Brake force 650-850 N at 6-4 km/h, below what beats the hybrid creep torque.
+# So a second, low-speed feed-forward: LOW_EXTRA at LOW_EXTRA_V_BP (0.25 at 5-6.5 km/h, gone by 3 km/h, led by about
+# 0.5 km/h for the ~0.3 s actuator lag), added to the hand-over extra, same request gate and rate.
+LOW_EXTRA_V_BP = [3.0 / 3.6, 4.0 / 3.6, 5.0 / 3.6, 6.5 / 3.6, 8.5 / 3.6]  # m/s
+LOW_EXTRA = [0.0, 0.15, 0.25, 0.25, 0.0]  # m/s^2
 PID_HOLD_V = 9.0 / 3.6  # m/s
 PID_BLEED_NEG = 0.5  # m/s^2 per s: a braking integral fades this fast
 PID_BLEED_POS = 2.0  # m/s^2 per s: a gas integral (left from the launch) fades this fast
@@ -362,6 +411,7 @@ class BrakeHandoverFeedforward:
     if active and accel_request < HANDOVER_MIN_REQUEST:
       w = float(np.interp(v_ego, HANDOVER_V_BP, HANDOVER_V_W)) * float(np.interp(accel_request, HANDOVER_REQ_BP, HANDOVER_REQ_W))
       target = w * min(HANDOVER_EXTRA_MAX, HANDOVER_EXTRA_FRAC * -accel_request)
+      target += float(np.interp(v_ego, LOW_EXTRA_V_BP, LOW_EXTRA)) * float(np.interp(accel_request, HANDOVER_REQ_BP, HANDOVER_REQ_W))
     step = HANDOVER_RATE * self.dt
     self.extra = float(np.clip(target, self.extra - step, self.extra + step))
     return self.extra
@@ -391,10 +441,10 @@ class BrakeCommandCorrections:
     self.handover.reset()
 
   def apply(self, accel_cmd: float, accel_request: float, a_ego_future: float, v_ego: float, stopping: bool, fcw: bool,
-            a_ego: float | None = None, relaxed: bool = True) -> float:
-    # take back braking the car delivers beyond a hard request (never under FCW); the moderate band only in Relaxed
-    self.overshoot.update(accel_request, a_ego_future, active=not stopping and not fcw, v_ego=v_ego, a_ego=a_ego,
-                          moderate_allowed=relaxed)
+            moderate_allowed: bool = True) -> float:
+    # take back braking the car delivers beyond a hard request (never under FCW); the moderate band when allowed
+    self.overshoot.update(accel_request, a_ego_future, active=not stopping and not fcw, v_ego=v_ego,
+                          moderate_allowed=moderate_allowed)
     accel_cmd = self.overshoot.apply(accel_cmd)
     # feed-forward the braking the car does not deliver in the low-speed regen hand-over
     self.handover.update(accel_request, v_ego, active=not fcw)
