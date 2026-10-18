@@ -572,16 +572,13 @@ class CarState(CarStateBase):
     ret.steeringPressed = abs(ret.steeringTorque) > self.CCP.STEER_DRIVER_ALLOWANCE
 
     hca_status = self.CCP.hca_status_values.get(pt_cp.vl["LH_EPS_03"]["EPS_HCA_Status"])
-    ret.steerFaultTemporary, ret.steerFaultPermanent = self.update_hca_state(hca_status, mlb=bool(self.CP.flags & VolkswagenFlags.MLB))
+    ret.steerFaultTemporary, ret.steerFaultPermanent = self.update_hca_state(hca_status)
 
-  def update_hca_state(self, hca_status, in_drive=True, mlb=False):
+  def update_hca_state(self, hca_status, in_drive=True):
     # Treat FAULT as temporary for worst likely EPS recovery time, for cars without factory Lane Assist
     # DISABLED means the EPS hasn't been configured to support Lane Assist
     self.eps_init_complete = self.eps_init_complete or (hca_status in ("DISABLED", "READY", "ACTIVE") or self.frame > 600)
-    # MLB(MLB flag, 如 Porsche Macan): EPS 待机/未收到我们的 HCA_01 时常态回 DISABLED(0)，
-    # 只有 initializing/ready/active 才是能力证明; 把 DISABLED 当永久故障会自锁(LKAS Fault 死循环)。
-    # MQB/PQ/MEB 保持上游语义: DISABLED = EPS 未配置 Lane Assist -> 永久故障。
-    perm_fault = (in_drive and hca_status == "DISABLED" and not mlb) or (self.eps_init_complete and hca_status == "FAULT")
+    perm_fault = in_drive and hca_status == "DISABLED" or (self.eps_init_complete and hca_status == "FAULT")
     temp_fault = in_drive and hca_status in ("REJECTED", "PREEMPTED") or not self.eps_init_complete
     return temp_fault, perm_fault
 
