@@ -405,6 +405,7 @@ class CarState(CarStateBase, EsccCarStateBase, MadsCarState, CarStateExt):
 
     return ret, ret_sp
 
+  @staticmethod
   def _vehicle_speed_camera_distance_time(raw_value):
     return min(200, max(10, raw_value)) / 10.0
 
