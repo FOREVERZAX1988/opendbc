@@ -234,7 +234,6 @@ struct CarState {
   # is monotonic and must not be replaced by the later publication timestamp.
   radarInput @71 :RadarInput;
 
-
   # cruise state
   cruiseState @10 :CruiseState;
 
@@ -456,6 +455,13 @@ struct CarControl {
     leftLaneDepart @9: Bool;
     leadDistanceBars @10: Int8;  # 1-3: 1 is closest, 3 is farthest. some ports may utilize 2-4 bars instead
 
+  # Carrot navigation state, for brand controllers that surface it on the cluster.
+  # activeCarrot mirrors carrotManSP.activeCarrot (3 = decelerating for a speed camera
+  # or other hazard, 1/2 = advisory); atcDistance is the distance to the turn the ATC
+  # advisory refers to. Read-only presentation values - they never command anything,
+  # which is why they live in HUDControl rather than in Actuators.
+  activeCarrot @11: Int32;
+  atcDistance @12: Float32;
 
 
     # not used with the dash, TODO: separate structs for dash UI and device UI
