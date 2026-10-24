@@ -269,6 +269,15 @@ struct CarState {
   # blindspot sensors
   leftBlindspot @33 :Bool;  # Is there something blocking the left lane change
   rightBlindspot @34 :Bool; # Is there something blocking the right lane change
+  # Source-aware blindspot split (cp c6566c65a): the merged left/rightBlindspot
+  # above is the OR of these two sources. cp's CarState fills @75-94 with its
+  # own fields, so its @95-99 ordinals cannot be copied here — capnp forbids
+  # ordinal holes, and this fork's CarState ends at @74. Append instead.
+  leftBlindspotOem @75 :Bool;  # vehicle BSD-only left source before ONNX merge
+  rightBlindspotOem @76 :Bool; # vehicle BSD-only right source before ONNX merge
+  leftBlindspotOnnx @77 :Bool; # ONNX BSD-only left source
+  rightBlindspotOnnx @78 :Bool; # ONNX BSD-only right source
+  blindspotSplitSourcesValid @79 :Bool; # split blindspot source fields are valid and should be trusted
 
   fuelGauge @41 :Float32; # battery or fuel tank level from [0.0, 1.0]
   charging @43 :Bool;
