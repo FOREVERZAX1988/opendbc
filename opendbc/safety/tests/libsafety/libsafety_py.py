@@ -46,7 +46,10 @@ def cdef_from_file(path: Path) -> str:
   source = re.sub(r"__attribute__\(\(.*\)\)", "", source)
 
   # Keep integer constants, type declarations, and function signatures, including definitions.
-  constants = re.findall(r"^#define \w+ \d+[UuLl]*[ \t]*$", source, re.MULTILINE)
+  # Leading whitespace is allowed so defines inside #ifdef blocks (can.h's STM32F4/CANFD split)
+  # are captured; the last definition wins, which for can.h is the non-F4 (CANFD) branch —
+  # matching how safety.c is compiled for the test harness.
+  constants = re.findall(r"^[ \t]*#define \w+ \d+[UuLl]*[ \t]*$", source, re.MULTILINE)
   types = re.findall(r"^(?:typedef|struct|enum)\b(?:[^;{]|\{[^}]*\})+;", source, re.MULTILINE)
   functions = re.findall(r"^((?!typedef\b)\w[\w *]*\b\w+\([^;{}]*\))\s*[;{]", source, re.MULTILINE)
   return "\n".join([*constants, *types, *(f"{signature};" for signature in dict.fromkeys(functions))])
