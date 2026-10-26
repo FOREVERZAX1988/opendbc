@@ -181,6 +181,10 @@ class BydAtto3GeneralSafetyBase(common.CarSafetyTest, common.AngleSteeringSafety
   FLAGS = BYD_FLAG_ATTO3_GENERAL
 
   def setUp(self):
+    # common.SafetyTestBase.setUp re-applies the hooks from these; set them to
+    # match what this Base configures so the super() call is a no-op repeat.
+    self.SAFETY_MODEL = CarParams.SafetyModel.byd
+    self.SAFETY_PARAM = self.FLAGS
     self.packer = CANPackerSafety("byd_general")
     self.safety = libsafety_py.libsafety
     self.safety.set_safety_hooks(CarParams.SafetyModel.byd, self.FLAGS)
@@ -242,6 +246,10 @@ class TestBydAngleGenericSafety(common.CarSafetyTest, common.AngleSteeringSafety
   FLAGS = BYD_FLAG_ANGLE_MODE
 
   def setUp(self):
+    # common.SafetyTestBase.setUp re-applies the hooks from these; set them to
+    # match what this class configures so the super() call is a no-op repeat.
+    self.SAFETY_MODEL = CarParams.SafetyModel.byd
+    self.SAFETY_PARAM = self.FLAGS
     self.packer = CANPackerSafety("byd_generic_pt")
     self.safety = libsafety_py.libsafety
     self.safety.set_safety_hooks(CarParams.SafetyModel.byd, self.FLAGS)
