@@ -22,7 +22,11 @@ def _build_libsafety(release: bool = False) -> str:
     '-g', '-O0', '-fno-omit-frame-pointer',
   ]
   # Coverage must exclude the branches inserted by UBSan.
-  if os.environ.get("SAFETY_COVERAGE") == "1":
+  # SAFETY_NO_SANITIZERS=1 builds without either runtime, for hosts whose
+  # toolchain ships no ubsan/profile runtime (e.g. AGNOS on the comma three).
+  if os.environ.get("SAFETY_NO_SANITIZERS") == "1":
+    ldflags = []
+  elif os.environ.get("SAFETY_COVERAGE") == "1":
     ldflags = ['-fprofile-arcs', '-ftest-coverage'] if not release else []
   else:
     ldflags = ['-fsanitize=undefined', '-fno-sanitize-recover=undefined']
