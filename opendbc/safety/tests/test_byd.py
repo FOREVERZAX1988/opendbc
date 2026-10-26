@@ -70,13 +70,19 @@ class BydSafetyBase(common.CarSafetyTest, common.MotorTorqueSteeringSafetyTest):
   FLAGS = 0
 
   def setUp(self):
+    # common.SafetyTestBase.setUp re-applies the hooks from these; set them to
+    # match what this Base configures so the super() call is a no-op repeat.
+    # super().setUp() re-initializes the safety state, so the CruiseActivated
+    # precondition has to be fed after it, not before.
+    self.SAFETY_MODEL = CarParams.SafetyModel.byd
+    self.SAFETY_PARAM = self.FLAGS
     self.packer = CANPackerSafety("byd_han_dmev_2020")
     self.safety = libsafety_py.libsafety
     self.safety.set_safety_hooks(CarParams.SafetyModel.byd, self.FLAGS)
     self.safety.init_tests()
+    super().setUp()
     # BYD requires CruiseActivated from ACC_EPS_STATE before LKAS_Active counts as a steer request
     self._rx(self._acc_eps_state_msg(cruise_activated=True))
-    super().setUp()
 
   def _acc_eps_state_msg(self, cruise_activated=False, torque=0):
     values = {"CruiseActivated": int(cruise_activated), "MainTorque": torque}
