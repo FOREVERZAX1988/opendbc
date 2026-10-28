@@ -277,7 +277,7 @@ class CarState(CarStateBase, MadsCarState, CarStateExt):
     ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(gear_raw, None))
     ret.genericToggle = bool(cp.vl["CID_QMUUVA"]["sig_pjswju"])
 
-    if self.CP.enableBsm:
+    if self.CP.deprecated.enableBsm:
       bsm_cp = cp_cam if self.bsd_on_camerabus else cp
       ret.leftBlindspot = bool(bsm_cp.vl["CID_WMSVRZ"]["sig_ebwnrw"])
       ret.rightBlindspot = bool(bsm_cp.vl["CID_WMSVRZ"]["sig_rxlfvj"])
@@ -433,7 +433,7 @@ class CarState(CarStateBase, MadsCarState, CarStateExt):
     ]
     cam_messages = [("CID_XQYNBW", 50), ("CID_RJDCMR", 50), ("CID_HGZKCQ", 50)]
 
-    if CP.enableBsm:
+    if CP.deprecated.enableBsm:
       if params.get_bool("BydBsdType2"):
         cam_messages.append(("CID_WMSVRZ", 20))
       else:

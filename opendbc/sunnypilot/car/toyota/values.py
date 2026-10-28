@@ -19,6 +19,11 @@ class ToyotaFlagsSP(IntFlag):
   SP_AUTO_BRAKE_HOLD = 128
   SP_BRAKE_ONSET = 256
   TSS2_LONG_TUNING = 512
+  TSS2_SMOOTH = 1024  # NOTE: upstream shipped 32, which aliases SP_ENHANCED_BSM; moved to the next free bit
+
+
+# kiBP, kiV for the PCM accel PID with TSS2_SMOOTH
+TSS2_SMOOTH_KI = ([0., 3., 5., 10., 25., 36.], [0.46, 0.46, 0.31, 0.22, 0.20, 0.19])
 
 
 class ToyotaSafetyFlagsSP:

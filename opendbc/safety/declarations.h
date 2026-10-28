@@ -60,7 +60,8 @@
 #define UPDATE_VEHICLE_SPEED(val_ms) (update_sample(&vehicle_speed, ROUND((val_ms) * VEHICLE_SPEED_FACTOR)))
 #define UPDATE_VEHICLE_SPEED_2(val_ms) (update_sample(&vehicle_speed_2, ROUND((val_ms) * VEHICLE_SPEED_FACTOR)))
 
-uint32_t GET_BYTES(const CANPacket_t *msg, int start, int len);
+uint32_t GET_BYTES_LE(const CANPacket_t *msg, int start, int len);
+uint64_t GET_BYTES_64_LE(const CANPacket_t *msg, int start, int len);
 
 extern const int MAX_WRONG_COUNTERS;
 #define MAX_ADDR_CHECK_MSGS 3U
@@ -256,7 +257,7 @@ bool longitudinal_interceptor_checks(const CANPacket_t *msg);  // gas intercepto
 void pcm_cruise_check(bool cruise_engaged);
 void speed_mismatch_check(const float speed_2);
 
-void safety_tick(const safety_config *safety_config);
+void safety_tick(void);
 
 // This can be set by the safety hooks
 extern bool controls_allowed;

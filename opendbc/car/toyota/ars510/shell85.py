@@ -92,7 +92,7 @@ class ShellCell:
         return (self.rate_code - CURVE_RATE_ZERO) * CURVE_RATE_PER_M2 if self.parameters_present else None
 
 
-def prefix_flags_consistent(prefix_or_record: bytes, cells: list["ShellCell"]) -> bool:
+def prefix_flags_consistent(prefix_or_record: bytes, cells: list[ShellCell]) -> bool:
     """True when prefix bytes 17-19 hold the inverted parameters-present flag of cells 0-5 (about 99.96 % of records)."""
     return all(((prefix_or_record[by] >> bi) & 1) == (0 if cells[k].parameters_present else 1)
                for k, bits in PREFIX_UNPOPULATED_COPIES.items() for by, bi in bits)

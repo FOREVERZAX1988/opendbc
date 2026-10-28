@@ -16,6 +16,12 @@ def byd_checksum(byte_key, dat):
   return (((high_nibble + (-low_overflow + 5)) << 4) + low_nibble) & 0xFF
 
 
+def byd_packer_checksum(address, sig, dat):
+  """Packer callback (address, sig, dat) for DBCs that declare the checksum
+  signal: BYD folds a fixed 0xAF key, matching BYD_CHECKSUM_KEY in safety."""
+  return byd_checksum(0xAF, dat)
+
+
 def _copy_values(src, keys):
   return {key: src[key] for key in keys}
 

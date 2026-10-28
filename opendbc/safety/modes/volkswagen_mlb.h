@@ -3,19 +3,27 @@
 #include "opendbc/safety/declarations.h"
 #include "opendbc/safety/modes/volkswagen_common.h"
 
-
 static safety_config volkswagen_mlb_init(uint16_t param) {
   // Transmit of LS_01 is allowed on bus 0 and 2 to keep compatibility with gateway and camera integration
-  static const CanMsg VOLKSWAGEN_MLB_STOCK_TX_MSGS[] = {{MSG_HCA_01, 0, 8, .check_relay = true}, {MSG_LDW_02, 0, 8, .check_relay = true},
-                                                        {MSG_LS_01, 0, 4, .check_relay = false}, {MSG_LS_01, 2, 4, .check_relay = false}};
+  static const CanMsg VOLKSWAGEN_MLB_STOCK_TX_MSGS[] = {
+    {MSG_HCA_01, 0, 8, .check_relay = true},
+    {MSG_LDW_02, 0, 8, .check_relay = true},
+    {MSG_LS_01, 0, 4, .check_relay = false},
+    {MSG_LS_01, 2, 4, .check_relay = false},
+  };
 
   // OP 纵向模式：代发 ACC_02/ACC_05/ACC_04（Macan 纵向适配，sp-longtest-0807 成果）
-  static const CanMsg VOLKSWAGEN_MLB_LONG_TX_MSGS[] = {{MSG_HCA_01, 0, 8, .check_relay = true}, {MSG_LDW_02, 0, 8, .check_relay = true},
-                                                       {MSG_ACC_02, 0, 8, .check_relay = true}, {MSG_ACC_05, 0, 8, .check_relay = true},
-                                                       {MSG_ACC_04, 0, 8, .check_relay = true},
-                                                       // LS_01 按键帧：OP 从 bus1 物理拨杆复制转发到 bus2（relay 断开后 bus0->bus2 不转发，
-                                                       // OP 为 bus2 LS_01 唯一来源，消除双源冲突 st=6，2026-09-13 macan-long-0913）
-                                                       {MSG_LS_01, 0, 4, .check_relay = false}, {MSG_LS_01, 2, 4, .check_relay = true}};
+  static const CanMsg VOLKSWAGEN_MLB_LONG_TX_MSGS[] = {
+    {MSG_HCA_01, 0, 8, .check_relay = true},
+    {MSG_LDW_02, 0, 8, .check_relay = true},
+    {MSG_ACC_02, 0, 8, .check_relay = true},
+    {MSG_ACC_05, 0, 8, .check_relay = true},
+    {MSG_ACC_04, 0, 8, .check_relay = true},
+    // LS_01 按键帧：OP 从 bus1 物理拨杆复制转发到 bus2（relay 断开后 bus0->bus2 不转发，
+    // OP 为 bus2 LS_01 唯一来源，消除双源冲突 st=6，2026-09-13 macan-long-0913）
+    {MSG_LS_01, 0, 4, .check_relay = false},
+    {MSG_LS_01, 2, 4, .check_relay = true},
+  };
 
   static RxCheck volkswagen_mlb_rx_checks[] = {
     // TODO: implement checksum validation
@@ -27,10 +35,7 @@ static safety_config volkswagen_mlb_init(uint16_t param) {
     {.msg = {{MSG_LS_01, 0, 4, 10U, .ignore_checksum = true, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
   };
 
-  // NOTE: common_init() must run BEFORE reading the flag: it resets volkswagen_longitudinal to false.
-  // Order matters and is a safety bug if reversed (panda would install the STOCK tx list while
-  // openpilot believes it has longitudinal control, silently dropping all ACC frames).
-  // Same ordering as volkswagen_mqb.h / volkswagen_pq.h.
+  // common_init() resets volkswagen_longitudinal, so read the flag only after it returns.
   volkswagen_common_init();
 
 #ifdef ALLOW_DEBUG
@@ -44,82 +49,66 @@ static safety_config volkswagen_mlb_init(uint16_t param) {
 }
 
 static void volkswagen_mlb_rx_hook(const CANPacket_t *msg) {
-  if (msg->bus == 0U) {
-    // Check all wheel speeds for any movement
-    // Signals: ESP_03.ESP_[VL|VR|HL|HR]_Radgeschw
-    if (msg->addr == MSG_ESP_03) {
-      uint32_t speed = 0;
-      speed += ((msg->data[3] & 0xFU) << 8) | msg->data[2];   // FL
-      speed += (msg->data[4] << 4) | (msg->data[3] >> 4);     // FR
-      speed += ((msg->data[6] & 0xFU) << 8) | msg->data[5];   // RL
-      speed += (msg->data[7] << 4) | (msg->data[6] >> 4);     // RR
-      vehicle_moving = speed > 0U;
-    }
-
-    // Update driver input torque
-    if (msg->addr == MSG_LH_EPS_03) {
-      update_sample(&torque_driver, volkswagen_mlb_mqb_driver_input_torque(msg));
-    }
-
-    if (msg->addr == MSG_LS_01) {
-      if (volkswagen_longitudinal) {
-        // When using openpilot longitudinal, read ACC main switch from LS_01 (bus 0)
-        // instead of relying on ACC_05 from the stock radar (bus 2)
-        // Signal: LS_01.LS_Hauptschalter
-        acc_main_on = GET_BIT(msg, 12U);
-        if (!acc_main_on) {
-          controls_allowed = false;
-        }
-
-        // Enter controls on RISING edge (button press) of Set or Resume with main switch on
-        // Signal: LS_01.LS_Tip_Setzen
-        // Signal: LS_01.LS_Tip_Wiederaufnahme
-        bool set_button = GET_BIT(msg, 16U);
-        bool resume_button = GET_BIT(msg, 19U);
-        if ((set_button && !volkswagen_set_button_prev) || (resume_button && !volkswagen_resume_button_prev)) {
-          controls_allowed = acc_main_on;
-        }
-        volkswagen_set_button_prev = set_button;
-        volkswagen_resume_button_prev = resume_button;
-      }
-      // Always exit controls on rising edge of Cancel
-      // Signal: LS_01.LS_Abbrechen
-      if (GET_BIT(msg, 13U)) {
-        controls_allowed = false;
-      }
-      acc_main_on = GET_BIT(msg, 12U);  // LS_Hauptschalter
-    }
-
-    // Signal: Motor_03.MO_Fahrpedalrohwert_01
-    // Signal: Motor_03.MO_Fahrer_bremst
-    if (msg->addr == MSG_MOTOR_03) {
-      gas_pressed = msg->data[6] != 0U;
-      volkswagen_brake_pedal_switch = GET_BIT(msg, 35U);
-    }
-
-    if (msg->addr == MSG_ESP_05) {
-      volkswagen_brake_pressure_detected = GET_BIT(msg, 26U);
-    }
-
-    brake_pressed = volkswagen_brake_pedal_switch || volkswagen_brake_pressure_detected;
-
+  // Check all wheel speeds for any movement
+  // Signals: ESP_03.ESP_[VL|VR|HL|HR]_Radgeschw
+  if (msg_matches(msg, MSG_ESP_03, 0U)) {
+    uint32_t speed = 0;
+    speed += ((msg->data[3] & 0xFU) << 8) | msg->data[2];   // FL
+    speed += (msg->data[4] << 4) | (msg->data[3] >> 4);     // FR
+    speed += ((msg->data[6] & 0xFU) << 8) | msg->data[5];   // RL
+    speed += (msg->data[7] << 4) | (msg->data[6] >> 4);     // RR
+    vehicle_moving = speed > 0U;
   }
 
-  if (msg->bus == 1U) {
-    if (msg->addr == MSG_TSK_04) {
-      // When using stock ACC, enter controls on rising edge of stock ACC engage, exit on disengage
-      // Signal: TSK_04.TSK_Status_GRA_ACC_02
-      int acc_status = (msg->data[7] & 0xC0U) >> 6;
-      bool cruise_engaged = (acc_status == 1) || (acc_status == 2);
+  // Update driver input torque
+  if (msg_matches(msg, MSG_LH_EPS_03, 0U)) {
+    update_sample(&torque_driver, volkswagen_mlb_mqb_driver_input_torque(msg));
+  }
 
-      // 2026-08-16 Macan(MLB) 适配：LONG 模式（OP 纵向）跳过 pcm_cruise_check——
-      // controls_allowed 由 LS_01 按键（SET/Resume 按下上升沿+主开关）管理。
-      // 无条件执行会在原厂巡航未激活（停车等红灯 TSK_04∉1/2）时撤 controls_allowed，
-      // 而 OP 已 enabled → selfdrived mismatch_counter 200 帧 → controlsMismatch 报警。
-      // 与 volkswagen_mqb.h / volkswagen_meb.h 处理一致。
-      if (!volkswagen_longitudinal) {
-        pcm_cruise_check(cruise_engaged);
+  if (msg_matches(msg, MSG_LS_01, 0U)) {
+    if (volkswagen_longitudinal) {
+      // In openpilot longitudinal mode LS_01 owns ACC main and SET/RESUME engagement state.
+      acc_main_on = GET_BIT(msg, 12U);  // LS_Hauptschalter
+      if (!acc_main_on) {
+        controls_allowed = false;
       }
+
+      // Enter controls on the rising edge of SET or RESUME, with the main switch on.
+      bool set_button = GET_BIT(msg, 16U);     // LS_Tip_Setzen
+      bool resume_button = GET_BIT(msg, 19U);  // LS_Tip_Wiederaufnahme
+      if ((set_button && !volkswagen_set_button_prev) || (resume_button && !volkswagen_resume_button_prev)) {
+        controls_allowed = acc_main_on;
+      }
+      volkswagen_set_button_prev = set_button;
+      volkswagen_resume_button_prev = resume_button;
+    }
+
+    // Always exit controls on Cancel.
+    if (GET_BIT(msg, 13U)) {  // LS_Abbrechen
+      controls_allowed = false;
+    }
+    acc_main_on = GET_BIT(msg, 12U);  // LS_Hauptschalter
+  }
+
+  // Signal: Motor_03.MO_Fahrpedalrohwert_01
+  // Signal: Motor_03.MO_Fahrer_bremst
+  if (msg_matches(msg, MSG_MOTOR_03, 0U)) {
+    gas_pressed = msg->data[6] != 0U;
+    volkswagen_brake_pedal_switch = GET_BIT(msg, 35U);
+  }
+
+  if (msg_matches(msg, MSG_ESP_05, 0U)) {
+    volkswagen_brake_pressure_detected = GET_BIT(msg, 26U);
+  }
+
+  brake_pressed = volkswagen_brake_pedal_switch || volkswagen_brake_pressure_detected;
+
+  if (msg_matches(msg, MSG_TSK_04, 1U)) {
+    // Stock ACC uses the TSK_04 engagement state. Openpilot longitudinal instead uses LS_01 above.
+    int acc_status = (msg->data[7] & 0xC0U) >> 6;  // TSK_Status_GRA_ACC_02
+    bool cruise_engaged = (acc_status == 1) || (acc_status == 2);
+    if (!volkswagen_longitudinal) {
+      pcm_cruise_check(cruise_engaged);
     }
   }
 }
@@ -162,12 +151,11 @@ static bool volkswagen_mlb_tx_hook(const CANPacket_t *msg) {
   return tx;
 }
 
-// TODO: rename these functions to MXB or something
 const safety_hooks volkswagen_mlb_hooks = {
   .init = volkswagen_mlb_init,
   .rx = volkswagen_mlb_rx_hook,
   .tx = volkswagen_mlb_tx_hook,
-  .get_counter = volkswagen_mqb_meb_get_counter,
-  .get_checksum = volkswagen_mqb_meb_get_checksum,
-  .compute_checksum = volkswagen_mqb_meb_compute_crc,
+  .get_counter = volkswagen_mxb_get_counter,
+  .get_checksum = volkswagen_mxb_get_checksum,
+  .compute_checksum = volkswagen_mxb_compute_crc,
 };

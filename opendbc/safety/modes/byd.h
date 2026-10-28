@@ -116,7 +116,7 @@ static void byd_rx_hook(const CANPacket_t *to_push) {
         // STEER_MODULE_2 carries the column torque and the measured wheel angle.
         // DRIVER_EPS_TORQUE is the column sensor (unsigned magnitude); MAIN_TORQUE in
         // STEERING_TORQUE is EPS motor output and must not be used for driver override.
-        int angle_meas_new = (int)GET_BYTES(to_push, 0, 2);      // STEER_ANGLE_2 : 0|16@1-
+        int angle_meas_new = (int)GET_BYTES_LE(to_push, 0, 2);      // STEER_ANGLE_2 : 0|16@1-
         angle_meas_new = to_signed(angle_meas_new, 16);
         update_sample(&angle_meas, angle_meas_new);
 
@@ -124,7 +124,7 @@ static void byd_rx_hook(const CANPacket_t *to_push) {
         update_sample(&torque_driver, torque_driver_new);
       } else if (addr == BYD_CANADDR_STEERING_TORQUE) {
         // EPS motor torque (used for diagnostic logging only).
-        int torque_motor_new = (int)GET_BYTES(to_push, 1, 2);    // MAIN_TORQUE : 8|12@1-
+        int torque_motor_new = (int)GET_BYTES_LE(to_push, 1, 2);    // MAIN_TORQUE : 8|12@1-
         if (torque_motor_new >= 2048) torque_motor_new -= 4096;
         update_sample(&torque_meas, torque_motor_new);
       }
@@ -158,7 +158,7 @@ static void byd_rx_hook(const CANPacket_t *to_push) {
         UPDATE_VEHICLE_SPEED((float)(speed_raw * 0.0719088) * KPH_TO_MS);
       } else if (addr == BYD_CANADDR_STEER_MODULE_2) {
         // CID_VSUYVS : sig_uefwof 0|16@1- (steering angle), sig_ttcoap 16|8@1+
-        int angle_meas_new = (int)GET_BYTES(to_push, 0, 2);
+        int angle_meas_new = (int)GET_BYTES_LE(to_push, 0, 2);
         angle_meas_new = to_signed(angle_meas_new, 16);
         update_sample(&angle_meas, angle_meas_new);
       } else if (addr == BYD_CANADDR_STEERING_TORQUE) {
@@ -276,7 +276,7 @@ static bool byd_tx_hook(const CANPacket_t *to_send) {
 
   if (byd_platform == ATTO3_GENERAL) {
     if ((bus == BYD_CANBUS_ESC) && (addr == BYD_CANADDR_STEERING_MODULE_ADAS)) {
-      int desired_angle = (int)GET_BYTES(to_send, 3, 2);      // STEER_ANGLE : 24|16@1-
+      int desired_angle = (int)GET_BYTES_LE(to_send, 3, 2);      // STEER_ANGLE : 24|16@1-
       desired_angle = to_signed(desired_angle, 16);
       bool steer_control_enabled = GET_BIT(to_send, 21U) != 0U; // STEER_REQ
 
@@ -300,7 +300,7 @@ static bool byd_tx_hook(const CANPacket_t *to_send) {
     // CID_TCDUBH (0x1E2) has the same angle/cmd bit layout as ATTO3's
     // STEERING_MODULE_ADAS, but uses the generic DBC's 4-bit counter.
     if ((bus == BYD_CANBUS_ESC) && (addr == BYD_CANADDR_GEN_STEERING_MODULE_ADAS)) {
-      int desired_angle = (int)GET_BYTES(to_send, 3, 2);  // sig_kqgoqc : 24|16@1-
+      int desired_angle = (int)GET_BYTES_LE(to_send, 3, 2);  // sig_kqgoqc : 24|16@1-
       desired_angle = to_signed(desired_angle, 16);
       bool steer_control_enabled = GET_BIT(to_send, 21U) != 0U; // sig_ausukb
 

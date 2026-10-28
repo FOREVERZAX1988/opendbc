@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 import unittest
+
 from opendbc.car.structs import CarParams
 from opendbc.car.volkswagen.values import VolkswagenSafetyFlags
-from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
-from opendbc.safety.tests.common import CANPackerSafety, make_msg
+from opendbc.safety.tests.common import make_msg
 
 MSG_ACC_02 = 0x30C
 MSG_ACC_05 = 0x10D
 MSG_ACC_04 = 0x324
-
 MSG_LS_01 = 0x10B       # TX by OP, ACC control buttons for cancel/resume
 MSG_HCA_01 = 0x126      # TX by OP, Heading Control Assist steering torque
 MSG_LDW_02 = 0x397      # TX by OP, Lane line recognition and text alerts
@@ -88,37 +87,14 @@ class TestVolkswagenMlbSafetyBase(common.CarSafetyTest, common.DriverTorqueSteer
       self.assertEqual(brake_pressed, self.safety.get_brake_pressed_prev(),
                        f"expected {brake_pressed=} with {motor_03_signal=} and {esp_05_signal=}")
 
-  def test_torque_measurements(self):
-    # TODO: make this test work with all cars
-    self._rx(self._torque_driver_msg(50))
-    self._rx(self._torque_driver_msg(-50))
-    self._rx(self._torque_driver_msg(0))
-    self._rx(self._torque_driver_msg(0))
-    self._rx(self._torque_driver_msg(0))
-    self._rx(self._torque_driver_msg(0))
-
-    self.assertEqual(-50, self.safety.get_torque_driver_min())
-    self.assertEqual(50, self.safety.get_torque_driver_max())
-
-    self._rx(self._torque_driver_msg(0))
-    self.assertEqual(0, self.safety.get_torque_driver_max())
-    self.assertEqual(-50, self.safety.get_torque_driver_min())
-
-    self._rx(self._torque_driver_msg(0))
-    self.assertEqual(0, self.safety.get_torque_driver_max())
-    self.assertEqual(0, self.safety.get_torque_driver_min())
-
 
 class TestVolkswagenMlbStockSafety(TestVolkswagenMlbSafetyBase):
+  DBC = "vw_mlb"
+  SAFETY_MODEL = CarParams.SafetyModel.volkswagenMlb
+
   TX_MSGS = [[MSG_HCA_01, 0], [MSG_LDW_02, 0], [MSG_LS_01, 0], [MSG_LS_01, 2]]
   FWD_BLACKLISTED_ADDRS = {2: [MSG_HCA_01, MSG_LDW_02]}
   FWD_BUS_LOOKUP = {0: 2, 2: 0}
-
-  def setUp(self):
-    self.packer = CANPackerSafety("vw_mlb")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.volkswagenMlb, 0)
-    self.safety.init_tests()
 
   def test_spam_cancel_safety_check(self):
     self.safety.set_controls_allowed(0)
@@ -138,24 +114,18 @@ class TestVolkswagenMlbStockSafety(TestVolkswagenMlbSafetyBase):
 
 
 class TestVolkswagenMlbLongSafety(TestVolkswagenMlbSafetyBase):
+  DBC = "vw_mlb"
+  SAFETY_MODEL = CarParams.SafetyModel.volkswagenMlb
+  SAFETY_PARAM = VolkswagenSafetyFlags.LONG_CONTROL.value
+
   # Regression guard for the panda tx whitelist with openpilot longitudinal enabled.
-  # volkswagen_common_init() zeroes volkswagen_longitudinal, so the flag must be read AFTER it
-  # (as volkswagen_mqb.h / volkswagen_pq.h already do). With the reversed order panda installed
-  # VOLKSWAGEN_MLB_STOCK_TX_MSGS while openpilot believed it had longitudinal control, so every
-  # ACC_02/ACC_05/ACC_04 frame was rejected on the bus and the car silently fell back to the
-  # stock radar ACC (route 0000007b: src=192 rejected frames every 20ms).
   TX_MSGS = [[MSG_HCA_01, 0], [MSG_LDW_02, 0], [MSG_ACC_02, 0], [MSG_ACC_05, 0], [MSG_ACC_04, 0],
              [MSG_LS_01, 0], [MSG_LS_01, 2]]
   FWD_BLACKLISTED_ADDRS = {0: [MSG_LS_01], 2: [MSG_HCA_01, MSG_LDW_02, MSG_ACC_02, MSG_ACC_05, MSG_ACC_04]}
+  FWD_BUS_LOOKUP = {0: 2, 2: 0}
   RELAY_MALFUNCTION_ADDRS = {0: (MSG_HCA_01, MSG_LDW_02, MSG_ACC_02, MSG_ACC_05, MSG_ACC_04), 2: (MSG_LS_01,)}
 
-  def setUp(self):
-    self.packer = CANPackerSafety("vw_mlb")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.volkswagenMlb, VolkswagenSafetyFlags.LONG_CONTROL.value)
-    self.safety.init_tests()
-
-  # stock cruise engagement is bypassed under openpilot longitudinal control (LS_01 buttons instead)
+  # Stock cruise engagement is bypassed under openpilot longitudinal control (LS_01 buttons instead).
   def test_disable_control_allowed_from_cruise(self):
     pass
 
@@ -171,7 +141,7 @@ class TestVolkswagenMlbLongSafety(TestVolkswagenMlbSafetyBase):
                       f"0x{addr:x} rejected: the long control flag was cleared by volkswagen_common_init()")
 
   def test_long_control_flag_is_required_for_acc_tx(self):
-    # without the flag panda must install the stock tx list and reject the ACC frames
+    # Without the flag panda must install the stock tx list and reject the ACC frames.
     self.safety.set_safety_hooks(CarParams.SafetyModel.volkswagenMlb, 0)
     self.safety.init_tests()
     for addr in (MSG_ACC_02, MSG_ACC_05, MSG_ACC_04):

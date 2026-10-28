@@ -76,7 +76,8 @@ class NativeInterfaceConfig:
     # The radar's own trackers, used as extra speed readings by the speed filter:
     # ACC target (0x235 / 0x237): matched to an object-list track by position, cost = |dRel - x| / max(acc_match_range_m,
     # acc_match_range_frac * x) + |yRel - y| / 0.5 < 1 with margin > 1 over the next track, for tracks of age >=
-    # acc_match_min_age (x is the ACC target's 0.025 m distance, y its 0.01 m lateral (the object list's lateral code is 0.015 m); the range scale grows with range
+    # acc_match_min_age (x is the ACC target's 0.025 m distance, y its 0.01 m lateral (the object list's lateral code
+    # is 0.015 m); the range scale grows with range
     # because the object list reads far cars short of the ACC distance, by 15-20 m for some newly detected cars, docs/06,
     # docs/12). The association is kept while the track
     # and a continuous ACC target persist, even when the object-list position slides away with an excursion; it re-matches
@@ -160,7 +161,8 @@ BASE_CONFIG = NativeInterfaceConfig(
 )
 # The `fused` install profile (docs/12, docs/11; the default is `acc`): the base decode plus range fusion and one uncertainty-weighted speed
 # filter per track that fuses the object list and the radar's ACC target (matched by position, 0.4 x range scale; its
-# track takes the ACC distance as range; the ACC speed is weighted at 0.13 m/s, acc_sigma_mps). The track-ID relink and the saturation guard of the base decode are off:
+# track takes the ACC distance as range; the ACC speed is weighted at 0.13 m/s, acc_sigma_mps). The track-ID relink and
+# the saturation guard of the base decode are off:
 # with the filter on, the driving is the same with them on or off (docs/12). Beyond 15 m, tracks other than the ACC target's that sit
 # more than 2.5 m from the yaw-predicted path are withheld (docs/12 "Path gate"). The summaries are off. The openpilot
 # version (upstream/ars510_radar.py) is this profile in one file.
@@ -365,12 +367,14 @@ class Ars510NativeRadarInterface:
         hist = self._summary_hist[addr]
         word = parse_0x192(data)
         if word is None:
-            hist.clear(); self._summary_assoc[addr] = None
+            hist.clear()
+            self._summary_assoc[addr] = None
             return
         scale, offset = self.config.summary_scales[0 if addr == 0x192 else 1]
         x = word.range_code13 * scale + offset
         if hist and (time_s - hist[-1][0] > 0.3 or abs(x - hist[-1][1]) > 5.0):  # gap or a new target
-            hist.clear(); self._summary_assoc[addr] = None
+            hist.clear()
+            self._summary_assoc[addr] = None
         hist.append((time_s, x))
         self._summary_y[addr] = word.y_rel
         while hist and hist[0][0] < time_s - self.config.summary_window_s:
@@ -382,7 +386,9 @@ class Ars510NativeRadarInterface:
         w = self.config.summary_window_s
         if len(hist) < 8 or hist[-1][0] - hist[0][0] < 0.7 * w or time_s - hist[-1][0] > 0.3:
             return None
-        n = len(hist); mt = sum(t for t, _ in hist) / n; mx = sum(x for _, x in hist) / n
+        n = len(hist)
+        mt = sum(t for t, _ in hist) / n
+        mx = sum(x for _, x in hist) / n
         den = sum((t - mt) ** 2 for t, _ in hist)
         return (hist[-1][1], sum((t - mt) * (x - mx) for t, x in hist) / den) if den > 0 else None
 
