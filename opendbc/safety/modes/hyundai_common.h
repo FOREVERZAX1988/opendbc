@@ -153,7 +153,9 @@ void hyundai_common_cruise_buttons_check(const int cruise_button, const bool mai
   }
 }
 
-#ifdef CANFD
+// Keep unconditional: safety.h includes hyundai_canfd.h (whose hooks
+// reference this) in every build, and the F4/dos firmware build does not
+// define CANFD. Body is self-contained (uses the LUT declared above).
 uint32_t hyundai_common_canfd_compute_checksum(const CANPacket_t *msg) {
   int len = GET_LEN(msg);
   uint32_t address = msg->addr;
@@ -177,7 +179,6 @@ uint32_t hyundai_common_canfd_compute_checksum(const CANPacket_t *msg) {
 
   return crc;
 }
-#endif
 
 // reset mismatches on rising edge of acc_main_on to avoid rare race conditions when using non-PCM main cruise state
 void hyundai_common_reset_acc_main_on_mismatches(void) {
