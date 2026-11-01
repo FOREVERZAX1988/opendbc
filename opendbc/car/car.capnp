@@ -283,8 +283,8 @@ struct CarState {
   charging @43 :Bool;
 
   # cp turn-signal lever/lamp infrastructure (final state; inert until a car
-  # port fills them). cp puts these at @100-111, but this fork's CarState ends at
-  # @79 and capnp forbids ordinal holes, so they are renumbered to @80-90 here.
+  # port fills them). This fork's CarState ended at @79, so ordinals are
+  # renumbered contiguously (cp's @100-111 minus vehicleGps, holes not allowed).
   leftBlinkerStalkCount @80 :UInt8;  # +1 (wrapping) on every left turn-signal lever press; the lamp-based leftBlinker cannot show a press while the lamp is already flashing
   rightBlinkerStalkCount @81 :UInt8; # +1 (wrapping) on every right turn-signal lever press
   blinkerLever @82 :UInt8;           # turn-signal lever position: 0 released, 1 one-touch (half) detent, 2 latched
