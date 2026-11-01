@@ -283,18 +283,19 @@ struct CarState {
   charging @43 :Bool;
 
   # cp turn-signal lever/lamp infrastructure (final state; inert until a car
-  # port fills them). Ordinals mirror cp's CarState @100-111 minus vehicleGps.
-  leftBlinkerStalkCount @100 :UInt8;  # +1 (wrapping) on every left turn-signal lever press; the lamp-based leftBlinker cannot show a press while the lamp is already flashing
-  rightBlinkerStalkCount @101 :UInt8; # +1 (wrapping) on every right turn-signal lever press
-  blinkerLever @102 :UInt8;           # turn-signal lever position: 0 released, 1 one-touch (half) detent, 2 latched
-  blinkerLamp @103 :UInt8;            # turn-signal lamp right now (no hold): 0 dark, 1 left lit, 2 right lit
-  autoTurnSignalDirection @105 :UInt8; # automatic ownership, including an unconfirmed cancellation tail
-  autoTurnSignalStatus @106 :Text;
-  turnSignalDriverValid @107 :Bool;
-  turnSignalDriverDirection @108 :UInt8; # actual stalk: 0 released, 1 left, 2 right
-  autoTurnSignalReadyRequestId @109 :UInt64; # TX echoed and lamps confirmed for this automatic maneuver; zero otherwise
-  tbtRearInputsAvailable @110 :Bool; # fresh CANFD OEM BSD input for the TBT physical-indicator trigger only (BSD-only since 2026-10-30)
-  tbtRightRearBlocked @111 :Bool = true; # OEM right BSD warning or invalid/stale BSD; no corner-distance veto; manual admission unchanged
+  # port fills them). This fork's CarState ended at @79, so ordinals are
+  # renumbered contiguously (cp's @100-111 minus vehicleGps, holes not allowed).
+  leftBlinkerStalkCount @80 :UInt8;  # +1 (wrapping) on every left turn-signal lever press; the lamp-based leftBlinker cannot show a press while the lamp is already flashing
+  rightBlinkerStalkCount @81 :UInt8; # +1 (wrapping) on every right turn-signal lever press
+  blinkerLever @82 :UInt8;           # turn-signal lever position: 0 released, 1 one-touch (half) detent, 2 latched
+  blinkerLamp @83 :UInt8;            # turn-signal lamp right now (no hold): 0 dark, 1 left lit, 2 right lit
+  autoTurnSignalDirection @84 :UInt8; # automatic ownership, including an unconfirmed cancellation tail
+  autoTurnSignalStatus @85 :Text;
+  turnSignalDriverValid @86 :Bool;
+  turnSignalDriverDirection @87 :UInt8; # actual stalk: 0 released, 1 left, 2 right
+  autoTurnSignalReadyRequestId @88 :UInt64; # TX echoed and lamps confirmed for this automatic maneuver; zero otherwise
+  tbtRearInputsAvailable @89 :Bool; # fresh CANFD OEM BSD input for the TBT physical-indicator trigger only (BSD-only since 2026-10-30)
+  tbtRightRearBlocked @90 :Bool = true; # OEM right BSD warning or invalid/stale BSD; no corner-distance veto; manual admission unchanged
 
   struct WheelSpeeds {
     # optional wheel speeds
