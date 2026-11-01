@@ -18,6 +18,7 @@ from numpy.linalg import solve
 
 from opendbc.car.structs import CarParams
 from opendbc.car import ACCELERATION_DUE_TO_GRAVITY
+from opendbc.car.lateral_geometry import LateralGeometry
 
 
 class VehicleModel:
@@ -29,6 +30,7 @@ class VehicleModel:
     # for math readability, convert long names car params into short names
     # Tire stiffness and rotational inertia are already divided by vehicle mass, which cancels out of the model.
     # Use unit mass to preserve the standard bicycle-model equations below.
+    self.geometry = LateralGeometry(CP)
     self.m: float = 1.0
     self.j: float = CP.rotationalInertiaPerMass
     self.l: float = CP.wheelbase
@@ -57,6 +59,15 @@ class VehicleModel:
     if self._sr_v2_speeds:
       return float(np.interp(u * 3.6, self._sr_v2_speeds, self._sr_v2_ratios))
     return self.sR
+
+  def update_geometry(self, ratio: float) -> None:
+    if self.geometry.update(ratio):
+      stiffness_factor = self.cF / self.cF_orig
+      self.aF = self.geometry.center_to_front
+      self.aR = self.l - self.aF
+      self.cF_orig = self.geometry.stiffness_front
+      self.cR_orig = self.geometry.stiffness_rear
+      self.update_params(stiffness_factor, self.sR)
 
   def update_params(self, stiffness_factor: float, steer_ratio: float) -> None:
     """Update the vehicle model with a new stiffness factor and steer ratio"""
