@@ -24,6 +24,10 @@ class CarControllerParams:
   STEER_DRIVER_ALLOWANCE = 15     # allowed driver torque before start limiting
   STEER_DRIVER_MULTIPLIER = 15    # weight driver torque, tuned for the 2022 EPS
   STEER_DRIVER_FACTOR = 1         # from dbc
+  # The share of the command given up to a driver pushing against it, the same at every speed.
+  # The headroom above is on the 1200 rail, so it never reached the 620 highway ceiling.
+  STEER_OVERRIDE_BP = [STEER_DRIVER_ALLOWANCE, 50]  # opposing driver torque, counts
+  STEER_OVERRIDE_V = [1., 0.]                       # fraction of the command kept
   STEER_STEP = 1  # 100 Hz
   # Upstream's STEER_MAX, the scale params.toml's tunes, NNLC models and the manual torque override
   # use: latAccelFactor x TUNE_SCALE, friction / TUNE_SCALE.
@@ -39,9 +43,10 @@ class CarControllerParams:
   LONG_STEP = 2        # CRZ_INFO/CRZ_CTRL at 50 Hz, matching stock
   RADAR_STEP = 10      # radar static + track frames at 10 Hz
 
-  FSC_SETTLE_T = 7.0           # the camera's cold-boot radar check settled before the teardown may start
+  FSC_SETTLE_T = 1.0           # two CAM_LANEINFO frames past the camera's boot marker before the teardown may start
   STOCK_RADAR_ALIVE_T = 0.05   # a normal CRZ_INFO gap; it does not establish ownership
   STOCK_RADAR_GUARD_T = 1.27   # silence before ownership is trusted, ~12x the longest stock gap
+  STOCK_RADAR_ACK_GUARD_T = 0.25  # the same once the radar acknowledged our programming request
   CAM_LANEINFO_FRESH_T = 1.5   # longer than one ~2 Hz CAM_LANEINFO period
 
   # The car's lane keep back on, the EPS holds LKAS_BLOCK for ~3 s whatever it is sent.
@@ -70,11 +75,15 @@ class CarControllerParams:
   # build rate (taken a third quicker once rolling: the plan sees a lead pull away before the radar
   # would). Positive commands only, so braking is never held longer than the plan asks.
   ACCEL_CEILING_BP = [0., 4., 9., 14., 18., 25.]  # m/s
-  ACCEL_CEILING_V = [1.5, 1.75, 1.45, 1.05, 0.85, 0.65]  # m/s2
-  ACCEL_BUILD_BP = [3., 6.]   # m/s
-  ACCEL_BUILD_V = [ACCEL_RELEASE_RAMP, 0.8]  # m/s3
+  ACCEL_CEILING_V = [1.5, 1.75, 1.45, 0.95, 0.85, 0.65]  # m/s2, 14 m/s under stock's 1.05 to hold fourth
+  ACCEL_BUILD_BP = [3., 6., 12., 20.]   # m/s
+  ACCEL_BUILD_V = [ACCEL_RELEASE_RAMP, 0.8, 0.8, 0.6]  # m/s3, stock's own 0.6 at highway speed
   # Stock's throttle lift rate, while the plan is still >= 0; a brake request skips it.
   ACCEL_LIFT_LIMIT = -2.0  # m/s3
+  # The accel cap is the ceiling above scaled by the shortfall to the set speed, the way stock closes
+  # a small gap gently (docs/zoompilot/mazda-longitudinal.md, "Gap to the set speed").
+  ACCEL_GAP_BP = [0., 1., 3., 5., 10.]  # m/s under the set speed
+  ACCEL_GAP_FRACTION = [0.38, 0.47, 0.57, 0.72, 1.]  # of ACCEL_CEILING_V
   # Limit upward plan-command slew in the brake region without delaying braking response.
   ACCEL_WINDUP_LIMIT = 4.0 * DT_CTRL     # m/s2 per frame
   ACCEL_WINDDOWN_LIMIT = -10.0 * DT_CTRL  # m/s2 per frame, clips only the p99.9+ steps
