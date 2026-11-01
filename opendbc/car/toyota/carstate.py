@@ -254,6 +254,10 @@ class CarState(CarStateBase, CarStateExt):
     if self.CP.flags & ToyotaFlags.HAS_BSM:
       ret.leftBlindspot = (cp.vl["BSM"]["L_ADJACENT"] == 1) or (cp.vl["BSM"]["L_APPROACHING"] == 1)
       ret.rightBlindspot = (cp.vl["BSM"]["R_ADJACENT"] == 1) or (cp.vl["BSM"]["R_APPROACHING"] == 1)
+      # cp 0b10f006a: OEM BSD split sources — raw vehicle radar before any ONNX merge
+      ret.leftBlindspotOem = ret.leftBlindspot
+      ret.rightBlindspotOem = ret.rightBlindspot
+      ret.blindspotSplitSourcesValid = True
 
     if self.CP.carFingerprint != CAR.TOYOTA_PRIUS_V:
       self.lkas_hud = copy.copy(cp_cam.vl["LKAS_HUD"])
@@ -287,6 +291,9 @@ class CarState(CarStateBase, CarStateExt):
 
     if self.enhanced_bsm.enabled and self.frame > 199:
       ret.leftBlindspot, ret.rightBlindspot = self.enhanced_bsm.update(cp, self.frame)
+      if self.CP.flags & ToyotaFlags.HAS_BSM:
+        ret.leftBlindspotOem = ret.leftBlindspot
+        ret.rightBlindspotOem = ret.rightBlindspot
 
     if self.CP_SP.flags & ToyotaFlagsSP.SP_AUTO_BRAKE_HOLD:
       self.pre_collision_2 = copy.copy(cp_cam.vl["PRE_COLLISION_2"])
