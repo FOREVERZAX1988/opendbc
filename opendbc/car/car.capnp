@@ -250,6 +250,50 @@ struct CarState {
   logCarrot @74 :Text;
 
 
+  # Gap/personality the car's own cruise control reports, for cars where the PCM owns
+  # the distance button. 0 = the vehicle does not report it, 1..4 = its gap setting.
+  # Used to sync LongitudinalPersonality when the driver cycles gaps on a
+  # PCM-controlled car, instead of counting presses blindly. Ported from cp.
+  pcmCruiseGap @62 :Int16;
+
+  # Soft-hold state while cruise is cancelled, published from the cruise helper:
+  # 0 = not active, 1 = ready, 2 = activated. Lets brand controllers hold the car after a
+  # cancel instead of resuming normally. Ported from cp.
+  softHoldActive @63 :Int16;
+  # Set by the cruise helper when the car should be auto-engaged (GM auto-cruise).
+  # A request, not a command: the brand controller still decides how to press the button.
+  activateCruise @64 :Int16;
+
+  # Stock-navigation CAN state (cp L6). Filled by the Hyundai carstate when the car's own
+  # head unit broadcasts its route profile on 0x4B4/0x4B9/0x4BE; carrot's navi gates read
+  # them so VehicleNaviCanControl finally has its data source.
+  speedBumpDistance @65 :Float32;
+  schoolZoneActive @66 :Bool;
+  vehicleNaviActive @67 :Bool;
+  vehicleNaviSectionActive @68 :Bool;
+  vehicleNaviSpeed @69 :Float32;
+  vehicleNaviAvailable @70 :Bool;
+
+  # Bind independent radar decoding (radarcan) to the exact CAN batch and ego
+  # state used by card. Empty batches still represent a control tick; receiveMonoTime
+  # is monotonic and must not be replaced by the later publication timestamp.
+  radarInput @71 :RadarInput;
+
+  # Cluster-to-body speed ratio, so a consumer can scale a speed target the way
+  # the dashboard would show it. 0 means "not measured" and must be treated as
+  # 1.0 by the reader: the cluster can legitimately read 0 at standstill, and a
+  # ratio of 0 would otherwise erase the target. carrotpilot carries the same
+  # value at a different ordinal; this is an append, not a copy.
+  vCluRatio @72 :Float32;
+
+  # Distance to the camera-read speed-limit sign, when the platform provides it.
+  # The unit is metres and a non-positive value means "unknown".
+  speedLimitDistance @73 :Float32;
+
+  # Free-form per-frame carrot debug string. Empty unless a carrot diagnostic
+  # path fills it; kept short so a log segment stays bounded.
+  logCarrot @74 :Text;
+
   # cruise state
   cruiseState @10 :CruiseState;
 

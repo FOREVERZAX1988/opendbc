@@ -78,6 +78,15 @@ class VehicleModel:
       self.cR_orig = self.geometry.stiffness_rear
       self.update_params(stiffness_factor, self.sR)
 
+  def update_geometry(self, ratio: float) -> None:
+    if self.geometry.update(ratio):
+      stiffness_factor = self.cF / self.cF_orig
+      self.aF = self.geometry.center_to_front
+      self.aR = self.l - self.aF
+      self.cF_orig = self.geometry.stiffness_front
+      self.cR_orig = self.geometry.stiffness_rear
+      self.update_params(stiffness_factor, self.sR)
+
   def update_params(self, stiffness_factor: float, steer_ratio: float) -> None:
     """Update the vehicle model with a new stiffness factor and steer ratio"""
     self.cF: float = stiffness_factor * self.cF_orig
