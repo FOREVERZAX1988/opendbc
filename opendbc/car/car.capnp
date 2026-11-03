@@ -251,6 +251,7 @@ struct CarState {
 
 
 
+
   # cruise state
   cruiseState @10 :CruiseState;
 
