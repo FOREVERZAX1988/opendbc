@@ -1,3 +1,4 @@
+import contextlib
 import os
 import re
 import subprocess
@@ -39,8 +40,15 @@ def _build_libsafety(release: bool = False) -> str:
   fd, libsafety_so = tempfile.mkstemp(suffix='.so')
   os.close(fd)
 
-  subprocess.check_call(['cc', '-fPIC', *cflags, '-I', root, '-c', safety_c, '-o', safety_os])
-  subprocess.check_call(['cc', '-shared', safety_os, '-o', libsafety_so, *ldflags])
+  try:
+    subprocess.check_call(['cc', '-fPIC', *cflags, '-I', root, '-c', safety_c, '-o', safety_os])
+    subprocess.check_call(['cc', '-shared', safety_os, '-o', libsafety_so, *ldflags])
+  finally:
+    # The object file is only an intermediate, and mkstemp put it inside the
+    # repo (dir=libsafety_dir). Leaving it behind grows a 416 KB file per build
+    # -- .gitignore's *.os hides it, so the checkout just keeps growing.
+    with contextlib.suppress(OSError):
+      os.unlink(safety_os)
   return libsafety_so
 
 
@@ -91,7 +99,13 @@ def load(path):
 
 def __getattr__(name):
   if name == "libsafety":
-    load(_build_libsafety())
+    path = _build_libsafety()
+    load(path)
+    # dlopen keeps the mapping alive after unlink, so the library stays usable
+    # while $TMPDIR stops collecting a ~1.1 MB .so per build. Only unlink after a
+    # successful load: a failed one leaves the file for diagnosis.
+    with contextlib.suppress(OSError):
+      os.unlink(path)
     return libsafety
   raise AttributeError(name)
 
