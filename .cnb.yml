@@ -24,7 +24,8 @@
         # GitHub Actions 版本也因此一直失败；这里浅克隆 openpilot 并入 PYTHONPATH
         export PYTHONPATH="$PWD/openpilot:$PWD"
         if [ ! -d openpilot/.git ]; then
-          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://cnb.cool/mouxancnb/openpilot.git openpilot
+          # 显式 -b master：仓库默认分支可能仍指向旧 test（clone 会拿旧代码）
+          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 -b master https://cnb.cool/mouxancnb/openpilot.git openpilot
         fi
         python opendbc/car/docs.py
     - name: commit & push
