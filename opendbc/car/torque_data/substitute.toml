@@ -1,4 +1,7 @@
 legend = ["LAT_ACCEL_FACTOR", "MAX_LAT_ACCEL_MEASURED", "FRICTION"]
+# N3 (SA6) is an angle-steering SUV with placeholder geometry (see byd/values.py);
+# borrow the ATTO3's angle-steer figures until a real car is measured.
+"BYD_SA6_N3" = "BYD_ATTO3"
 "BYD_HAN_DMI_22" = "BYD_HAN_DM_20"
 "BYD_HAN_DMI_22J" = "BYD_HAN_DM_20"
 "BYD_HAN_DMI_22R" = "BYD_HAN_DM_20"
