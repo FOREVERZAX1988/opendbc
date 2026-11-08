@@ -9,7 +9,7 @@ import os
 
 try:
   from openpilot.common.params import Params as _OpenpilotParams
-except ImportError:
+except Exception:  # ImportError without openpilot; OSError without libparams_c (docs gen, standalone use)
   _OpenpilotParams = None
 
 
