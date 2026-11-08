@@ -1,0 +1,7 @@
+branch:
+  - reg: ^master$
+buttons:
+  - name: 重新生成 CARS.md
+    description: 手动运行 Update CARS.md 流水线
+    event: web_trigger_update_cars
+    isDefault: true
