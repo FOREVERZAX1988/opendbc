@@ -2,7 +2,6 @@ import math
 
 from opendbc.can import CANParser
 from opendbc.car import Bus, structs
-from openpilot.common.params import Params
 from opendbc.car.interfaces import RadarInterfaceBase
 from opendbc.car.hyundai.values import DBC, HyundaiFlags, HyundaiExtFlags
 
@@ -234,6 +233,8 @@ class RadarInterface(RadarInterfaceBase, RadarInterfaceExt):
     self.radar_off_can = CP.radarUnavailable
     # EnableRadarTracks gates whether raw tracks are decoded at all. Read through Params
     # rather than CP so it can be toggled without a re-fingerprint; >= 1 matches cp.
+    # lazy import: openpilot.common.params needs libparams_c.so at import time
+    from openpilot.common.params import Params
     self.radar_tracks = Params().get_int("EnableRadarTracks") >= 1
     self.rcp = get_radar_can_parser(CP, self.radar_tracks, self.radar_start_addr,
                                     self.radar_msg_count, self.radar_required_msg_count)

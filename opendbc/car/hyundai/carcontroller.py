@@ -1,6 +1,5 @@
 import numpy as np
 from opendbc.can import CANPacker
-from openpilot.common.params import Params
 from opendbc.car import Bus, DT_CTRL, make_tester_present_msg, structs
 from opendbc.car.lateral import apply_driver_steer_torque_limits, common_fault_avoidance
 from opendbc.car.common.conversions import Conversions as CV
@@ -81,6 +80,8 @@ class CarController(CarControllerBase, CcncCarController, EsccCarController, Lea
     self.params = CarControllerParams(CP)
     # Persistent params for the speed-camera haptic feedback. A separate Params handle
     # because self.params is the CarControllerParams tuning container, not the store.
+    # lazy import: openpilot.common.params needs libparams_c.so at import time
+    from openpilot.common.params import Params
     self._haptic_params = Params()
     # Frame at which the current haptic burst ends, -1 when idle. The burst is
     # started on the rising edge of activeCarrot == 3 (see create_can_msgs).
