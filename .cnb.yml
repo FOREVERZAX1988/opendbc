@@ -18,6 +18,8 @@
         pip config set global.index-url https://mirrors.cloud.tencent.com/pypi/simple
         pip install -e .
         pip install jinja2==3.1.4
+        # fork 的 openpilot 依赖链需要：common.utils 用 zstandard
+        pip install zstandard
     - name: generate car docs
       script: |
         # fork 的 opendbc 依赖 openpilot 包（radar_tracks 等导入 openpilot.common.*），
