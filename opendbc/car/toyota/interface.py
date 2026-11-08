@@ -7,7 +7,7 @@ from opendbc.car.toyota.values import Ecu, CAR, DBC, ToyotaFlags, CarControllerP
                                                   MIN_ACC_SPEED, EPS_SCALE, NO_STOP_TIMER_CAR, ToyotaSafetyFlags, UNSUPPORTED_DSU_CAR, CanBus
 from opendbc.car.disable_ecu import disable_ecu
 from opendbc.car.interfaces import CarInterfaceBase
-from opendbc.sunnypilot.car.toyota.values import ToyotaFlagsSP, ToyotaSafetyFlagsSP
+from opendbc.sunnypilot.car.toyota.values import ToyotaFlagsSP, ToyotaSafetyFlagsSP, VIRTUAL_CRUISE_SPEED_CAR
 
 SteerControlType = structs.CarParams.SteerControlType
 
@@ -176,6 +176,12 @@ class CarInterface(CarInterfaceBase):
                      car_fw: list[structs.CarParams.CarFw], alpha_long: bool, is_release_sp: bool, docs: bool) -> structs.CarParamsSP:
     if candidate in UNSUPPORTED_DSU_CAR:
       ret.safetyParam |= ToyotaSafetyFlagsSP.UNSUPPORTED_DSU
+
+    # Direct cruise-button states are route-validated on Corolla Cross / Prius TSS2.
+    # COROLLA_TSS2 also covers other Corolla/UX variants, so this stays an explicit,
+    # off-by-default user opt-in (ToyotaVirtualCruiseSpeed).
+    if candidate in VIRTUAL_CRUISE_SPEED_CAR:
+      ret.flags |= ToyotaFlagsSP.VIRTUAL_CRUISE_SPEED_AVAILABLE.value
 
     if candidate == CAR.TOYOTA_PRIUS_TSS2:
       ret.flags |= ToyotaFlagsSP.SP_NEED_DEBUG_BSM.value

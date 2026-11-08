@@ -211,6 +211,7 @@ def _initialize_toyota(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params
     toyota_auto_brake_hold = int(params_dict.get("ToyotaAutoHold", 0)) == 1
     toyota_brake_onset = int(params_dict.get("ToyotaBrakeOnset", 0)) == 1
     toyota_tss2_smooth = int(params_dict.get("ToyotaTSS2Smooth", 0)) == 1
+    toyota_virtual_cruise_speed = int(params_dict.get("ToyotaVirtualCruiseSpeed", 0) or 0) == 1
 
     if toyota_stock_long:
       CP_SP.flags |= ToyotaFlagsSP.STOCK_LONGITUDINAL.value
@@ -242,6 +243,13 @@ def _initialize_toyota(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params
 
     if toyota_brake_onset:
       CP_SP.flags |= ToyotaFlagsSP.SP_BRAKE_ONSET.value
+
+    # Off-by-default: only the two route-validated TSS2 platforms carry the flag,
+    # and stock longitudinal always wins over software-owned set speed.
+    if toyota_virtual_cruise_speed and CP.openpilotLongitudinalControl and \
+       CP_SP.flags & ToyotaFlagsSP.VIRTUAL_CRUISE_SPEED_AVAILABLE:
+      CP_SP.pcmCruiseSpeed = False
+
 
 def _initialize_mazda(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params_dict: dict[str, str]) -> None:
   if CP.brand == 'mazda':

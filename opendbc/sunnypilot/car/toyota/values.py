@@ -7,6 +7,16 @@ See the LICENSE.md file in the root directory for more details.
 
 from enum import IntFlag
 
+from opendbc.car.toyota.values import CAR
+
+
+# Direct cruise-button states in CLUTCH are route-validated on these two TSS2
+# platforms only. Everything else keeps the stock PCM cruise-speed path.
+VIRTUAL_CRUISE_SPEED_CAR = {
+  CAR.TOYOTA_COROLLA_TSS2,
+  CAR.TOYOTA_PRIUS_TSS2,
+}
+
 
 class ToyotaFlagsSP(IntFlag):
   SMART_DSU = 1
@@ -20,6 +30,7 @@ class ToyotaFlagsSP(IntFlag):
   SP_BRAKE_ONSET = 256
   TSS2_LONG_TUNING = 512
   TSS2_SMOOTH = 1024  # NOTE: upstream shipped 32, which aliases SP_ENHANCED_BSM; moved to the next free bit
+  VIRTUAL_CRUISE_SPEED_AVAILABLE = 2048  # NOTE: upstream shipped 256, which aliases SP_BRAKE_ONSET here
 
 
 # kiBP, kiV for the PCM accel PID with TSS2_SMOOTH
