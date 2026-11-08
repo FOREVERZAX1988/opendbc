@@ -19,7 +19,14 @@
         pip install -e .
         pip install jinja2==3.1.4
     - name: generate car docs
-      script: python opendbc/car/docs.py
+      script: |
+        # fork 的 opendbc 依赖 openpilot 包（radar_tracks 等导入 openpilot.common.*），
+        # GitHub Actions 版本也因此一直失败；这里浅克隆 openpilot 并入 PYTHONPATH
+        export PYTHONPATH="$PWD/openpilot:$PWD"
+        if [ ! -d openpilot/.git ]; then
+          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://cnb.cool/mouxancnb/openpilot.git openpilot
+        fi
+        python opendbc/car/docs.py
     - name: commit & push
       script: |
         git config --global --add safe.directory "$PWD"
@@ -42,4 +49,7 @@ master:
     - *update-cars
   # 手动触发：分支详情页按钮（.cnb/web_trigger.yml）
   web_trigger_update_cars:
+    - *update-cars
+  # API 触发（cnb build start-build --event api_trigger_update_cars）
+  api_trigger_update_cars:
     - *update-cars
