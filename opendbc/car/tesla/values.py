@@ -131,6 +131,7 @@ class CarControllerParams:
 class TeslaSafetyFlags(IntFlag):
   LONG_CONTROL = 1
   FSD_14 = 2
+  AUTO_TURN_SIGNALS = 8
 
   # deprecated flags
   DAS_STEERING_3_BIT_DEPRECATED = 2
@@ -140,6 +141,8 @@ class TeslaFlags(IntFlag):
   LONG_CONTROL = 1
   FSD_14 = 2
   MISSING_DAS_SETTINGS = 4
+  HAS_VEHICLE_BUS = 8
+  AUTO_TURN_SIGNALS = 32
 
   # deprecated flags
   # old 2-bit FW is now dashcammed
