@@ -206,6 +206,30 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     verz_follow = False
     bridge_ttc = False
 
+  # 待机/故障帧必须自洽（2026-11-16 route 0000001f seg7/seg8 实锤）：
+  # 跟停中被 softDisable（"Communication Issue"/"Low IPC Rate"）→ acc_control=2 待机，但
+  # verz_follow（踩油门跟随原厂 verz，默认开）、gas_override 透传、carcontroller 的
+  # stopping_hold 闩锁三者都**不看激活态**，仍把原厂雷达的停车保持（verz=-2.0 / anh=1）
+  # 照抄进待机帧 → 待机帧自己就是矛盾帧（原厂实测 st∈{0,2,6} 帧 verz 恒 0、anh/fm/fv 全 0，
+  # 见下方 verz=0 分支注释）。实测后果：t=seg7 25.7s OP 退出 → 待机帧持续 36s 请求 -2.0 保持
+  # （车被按到不能走）；seg8 21.0s 驾驶员踩油门，21.51s 油门一松 anh 抖回 1，22.56s（踩油门
+  # 1.5s / 保持帧存在 0.67s 后）原厂 src=2 st 由 3 跳 7（ACC/PAS 需要服务 DTC），两帧同时归零
+  # 后 23.0s 车才起步。故待机域内一律中性：不透传、不跟随、不保持、不发力矩。
+  # 只影响 st∉{3,4}（待机 2 / 关 0 / 故障 6），激活域行为不变（激活中踩油门 st=4 的透传照旧）。
+  if acc_control not in (3, 4):
+    acc_enabled = False
+    stopping = False
+    gas_override = False
+    verz_follow = False
+    bridge_ttc = False
+    stock_esp = False
+    stock_follow = False
+    stock_fv = False
+    stock_fm = False
+    stock_anhalten = False
+    stock_verz = 0.0
+    stock_axg = 0.0
+    stock_mom = 0.0
 
   # ACC_05: multiplicative torque control
   #

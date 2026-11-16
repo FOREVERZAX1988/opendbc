@@ -66,7 +66,7 @@ LS01_BUTTON_KEYS = ('abbrechen', 'setzen', 'hoch', 'runter', 'wiederaufnahme', '
 
 def make_acc(**kw):
   """调用 mlbcan.create_acc_accel_control，返回 ACC_05 解析后的信号字典"""
-  defaults = dict(acc_type=0, acc_enabled=True, accel=0.0, acc_control=2,
+  defaults = dict(acc_type=0, acc_enabled=True, accel=0.0, acc_control=3,
                   stopping=False, starting=False, esp_hold=False, v_ego=0.0,
                   engine_torque=0.0, stock_esp=False, stock_follow=False,
                   gas_override=False, stock_fv=False, stock_mom=1021.0,
@@ -272,10 +272,38 @@ class TestMacanMLBLongitudinal(unittest.TestCase):
   def test_standby_verz_zero(self):
     """待机（acc_enabled=False）时 verz=0.0——对齐原厂（原厂 st=0/2/6 verz 全 0，
     00000002+00000056 双 route 实测；旧代码 3.01 是自创饱和占位，已修正）。"""
-    r = make_acc(acc_enabled=False)
+    r = make_acc(acc_enabled=False, acc_control=2)
     self.assertEqual(r['verz'], 0.0, f"待机 verz 应=0（对齐原厂），实际 {r['verz']}（旧代码发 3.01 饱和占位）")
     self.assertEqual(r['mom'], 0, "待机不应发力矩")
     self.assertEqual(r['st'], 2, "待机 st 应为 2")
+
+  def test_standby_does_not_echo_stock_hold(self):
+    """待机帧不得携带原厂停车保持请求（2026-11-16 route 0000001f seg7/seg8 实锤）。
+
+    跟停中被 softDisable（"Communication Issue"/"Low IPC Rate"）→ st=2 待机，但
+    verz_follow / gas_override 透传 / stopping_hold 三者都不看激活态，仍把原厂雷达的
+    保持帧（verz=-2.0 / anh=1）照抄进待机帧。实测：保持帧存在 36s 车被按死（踩油门
+    21.0s→23.0s 才起步），踩油门 0.67s 后原厂 src=2 st 3→7（仪表 ACC/PAS 需要服务 DTC），
+    两帧同时归零后车才动。待机帧必须中性：verz=0 / anh=0 / fm=0 / fv=0 / mom=0。
+    """
+    for gas in (False, True):
+      r = make_acc(acc_enabled=False, acc_control=2, stopping=True,
+                   stock_verz=-2.0, verz_follow=True, stock_anhalten=True,
+                   stock_fv=True, stock_fm=True, stock_mom=80.0, stock_axg=1.9,
+                   gas_override=gas)
+      self.assertEqual(r['verz'], 0.0, f"待机 verz 必须 0（gas_override={gas}），实际 {r['verz']}")
+      self.assertEqual(r['anh'], 0, f"待机不得请求停车保持（gas_override={gas}）")
+      self.assertEqual(r['fm'], 0, "待机不得开力矩通道")
+      self.assertEqual(r['fv'], 0, "待机不得开减速通道")
+      self.assertEqual(r['mom'], 0, "待机不得发力矩")
+      self.assertEqual(r['st'], 2, "待机 st 应为 2")
+
+  def test_override_still_echoes_stock(self):
+    """对照：激活中踩油门（st=4 超驰）仍须透传原厂 verz/anh——待机闸门不能误伤激活域。"""
+    r = make_acc(acc_enabled=True, acc_control=4, gas_override=True,
+                 stock_verz=-1.2, stock_anhalten=True, stock_mom=40.0)
+    self.assertAlmostEqual(r['verz'], -1.2, places=2, msg="超驰时 verz 应跟随原厂（st6 修复语义）")
+    self.assertEqual(r['anh'], 1, "超驰时 anh 应跟随原厂")
 
   def test_slope_comp_verz_positive(self):
     """MacanSlopeComp 开启+上坡：verz 发正值=加速声明（00000002 拟合 4.2*sinθ）。
