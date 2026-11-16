@@ -526,9 +526,7 @@ class CarState(CarStateBase):
     # 值 1=减小（-）、值 2=增大（+）——方向如路试不符可对调。OP 代发 ACC_02 时
     # 通过 CS.stock_zeitluecke 驱动仪表 1-4 格显示（原厂默认 ZL=4 → 3 格）。
     zl_key = pt_cp.vl["LS_01"]["LS_Verstellung_Zeitluecke"]
-    zl_edge = 0
     if zl_key != 0 and self.zeitluecke_key_last == 0:
-      zl_edge = zl_key
       if zl_key == 1:
         self.stock_zeitluecke = max(1, self.stock_zeitluecke - 1)
       elif zl_key == 2:
@@ -543,17 +541,16 @@ class CarState(CarStateBase):
     # 单独按 +/-（只有 bit17/18，bit16=0）不受影响，功能保留。
     if any(b.type == ButtonType.setCruise for b in button_events) or pt_cp.vl["LS_01"]["LS_Tip_Setzen"]:
       button_events = [b for b in button_events if b.type != ButtonType.accelCruise]
-    # 车距键补发 buttonEvents（2026-08-13 修复）：MLB BUTTONS 映射指向 GRA_Neu.GRA_Zeitluecke
-    # （值3），与 Macan 实际信号 LS_01.LS_Verstellung_Zeitluecke（20|2，值1=拉近/2=拉远）不匹配
-    # → create_button_events 收不到距离键 → selfdrived 的驾驶风格融合（车距档→personality，
-    # selfdrived.py 读 gapAdjustCruise/altButton2 跟踪 _zeitluecke）失效、无 UI 提示。
-    # 这里边沿触发补发：值1→gapAdjustCruise(-1格)、值2→altButton2(+1格)，与融合逻辑对齐。
-    # 单帧 pressed=True（按住期间不重复发），不会触发 altButton2 长按切 experimental。
-    if zl_edge:
-      be = structs.CarState.ButtonEvent()
-      be.type = ButtonType.gapAdjustCruise if zl_edge == 1 else ButtonType.altButton2
-      be.pressed = True
-      button_events.append(be)
+    # 车距键不再手工补发 buttonEvents（2026-11-16 route 00000020 seg0 实锤）：
+    # 2026-08-13 加这段时 BUTTONS 还指向 GRA_Neu.GRA_Zeitluecke（值3），LS_01 的
+    # LS_Verstellung_Zeitluecke 没人接。现在 values.py 的 MLB BUTTONS 已经同时映射
+    # 值1→gapAdjustCruise、值2→altButton2，create_button_events 会正常产生事件——
+    # 这段补发就变成了**同一按键每按一次发两个事件**（qlog 实测同帧两条
+    # gapAdjustCruise/altButton2，pressed=True 各两份）。
+    # 后果：selfdrived 的 _zeitluecke 一按跳 2 格，而 carstate.stock_zeitluecke
+    # （仪表格数）只走 1 格 → 「仪表 3 格=标准、comma 却是激进」这类错位，
+    # 实测 seg0 14.7–30.3s 风格在 Aggressive/Normal/Relaxed 之间反复跳。
+    # stock_zeitluecke 的自跟踪（上面 zl_key 段）与仪表显示保持不变。
     ret.buttonEvents = button_events
 
     ret.cruiseState.standstill = self.CP.pcmCruise and self.esp_hold_confirmation

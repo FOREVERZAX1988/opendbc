@@ -18,6 +18,7 @@ from opendbc.can import CANPacker
 from opendbc.car import structs
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.volkswagen import mlbcan
+from opendbc.car.volkswagen.values import CarControllerParams
 from opendbc.car.volkswagen.carcontroller import (CarController, MACAN_B1_T_A, MACAN_B1_T_B,
                                                  MACAN_DISP_REL_TH)
 
@@ -802,6 +803,66 @@ class TestMacanLS01ForwardBus1ToBus2(unittest.TestCase):
       self.assertEqual(p[k], 0, f'纯OP 待命帧不得带按键位 {k}={p[k]}（否则雷达被激活）')
     # COUNTER 不变也必须继续保活（与融合模式的去重语义相反）
     self.assertEqual(len(self._ls01(cc, 1, self._gra(0))), 1, '纯OP 待命帧需每帧保活')
+
+
+class TestMacanDistanceKeySingleEvent(unittest.TestCase):
+  """车距键（DIST ±）必须**一次按键一条** buttonEvents（2026-11-16 route 00000020 seg0 实锤）。
+
+  症状：仪表 3 格=标准，comma 却显示激进；停车反复按 DIST 时风格在
+  Aggressive/Normal/Relaxed 之间来回跳。
+  根因：values.py 的 MLB BUTTONS 已把 LS_01.LS_Verstellung_Zeitluecke 的值1/值2 分别映射成
+  gapAdjustCruise / altButton2，而 carstate.update_mlb 里 2026-08-13 那段"手工补发"还在，
+  同一次按下沿被发两次 → selfdrived._zeitluecke 一按跳 2 格，carstate.stock_zeitluecke
+  （仪表）只跳 1 格，两套计数必然错位。qlog 实证 21.63s 同帧两条 gapAdjustCruise。
+  """
+
+  @staticmethod
+  def _ccp():
+    CI = interfaces['PORSCHE_MACAN_MK1']
+    CP = CI.get_params('PORSCHE_MACAN_MK1', _FP_ALL, [], alpha_long=True, is_release=False, docs=False)
+    return CarControllerParams(CP)
+
+  def test_mlb_buttons_cover_both_gap_values(self):
+    """不变量：MLB BUTTONS 同时映射值1(拉近)/值2(拉远)——这是"不能手工补发"的前提。"""
+    T = structs.CarState.ButtonEvent.Type
+    mapped = {(b.event_type, tuple(b.values)) for b in self._ccp().BUTTONS
+              if b.can_addr == 'LS_01' and b.can_msg == 'LS_Verstellung_Zeitluecke'}
+    self.assertIn((T.gapAdjustCruise, (1,)), mapped,
+                  'MLB BUTTONS 必须把 LS_Verstellung_Zeitluecke=1 映射成 gapAdjustCruise')
+    self.assertIn((T.altButton2, (2,)), mapped,
+                  'MLB BUTTONS 必须把 LS_Verstellung_Zeitluecke=2 映射成 altButton2')
+
+  def test_one_press_yields_exactly_one_event(self):
+    """行为级：一次 DIST 按下沿只能产生一条事件（修复前是同帧两条）。"""
+    from opendbc.car.volkswagen.carstate import CarState
+
+    cs = object.__new__(CarState)          # 绕过 __init__（那里要连 CANParser）
+    cs.CCP = self._ccp()
+    cs.button_states = {b.event_type: False for b in cs.CCP.BUTTONS}
+    signals = [b.can_msg for b in cs.CCP.BUTTONS if b.can_addr == 'LS_01']
+
+    class _FakeCP:
+      def __init__(self, zl):
+        self.vl = {'LS_01': {k: 0 for k in signals} | {'LS_Verstellung_Zeitluecke': zl}}
+
+    def events(zl):
+      return [(b.type, b.pressed) for b in cs.create_button_events(_FakeCP(zl), cs.CCP.BUTTONS)]
+
+    T = structs.CarState.ButtonEvent.Type
+    self.assertEqual(events(0), [], '无按键帧不得产生事件')
+    self.assertEqual(events(1), [(T.gapAdjustCruise, True)], '拉近按下沿应只产生一条 gapAdjustCruise')
+    self.assertEqual(events(1), [], '按住期间不得重复产生事件')
+    self.assertEqual(events(0), [(T.gapAdjustCruise, False)], '松开沿应只产生一条释放事件')
+    self.assertEqual(events(2), [(T.altButton2, True)], '拉远按下沿应只产生一条 altButton2')
+
+  def test_carstate_does_not_reappend_gap_event(self):
+    """carstate 不得再手工补发车距键事件（否则一次按键两个事件 → 风格跳两格）。"""
+    import inspect
+    from opendbc.car.volkswagen import carstate as csmod
+    src = inspect.getsource(csmod)
+    # zl_edge 只属于 2026-08-13 那段手工补发；它一回来就说明"一次按键两个事件"复发
+    self.assertNotIn('zl_edge', src,
+                     'carstate 又出现 zl_edge 手工补发路径 —— 车距键会被重复消费、风格跳两格')
 
 
 if __name__ == '__main__':
