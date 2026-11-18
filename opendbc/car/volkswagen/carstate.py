@@ -526,12 +526,27 @@ class CarState(CarStateBase):
     # 值 1=减小（-）、值 2=增大（+）——方向如路试不符可对调。OP 代发 ACC_02 时
     # 通过 CS.stock_zeitluecke 驱动仪表 1-4 格显示（原厂默认 ZL=4 → 3 格）。
     zl_key = pt_cp.vl["LS_01"]["LS_Verstellung_Zeitluecke"]
-    if zl_key != 0 and self.zeitluecke_key_last == 0:
+    zl_edge = zl_key != 0 and self.zeitluecke_key_last == 0
+    if zl_edge:
       if zl_key == 1:
         self.stock_zeitluecke = max(1, self.stock_zeitluecke - 1)
       elif zl_key == 2:
         self.stock_zeitluecke = min(4, self.stock_zeitluecke + 1)
     self.zeitluecke_key_last = zl_key
+
+    # 原厂档位真值纠偏（2026-11-18，route 00000031 实测）：ACC_02 的
+    # ACC_Gesetzte_Zeitluecke(37|3) 只在原厂 ACC 上电/激活（ACC_Status_ACC ∈ 2/3/4）
+    # 时才采信。ACC 关闭时（st=0、ACC_Anzeige_Zeitluecke=0）原厂会自己把该值回落成 3
+    # ——CAN 满速无中断、也没有按键——若无条件采信，会把司机刚设的 4 格改回 3，
+    # 下一次按「−」就直接掉到 2（实测 278.2s：期望 4→3，实际 3→2）。
+    # 按键帧不覆盖：原厂帧比按键晚约 50ms，同一帧覆盖会造成 4→3→4 抖动。
+    if not zl_edge and self.acc05_stock_status in (2, 3, 4):
+      try:
+        _zl_stock = int(cam_cp.vl["ACC_02"]["ACC_Gesetzte_Zeitluecke"])
+      except (KeyError, IndexError):
+        _zl_stock = 0
+      if 1 <= _zl_stock <= 4:
+        self.stock_zeitluecke = _zl_stock
 
     button_events = self.create_button_events(pt_cp, self.CCP.BUTTONS)
     # Macan(MLB) 巡航拨杆：按 SET 时 LS_01 bit16(SET)+bit17(Hoch/+) 同时置位
@@ -613,6 +628,10 @@ class CarState(CarStateBase):
       # 需要服务（62-26 段实锤，2026-08-28）。固定从 bus2（cam_cp）读原厂帧。
       cam_messages += [
         ("ACC_05", 100),
+        # ACC_02 carries ACC_Gesetzte_Zeitluecke (37|3), the bars the car itself
+        # reports. Read on bus2 like ACC_05, and only used to keep the tracked
+        # counter honest while the stock ACC is powered (see update_mlb).
+        ("ACC_02", 16),
       ]
     if CP.flags & VolkswagenFlags.STOCK_HCA_PRESENT:
       cam_messages += [
