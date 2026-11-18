@@ -199,6 +199,7 @@
 |Hyundai|Ioniq Plug-in Hybrid 2020-22|All|[Upstream](#upstream)|
 |Hyundai|Kona 2020|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Hyundai|Kona 2022-23|Smart Cruise Control (SCC)|[Upstream](#upstream)|
+|Hyundai|Kona (without HDA II) 2024-25|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Hyundai|Kona Electric 2018-21|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Hyundai|Kona Electric 2022-23|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Hyundai|Kona Electric (with HDA II, Korea only) 2023|Smart Cruise Control (SCC)|[Upstream](#upstream)|
@@ -215,14 +216,16 @@
 |Hyundai|Santa Fe Plug-in Hybrid 2022-23|All|[Upstream](#upstream)|
 |Hyundai|Sonata 2018-19|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Hyundai|Sonata 2020-23|All|[Upstream](#upstream)|
+|Hyundai|Sonata (without HDA II) 2024-26|All|[Upstream](#upstream)|
 |Hyundai|Sonata Hybrid 2020-23|All|[Upstream](#upstream)|
-|Hyundai|Sonata Hybrid (without HDA II) 2024-26|Smart Cruise Control (SCC)|[Upstream](#upstream)|
+|Hyundai|Sonata Hybrid (without HDA II) 2024-26|All|[Upstream](#upstream)|
 |Hyundai|Staria 2023|All|[Upstream](#upstream)|
 |Hyundai|Tucson 2021|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Hyundai|Tucson 2022|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Hyundai|Tucson 2023-24|All|[Upstream](#upstream)|
 |Hyundai|Tucson Diesel 2019|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Hyundai|Tucson Hybrid 2022-24|All|[Upstream](#upstream)|
+|Hyundai|Tucson Hybrid (without HDA II) 2025-26|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Hyundai|Tucson Plug-in Hybrid 2024|All|[Upstream](#upstream)|
 |Hyundai|Veloster 2019-20|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Hyundai|Venue Non-SCC 2021|No Smart Cruise Control (Non-SCC)|[Community](community)|
@@ -231,6 +234,7 @@
 |Jeep|Grand Cherokee 2019-21|Adaptive Cruise Control (ACC)|[Upstream](#upstream)|
 |Kia|Carnival 2022-24|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Kia|Carnival (China only) 2023|Smart Cruise Control (SCC)|[Upstream](#upstream)|
+|Kia|Carnival Hybrid (with HDA II) 2025-26|Highway Driving Assist II|[Upstream](#upstream)|
 |Kia|Ceed 2019-21|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Kia|Ceed Plug-in Hybrid 2021|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Kia|Ceed Plug-in Hybrid Non-SCC 2022|No Smart Cruise Control (Non-SCC)|[Community](community)|
@@ -259,6 +263,7 @@
 |Kia|Niro Plug-in Hybrid 2020|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Kia|Niro Plug-in Hybrid 2021|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Kia|Niro Plug-in Hybrid 2022|Smart Cruise Control (SCC)|[Upstream](#upstream)|
+|Kia|Niro Plus EV 2024|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Kia|Optima 2017|Advanced Smart Cruise Control|[Upstream](#upstream)|
 |Kia|Optima 2019-20|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Kia|Optima Hybrid 2017|Advanced Smart Cruise Control|[Dashcam mode](#dashcam)|

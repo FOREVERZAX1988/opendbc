@@ -118,8 +118,8 @@ static void byd_rx_hook(const CANPacket_t *to_push) {
     // ATTO3 export model: angle-control on byd_general.dbc, camera on bus 2 (MPC)
     if (bus == BYD_CANBUS_ESC) {
       if (addr == BYD_CANADDR_PEDAL) {
-        gas_pressed = (to_push->data[0] != 0U);
-        brake_pressed = (to_push->data[1] != 0U);
+        safety.gas_pressed = (to_push->data[0] != 0U);
+        safety.brake_pressed = (to_push->data[1] != 0U);
       } else if (addr == BYD_CANADDR_WHEEL_SPEED) {
         // WHEELSPEED_BR (bits 48-63): byte 7 is a constant status byte (0x41),
         // NOT the high byte of the wheel speed. DBC wrongly declares it as 16-bit.
@@ -127,7 +127,7 @@ static void byd_rx_hook(const CANPacket_t *to_push) {
         uint16_t speed_fl = (uint16_t)((to_push->data[1] << 8) | to_push->data[0]);
         uint16_t speed_fr = (uint16_t)((to_push->data[3] << 8) | to_push->data[2]);
         uint16_t speed_rl = (uint16_t)((to_push->data[5] << 8) | to_push->data[4]);
-        vehicle_moving = (speed_fl | speed_fr | speed_rl) != 0U;
+        safety.vehicle_moving = (speed_fl | speed_fr | speed_rl) != 0U;
         // DBC factor 0.1 gives km/h, but BYD ATTO3 India raw values read ~32.5% high
         // vs odometer at steady-state. Correction: 40/53. Verify with GPS if re-calibrating.
         UPDATE_VEHICLE_SPEED(((speed_fl + speed_fr + speed_rl) / 3.0) * 0.1 * (40.0 / 53.0) * KPH_TO_MS);
@@ -137,15 +137,15 @@ static void byd_rx_hook(const CANPacket_t *to_push) {
         // STEERING_TORQUE is EPS motor output and must not be used for driver override.
         int angle_meas_new = (int)GET_BYTES_LE(to_push, 0, 2);      // STEER_ANGLE_2 : 0|16@1-
         angle_meas_new = to_signed(angle_meas_new, 16);
-        update_sample(&angle_meas, angle_meas_new);
+        update_sample(&safety.angle_meas, angle_meas_new);
 
         int torque_driver_new = (int)to_push->data[2];           // DRIVER_EPS_TORQUE : 16|8@1+
-        update_sample(&torque_driver, torque_driver_new);
+        update_sample(&safety.torque_driver, torque_driver_new);
       } else if (addr == BYD_CANADDR_STEERING_TORQUE) {
         // EPS motor torque (used for diagnostic logging only).
         int torque_motor_new = (int)GET_BYTES_LE(to_push, 1, 2);    // MAIN_TORQUE : 8|12@1-
         if (torque_motor_new >= 2048) torque_motor_new -= 4096;
-        update_sample(&torque_meas, torque_motor_new);
+        update_sample(&safety.torque_meas, torque_motor_new);
       }
     } else if (bus == BYD_CANBUS_MPC) {
       if (addr == BYD_CANADDR_ACC_CMD) {
@@ -157,7 +157,7 @@ static void byd_rx_hook(const CANPacket_t *to_push) {
         // ACC_HUD_ADAS carries the dashboard ACC main switch state on ATTO3
         bool acc_hud_on1 = GET_BIT(to_push, 22U) != 0U;
         bool acc_hud_on2 = GET_BIT(to_push, 20U) != 0U;
-        acc_main_on = acc_hud_on1 || acc_hud_on2;
+        safety.acc_main_on = acc_hud_on1 || acc_hud_on2;
       }
     }
   } else if (byd_platform == N3) {
@@ -165,8 +165,8 @@ static void byd_rx_hook(const CANPacket_t *to_push) {
     if (bus == BYD_CANBUS_ESC) {
       if (addr == BYD_CANADDR_N3_PEDAL_GEAR) {
         // VCU_0x342 : VCU_Accelerograph_Depth_S 0|8@1+ (%), VCU_Brake_Depth_S 8|8@1+ (%)
-        gas_pressed = (to_push->data[0] != 0U);
-        brake_pressed = (to_push->data[1] != 0U);
+        safety.gas_pressed = (to_push->data[0] != 0U);
+        safety.brake_pressed = (to_push->data[1] != 0U);
       } else if (addr == BYD_CANADDR_N3_WHEEL_SPEED) {
         // IPB_0x10C : WheelSpeed_FL 48|12@1+, WheelSpeed_RR 84|12@1+ (x0.06875 km/h)
         // 64B CAN FD feedback frame: on STM32F4 (classic-only dos panda) it can
@@ -175,7 +175,7 @@ static void byd_rx_hook(const CANPacket_t *to_push) {
 #ifdef CANFD
         uint16_t speed_fl = (uint16_t)(to_push->data[6] | ((to_push->data[7] & 0x0FU) << 8));
         uint16_t speed_rr = (uint16_t)(to_push->data[10] | ((to_push->data[11] & 0x0FU) << 8));
-        vehicle_moving = ((speed_fl != 0U) || (speed_rr != 0U));
+        safety.vehicle_moving = ((speed_fl != 0U) || (speed_rr != 0U));
         // Vehicle_speed : 35|12@1+ (x0.06875 km/h)
         uint16_t veh_speed = (uint16_t)(((to_push->data[4] >> 3) | (to_push->data[5] << 5)) & 0xFFFU);
         UPDATE_VEHICLE_SPEED((float)(veh_speed * 0.06875) * KPH_TO_MS);
@@ -186,11 +186,11 @@ static void byd_rx_hook(const CANPacket_t *to_push) {
 #ifdef CANFD
         int angle_meas_new = (int)(((to_push->data[9] >> 5) | (to_push->data[10] << 3) | (to_push->data[11] << 11)) & 0xFFFFU);
         angle_meas_new = to_signed(angle_meas_new, 16);
-        update_sample(&angle_meas, angle_meas_new);
+        update_sample(&safety.angle_meas, angle_meas_new);
 
         int torque_driver_new = (int)(((to_push->data[15] >> 2) | (to_push->data[16] << 6)) & 0x7FFU);
         if (torque_driver_new >= 1024) torque_driver_new -= 2048;
-        update_sample(&torque_driver, torque_driver_new);
+        update_sample(&safety.torque_driver, torque_driver_new);
 #endif
       }
     } else if (bus == BYD_CANBUS_MPC) {
@@ -198,7 +198,7 @@ static void byd_rx_hook(const CANPacket_t *to_push) {
         // ADC_0x32D : ACC_Mode_Display_S 19|3@1+ — same enum semantics as legacy
         unsigned int accstate = ((to_push->data[2] >> 3) & 0x07U);
         // 2=standby, 3=active, 5=override
-        acc_main_on = (accstate == 2U) || (accstate == 3U) || (accstate == 5U);
+        safety.acc_main_on = (accstate == 2U) || (accstate == 3U) || (accstate == 5U);
         bool cruise_engaged = (accstate == 3U) || (accstate == 5U);
         pcm_cruise_check(cruise_engaged);
       }
@@ -210,42 +210,42 @@ static void byd_rx_hook(const CANPacket_t *to_push) {
     if (bus == BYD_CANBUS_ESC) {
       if (addr == BYD_CANADDR_PEDAL) {
         // CID_GDWRBP : sig_oefitp 0|8@1+ (gas), sig_wrfhru 8|8@1+ (brake)
-        gas_pressed = (to_push->data[0] != 0U);
-        brake_pressed = (to_push->data[1] != 0U);
+        safety.gas_pressed = (to_push->data[0] != 0U);
+        safety.brake_pressed = (to_push->data[1] != 0U);
       } else if (addr == BYD_CANADDR_CARSPEED) {
         // CID_QXPDTS : sig_mniqdb 0|12@1+
         int speed_raw = (((to_push->data[1] & 0x0FU) << 8) | to_push->data[0]);
-        vehicle_moving = (speed_raw != 0);
+        safety.vehicle_moving = (speed_raw != 0);
         // cluster speed, factor 0.0719088 after sig_mniqdb raw
         UPDATE_VEHICLE_SPEED((float)(speed_raw * 0.0719088) * KPH_TO_MS);
       } else if (addr == BYD_CANADDR_STEER_MODULE_2) {
         // CID_VSUYVS : sig_uefwof 0|16@1- (steering angle), sig_ttcoap 16|8@1+
         int angle_meas_new = (int)GET_BYTES_LE(to_push, 0, 2);
         angle_meas_new = to_signed(angle_meas_new, 16);
-        update_sample(&angle_meas, angle_meas_new);
+        update_sample(&safety.angle_meas, angle_meas_new);
       } else if (addr == BYD_CANADDR_STEERING_TORQUE) {
         // CID_KERMHK : sig_rcgbok 0|2@1+ (eps state), sig_bhnetn 4|12@0- (driver
         // torque), sig_itfrci 32|12@0- (motor torque). Angle mode uses driver
         // torque for override detection only; motor torque is diagnostic.
         int torque_driver_new = (int)(((to_push->data[1] << 4) | (to_push->data[0] >> 4)) & 0xFFFU);
         if (torque_driver_new >= 2048) torque_driver_new -= 4096;
-        update_sample(&torque_driver, torque_driver_new);
+        update_sample(&safety.torque_driver, torque_driver_new);
 
         int torque_motor_new = (int)(((to_push->data[5] & 0x0FU) << 8) | to_push->data[4]);
         if (torque_motor_new >= 2048) torque_motor_new -= 4096;
-        update_sample(&torque_meas, torque_motor_new);
+        update_sample(&safety.torque_meas, torque_motor_new);
       } else if (addr == BYD_CANADDR_ACC_EPS_STATE) {
         // CID_IQMESB : sig_itfrci 8|12@0- (main torque) — diagnostic only
         int torque_motor = (int)(((to_push->data[2] << 4) | (to_push->data[1] >> 4)) & 0xFFFU);
         if (torque_motor >= 2048) torque_motor -= 4096;
-        update_sample(&torque_meas, torque_motor);
+        update_sample(&safety.torque_meas, torque_motor);
       }
     } else if (bus == BYD_CANBUS_MPC) {
       if (addr == BYD_CANADDR_ACC_HUD_ADAS) {
         // CID_XQYNBW : sig_hprcqm 19|3@1+ (acc_state) — same position as legacy
         unsigned int accstate = ((to_push->data[2] >> 3) & 0x07U);
         // 2=acc_on, 3=acc_active, 5=user force accel
-        acc_main_on = (accstate == 2U) || (accstate == 3U) || (accstate == 5U);
+        safety.acc_main_on = (accstate == 2U) || (accstate == 3U) || (accstate == 5U);
         bool cruise_engaged = (accstate == 3U) || (accstate == 5U);
         pcm_cruise_check(cruise_engaged);
       }
@@ -254,17 +254,17 @@ static void byd_rx_hook(const CANPacket_t *to_push) {
     // Existing torque-controlled platforms (HAN/TANG/SONG/QIN)
     if (bus == BYD_CANBUS_ESC) {
       if (addr == BYD_CANADDR_PEDAL) {
-        gas_pressed = (to_push->data[0] != 0U);
-        brake_pressed = (to_push->data[1] != 0U);
+        safety.gas_pressed = (to_push->data[0] != 0U);
+        safety.brake_pressed = (to_push->data[1] != 0U);
       } else if (addr == BYD_CANADDR_CARSPEED) {
         int speed_raw = (((to_push->data[1] & 0x0FU) << 8) | to_push->data[0]);
-        vehicle_moving = (speed_raw != 0);
+        safety.vehicle_moving = (speed_raw != 0);
       } else if (addr == BYD_CANADDR_ACC_EPS_STATE) {
         byd_eps_cruiseactivated = GET_BIT(to_push, 1U) != 0U; // CruiseActivated
         int torque_motor = (((to_push->data[2] & 0x0FU) << 8) | to_push->data[1]); // MainTorque
         if ( torque_motor >= 2048 )
           torque_motor -= 4096;
-        update_sample(&torque_meas, torque_motor);
+        update_sample(&safety.torque_meas, torque_motor);
       }
       else {
         //empty
@@ -273,7 +273,7 @@ static void byd_rx_hook(const CANPacket_t *to_push) {
       if (addr == BYD_CANADDR_ACC_HUD_ADAS) {
         unsigned int accstate = ((to_push->data[2] >> 3) & 0x07U);
         // ACC main on when system is active/standby (2=acc_on, 3=acc_active, 5=user force accel)
-        acc_main_on = (accstate == 2U) || (accstate == 3U) || (accstate == 5U);
+        safety.acc_main_on = (accstate == 2U) || (accstate == 3U) || (accstate == 5U);
         bool cruise_engaged = (accstate == 3U) || (accstate == 5U); // 3=acc_active, 5=user force accel
         pcm_cruise_check(cruise_engaged);
       }
