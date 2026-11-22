@@ -33,6 +33,15 @@ class CarState(CarStateBase):
     # LongitudinalPersonality 反推（与 selfdrived._zeitluecke 同源 {2:4, 1:3, 0:1}），
     # 保证仪表首启即显示记忆档位，消除"仪表3格 vs OP 从容"错位。缺失/异常回落 3 格（原厂行为）。
     self.stock_zeitluecke = 3
+    # 上一次已外发的档位，避免每帧重复写文件（见 update() 末尾的真值外发）
+    self._zl_published = 0
+    # 清掉上一趟留下的档位：本次上电、原厂 ACC 还没上电时，selfdrived 若读到过期值
+    # 会把风格直接推到上一趟的档位。清空后读不到（None）就退回按键推导，等 ACC 上电
+    # 由 update() 立刻写出真值。
+    try:
+      open("/data/params/d/MacanStockGap", "w").close()
+    except OSError:
+      pass
     try:
       from openpilot.common.params import Params
       _mp = Params()
@@ -547,6 +556,22 @@ class CarState(CarStateBase):
         _zl_stock = 0
       if 1 <= _zl_stock <= 4:
         self.stock_zeitluecke = _zl_stock
+
+    # 档位真值外发（2026-11-22）：selfdrived 要把原厂跟车档映射成驾驶风格，但它拿不到
+    # 这个值——CarState 是 capnp 消息，没有 stock_zeitluecke 字段；而 Params 的 key 表
+    # 编译进 C++ 扩展（设备上没有 scons，新增 key 要重刷固件）。所以直接写 1/0 文本文件，
+    # 内容格式与 Params 一致，selfdrived 读同一个文件。只在值变化时写，100Hz 下零开销。
+    # 写的是上面自跟踪 + 真值纠偏之后的**合并结果**，不是原始 ACC_02（那会在 ACC 下电时
+    # 回落成 3，把司机刚设的 4 格冲掉）。
+    # 只在原厂 ACC 上电（st 2/3/4）或真按了键时外发：ACC 下电时原厂会把档位回落成 3，
+    # 那不是真值，别让它把 selfdrived 的风格带偏。
+    if (zl_edge or self.acc05_stock_status in (2, 3, 4)) and self.stock_zeitluecke != self._zl_published:
+      self._zl_published = self.stock_zeitluecke
+      try:
+        with open("/data/params/d/MacanStockGap", "w") as _f:
+          _f.write(str(self.stock_zeitluecke))
+      except OSError:
+        pass
 
     button_events = self.create_button_events(pt_cp, self.CCP.BUTTONS)
     # Macan(MLB) 巡航拨杆：按 SET 时 LS_01 bit16(SET)+bit17(Hoch/+) 同时置位

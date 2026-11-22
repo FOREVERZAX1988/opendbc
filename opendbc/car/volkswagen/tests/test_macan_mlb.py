@@ -860,9 +860,13 @@ class TestMacanDistanceKeySingleEvent(unittest.TestCase):
     import inspect
     from opendbc.car.volkswagen import carstate as csmod
     src = inspect.getsource(csmod)
-    # zl_edge 只属于 2026-08-13 那段手工补发；它一回来就说明"一次按键两个事件"复发
-    self.assertNotIn('zl_edge', src,
-                     'carstate 又出现 zl_edge 手工补发路径 —— 车距键会被重复消费、风格跳两格')
+    # 2026-11-22：原先断言源码里不得出现 'zl_edge'，但那个名字现在是 update() 里的
+    # 「按键沿」局部变量（车距真值外发要用它排除按键帧），不是当年那段手工补发，
+    # 所以这条断言在改动前后都误报。改成数真正的手工补发点：create_button_events
+    # 里正常产生事件只应有一处 append，再多一处就是有人又把车距键补发回来了。
+    self.assertEqual(src.count('button_events.append'), 1,
+                     'carstate 出现了第二处 button_events.append —— 车距键可能又被手工补发，'
+                     '一次按键两个事件会让风格跳两格')
 
 
 if __name__ == '__main__':
