@@ -323,9 +323,15 @@ class CarController(CarControllerBase, GasInterceptorCarController):
         pcm_accel_cmd = pcm_accel_cmd if self.CP.carFingerprint in TSS2_CAR else actuators.accel
         pcm_accel_cmd = float(np.clip(pcm_accel_cmd, self.params.ACCEL_MIN, self.params.ACCEL_MAX))
 
+        # Camry 2018-20 (TSS2.0): advertise ACC_TYPE=1 in our ACC_CONTROL to defeat the
+        # stock low-speed lockout and gain full-range ACC (incl. stop-and-go) on non-FSR
+        # DRCC trims. This is the upstream-documented trick; see note in carstate.py.
+        # CS.acc_type (stock camera's value) is still used for the LOW_SPEED_LOCKOUT
+        # fault-check logic in carstate, so it stays untouched.
+        acc_type_cmd = 1 if self.CP.carFingerprint == CAR.TOYOTA_CAMRY else CS.acc_type
         main_accel_cmd = 0. if self.CP.flags & ToyotaFlags.SECOC.value else pcm_accel_cmd
         can_sends.append(toyotacan.create_accel_command(self.packer, main_accel_cmd, pcm_cancel_cmd, self.permit_braking, self.standstill_req, lead,
-                                                        CS.acc_type, fcw_alert, self.distance_button, self.CAN.pt))
+                                                        acc_type_cmd, fcw_alert, self.distance_button, self.CAN.pt))
         if self.CP.flags & ToyotaFlags.SECOC.value:
           acc_cmd_2 = toyotacan.create_accel_command_2(self.packer, pcm_accel_cmd, self.CAN.pt)
           acc_cmd_2 = add_mac(self.secoc_key,

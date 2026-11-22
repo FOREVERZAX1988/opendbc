@@ -196,7 +196,11 @@ class CAR(Platforms):
     ],
     CarSpecs(wheelbase=2.82448, steerRatio=13.7, tireStiffnessFactor=0.7933),
     {Bus.pt: 'toyota_nodsu_pt_generated'},
-    flags=ToyotaFlags.NO_DSU,
+    # TSS2.0 nodsu architecture: the camera sends ACC_CONTROL, same as TSS2.5 platforms.
+    # Enable TSS2 semantics so openpilot longitudinal is default-on with stop-and-go,
+    # giving full-range ACC (incl. from standstill) on non-FSR DRCC trims (e.g. CN-market).
+    # Radar bus intentionally omitted: TSS2.0 radar parsing is unverified -> vision-only leads.
+    flags=ToyotaFlags.NO_DSU | ToyotaFlags.TSS2 | ToyotaFlags.NO_STOP_TIMER,
   )
   TOYOTA_CAMRY_TSS2 = ToyotaTSS2PlatformConfig( # TSS 2.5
     [
