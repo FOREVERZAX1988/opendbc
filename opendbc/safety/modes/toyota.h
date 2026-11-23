@@ -386,13 +386,6 @@ static bool toyota_tx_hook(const CANPacket_t *msg) {
     }
   }
 
-  // SP: auto brake hold https://github.com/AlexandreSato
-  if (msg_matches(msg, 0x344U, 0U) && (alternative_experience & ALT_EXP_ALLOW_AEB)) {
-    if (vehicle_moving || gas_pressed || !acc_main_on || toyota_cruise_engaged) {
-      tx = false;
-    }
-  }
-
   // UDS: Only tester present ("\x0F\x02\x3E\x00\x00\x00\x00\x00") allowed on diagnostics address
   if (msg->addr == 0x750U) {
     // this address is sub-addressed. only allow tester present to radar (0xF)
