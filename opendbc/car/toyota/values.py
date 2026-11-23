@@ -7,7 +7,7 @@ from opendbc.car import Bus, CarSpecs, PlatformConfig, Platforms, CanBusBase
 from opendbc.car.lateral import AngleSteeringLimits
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.structs import CarParams
-from opendbc.car.docs_definitions import CarFootnote, CarDocs, Column, CarParts, CarHarness, SupportType
+from opendbc.car.docs_definitions import CarFootnote, CarDocs, Column, CarParts, CarHarness, SupportType, get_year_list
 from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries
 
 Ecu = CarParams.Ecu
@@ -133,6 +133,19 @@ class ToyotaSecOcCarDocs(ToyotaCarDocs):
 class ToyotaPatchedCarDocs(ToyotaSecOcCarDocs):
   support_type: SupportType = SupportType.CUSTOM
   support_link: str = "#secoc-cars-with-eps-patched"
+  # "PATCHED" 后缀会破坏 CarDocs 的 split_name 对 model/years 的解析
+  # （如 "Toyota Sienna 2021-26 PATCHED" → model 带后缀、years 为空），
+  # 用 patched_model / patched_years 显式给出正确的展示值
+  patched_model: str = ""
+  patched_years: str = ""
+
+  def __post_init__(self):
+    super().__post_init__()
+    if self.patched_model:
+      self.model = self.patched_model
+    if self.patched_years:
+      self.years = self.patched_years
+      self.year_list = get_year_list(self.patched_years)
 
 
 @dataclass
@@ -358,7 +371,8 @@ class CAR(Platforms):
     CarSpecs(wheelbase=3.06, steerRatio=17.8, tireStiffnessFactor=0.444),
   )
   TOYOTA_SIENNA_PATCHED = ToyotaSecOCPlatformConfig(
-    [ToyotaPatchedCarDocs("Toyota Sienna 2021-26 PATCHED", min_enable_speed=MIN_ACC_SPEED)],
+    [ToyotaPatchedCarDocs("Toyota Sienna 2021-27 PATCHED", min_enable_speed=MIN_ACC_SPEED,
+                          patched_model="Sienna", patched_years="2021-27")],
     CarSpecs(wheelbase=3.06, steerRatio=17.8, tireStiffnessFactor=0.444),
     flags=ToyotaFlags.EPS_BYPASS_SECOC,
   )
@@ -385,7 +399,8 @@ class CAR(Platforms):
     LEXUS_ES.specs,
   )
   LEXUS_ES_PATCHED = ToyotaSecOCPlatformConfig(
-    [ToyotaPatchedCarDocs("Lexus ES 2022-26 PATCHED", min_enable_speed=MIN_ACC_SPEED)],
+    [ToyotaPatchedCarDocs("Lexus ES 2022-27 PATCHED", min_enable_speed=MIN_ACC_SPEED,
+                          patched_model="ES", patched_years="2022-27")],
     CarSpecs(wheelbase=2.8702, steerRatio=16.0, tireStiffnessFactor=0.444),
     flags=ToyotaFlags.EPS_BYPASS_SECOC,
   )

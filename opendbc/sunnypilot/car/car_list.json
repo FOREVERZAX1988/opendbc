@@ -323,6 +323,17 @@
     ],
     "package": "All"
   },
+  "BYD SA6 (N3) 2025-26": {
+    "platform": "BYD_SA6_N3",
+    "make": "BYD",
+    "brand": "byd",
+    "model": "SA6 (N3)",
+    "year": [
+      "2025",
+      "2026"
+    ],
+    "package": "All"
+  },
   "BYD Seal 06 DMI 2024": {
     "platform": "BYD_SEAL_06_DMI",
     "make": "BYD",
@@ -2936,12 +2947,19 @@
     ],
     "package": "All"
   },
-  "Lexus ES 2022-26 PATCHED": {
+  "Lexus ES 2022-27 PATCHED": {
     "platform": "LEXUS_ES_PATCHED",
     "make": "Lexus",
     "brand": "toyota",
-    "model": "ES 2022-26 PATCHED",
-    "year": [],
+    "model": "ES",
+    "year": [
+      "2022",
+      "2023",
+      "2024",
+      "2025",
+      "2026",
+      "2027"
+    ],
     "package": "All"
   },
   "Lexus ES Hybrid 2017-18": {
@@ -4465,12 +4483,20 @@
     ],
     "package": "All"
   },
-  "Toyota Sienna 2021-26 PATCHED": {
+  "Toyota Sienna 2021-27 PATCHED": {
     "platform": "TOYOTA_SIENNA_PATCHED",
     "make": "Toyota",
     "brand": "toyota",
-    "model": "Sienna 2021-26 PATCHED",
-    "year": [],
+    "model": "Sienna",
+    "year": [
+      "2021",
+      "2022",
+      "2023",
+      "2024",
+      "2025",
+      "2026",
+      "2027"
+    ],
     "package": "All"
   },
   "Toyota Wildlander PHEV 2021-23": {

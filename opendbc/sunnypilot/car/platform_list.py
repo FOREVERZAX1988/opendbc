@@ -79,6 +79,8 @@ def build_sorted_car_list(platforms, footnotes) -> dict[str, dict[str, list[str]
 if __name__ == "__main__":
   platform_list = get_car_list()
 
-  with open(CAR_LIST_JSON_OUT, "w") as json_file:
+  # newline='\n' 防 Windows 文本模式写出 CRLF（文件须与 json.dumps 输出严格一致，
+  # 否则 test_car_list.test_generator 会失败）
+  with open(CAR_LIST_JSON_OUT, "w", newline="\n") as json_file:
     json.dump(platform_list, json_file, indent=2, ensure_ascii=False)
   print(f"Generated and written to {CAR_LIST_JSON_OUT}")
