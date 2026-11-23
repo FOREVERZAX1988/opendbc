@@ -3,20 +3,6 @@
 extern const uint16_t FLAG_VOLKSWAGEN_LONG_CONTROL;
 const uint16_t FLAG_VOLKSWAGEN_LONG_CONTROL = 1;
 
-extern bool volkswagen_longitudinal;
-bool volkswagen_longitudinal = false;
-
-extern bool volkswagen_set_button_prev;
-bool volkswagen_set_button_prev = false;
-
-extern bool volkswagen_resume_button_prev;
-bool volkswagen_resume_button_prev = false;
-
-extern bool volkswagen_brake_pedal_switch;
-extern bool volkswagen_brake_pressure_detected;
-bool volkswagen_brake_pedal_switch = false;
-bool volkswagen_brake_pressure_detected = false;
-
 #define MSG_LH_EPS_03        0x09FU   // RX from EPS, for driver steering torque
 #define MSG_ESP_19           0x0B2U   // RX from ABS, for wheel speeds
 #define MSG_ESP_05           0x106U   // RX from ABS, for brake switch state
@@ -35,16 +21,13 @@ bool volkswagen_brake_pressure_detected = false;
 #define MSG_LS_01       0x10BU   // TX by OP, ACC control buttons for cancel/resume
 #define MSG_MOTOR_03    0x105U   // RX from ECU, for driver throttle input and brake switch status
 #define MSG_TSK_04      0x10EU   // RX from ECU, for ACC status from drivetrain coordinator
+// Macan fork: OP longitudinal needs to author the ACC frames the radar used to own
 #define MSG_ACC_01      0x109U   // TX by OP, ACC control instructions to the drivetrain coordinator (MLB)
 #define MSG_ACC_05      0x10DU   // RX from radar / TX by OP, ACC status
 #define MSG_ACC_04      0x324U   // RX from radar, ACC status texts (HUD/Cluster). Blocked from fwd in LONG mode
 
 static void volkswagen_common_init(void) {
-  volkswagen_longitudinal = false;
-  volkswagen_set_button_prev = false;
-  volkswagen_resume_button_prev = false;
-  volkswagen_brake_pedal_switch = false;
-  volkswagen_brake_pressure_detected = false;
+  safety_setup.volkswagen_longitudinal = false;
   return;
 }
 

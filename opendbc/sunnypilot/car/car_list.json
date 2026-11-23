@@ -323,6 +323,17 @@
     ],
     "package": "All"
   },
+  "BYD SA6 (N3) 2025-26": {
+    "platform": "BYD_SA6_N3",
+    "make": "BYD",
+    "brand": "byd",
+    "model": "SA6 (N3)",
+    "year": [
+      "2025",
+      "2026"
+    ],
+    "package": "All"
+  },
   "BYD Seal 06 DMI 2024": {
     "platform": "BYD_SEAL_06_DMI",
     "make": "BYD",
@@ -2058,6 +2069,17 @@
     ],
     "package": "Smart Cruise Control (SCC)"
   },
+  "Hyundai Kona (without HDA II) 2024-25": {
+    "platform": "HYUNDAI_KONA_2ND_GEN",
+    "make": "Hyundai",
+    "brand": "hyundai",
+    "model": "Kona (without HDA II)",
+    "year": [
+      "2024",
+      "2025"
+    ],
+    "package": "Smart Cruise Control (SCC)"
+  },
   "Hyundai Kona Electric 2018-21": {
     "platform": "HYUNDAI_KONA_EV",
     "make": "Hyundai",
@@ -2225,6 +2247,18 @@
     ],
     "package": "All"
   },
+  "Hyundai Sonata (without HDA II) 2024-26": {
+    "platform": "HYUNDAI_SONATA_2024",
+    "make": "Hyundai",
+    "brand": "hyundai",
+    "model": "Sonata (without HDA II)",
+    "year": [
+      "2024",
+      "2025",
+      "2026"
+    ],
+    "package": "All"
+  },
   "Hyundai Sonata Hybrid 2020-23": {
     "platform": "HYUNDAI_SONATA_HYBRID",
     "make": "Hyundai",
@@ -2239,7 +2273,7 @@
     "package": "All"
   },
   "Hyundai Sonata Hybrid (without HDA II) 2024-26": {
-    "platform": "HYUNDAI_SONATA_HEV_2024",
+    "platform": "HYUNDAI_SONATA_2024",
     "make": "Hyundai",
     "brand": "hyundai",
     "model": "Sonata Hybrid (without HDA II)",
@@ -2248,7 +2282,7 @@
       "2025",
       "2026"
     ],
-    "package": "Smart Cruise Control (SCC)"
+    "package": "All"
   },
   "Hyundai Staria 2023": {
     "platform": "HYUNDAI_STARIA_4TH_GEN",
@@ -2312,6 +2346,17 @@
       "2024"
     ],
     "package": "All"
+  },
+  "Hyundai Tucson Hybrid (without HDA II) 2025-26": {
+    "platform": "HYUNDAI_TUCSON_4TH_GEN",
+    "make": "Hyundai",
+    "brand": "hyundai",
+    "model": "Tucson Hybrid (without HDA II)",
+    "year": [
+      "2025",
+      "2026"
+    ],
+    "package": "Smart Cruise Control (SCC)"
   },
   "Hyundai Tucson Plug-in Hybrid 2024": {
     "platform": "HYUNDAI_TUCSON_4TH_GEN",
@@ -2389,6 +2434,17 @@
       "2023"
     ],
     "package": "Smart Cruise Control (SCC)"
+  },
+  "Kia Carnival Hybrid (with HDA II) 2025-26": {
+    "platform": "KIA_CARNIVAL_4TH_GEN",
+    "make": "Kia",
+    "brand": "hyundai",
+    "model": "Carnival Hybrid (with HDA II)",
+    "year": [
+      "2025",
+      "2026"
+    ],
+    "package": "Highway Driving Assist II"
   },
   "Kia Ceed 2019-21": {
     "platform": "KIA_CEED",
@@ -2681,6 +2737,16 @@
     ],
     "package": "Smart Cruise Control (SCC)"
   },
+  "Kia Niro Plus EV 2024": {
+    "platform": "KIA_NIRO_EV",
+    "make": "Kia",
+    "brand": "hyundai",
+    "model": "Niro Plus EV",
+    "year": [
+      "2024"
+    ],
+    "package": "Smart Cruise Control (SCC)"
+  },
   "Kia Optima 2017": {
     "platform": "KIA_OPTIMA_G4",
     "make": "Kia",
@@ -2881,12 +2947,19 @@
     ],
     "package": "All"
   },
-  "Lexus ES 2022-26 PATCHED": {
+  "Lexus ES 2022-27 PATCHED": {
     "platform": "LEXUS_ES_PATCHED",
     "make": "Lexus",
     "brand": "toyota",
-    "model": "ES 2022-26 PATCHED",
-    "year": [],
+    "model": "ES",
+    "year": [
+      "2022",
+      "2023",
+      "2024",
+      "2025",
+      "2026",
+      "2027"
+    ],
     "package": "All"
   },
   "Lexus ES Hybrid 2017-18": {
@@ -4410,12 +4483,20 @@
     ],
     "package": "All"
   },
-  "Toyota Sienna 2021-26 PATCHED": {
+  "Toyota Sienna 2021-27 PATCHED": {
     "platform": "TOYOTA_SIENNA_PATCHED",
     "make": "Toyota",
     "brand": "toyota",
-    "model": "Sienna 2021-26 PATCHED",
-    "year": [],
+    "model": "Sienna",
+    "year": [
+      "2021",
+      "2022",
+      "2023",
+      "2024",
+      "2025",
+      "2026",
+      "2027"
+    ],
     "package": "All"
   },
   "Toyota Wildlander PHEV 2021-23": {

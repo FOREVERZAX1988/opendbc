@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 import unittest
-
 from opendbc.car.structs import CarParams
-from opendbc.car.volkswagen.values import VolkswagenSafetyFlags
 import opendbc.safety.tests.common as common
-from opendbc.safety.tests.common import make_msg
+from opendbc.car.volkswagen.values import VolkswagenSafetyFlags
 
-MSG_ACC_02 = 0x30C
-MSG_ACC_05 = 0x10D
-MSG_ACC_04 = 0x324
 MSG_LS_01 = 0x10B       # TX by OP, ACC control buttons for cancel/resume
 MSG_HCA_01 = 0x126      # TX by OP, Heading Control Assist steering torque
 MSG_LDW_02 = 0x397      # TX by OP, Lane line recognition and text alerts
-
-
+MSG_ACC_02 = 0x30C      # TX by OP, ACC HUD data to the instrument cluster
+MSG_ACC_05 = 0x10D      # RX from radar / TX by OP, ACC status
+MSG_ACC_04 = 0x324      # RX from radar, ACC status texts (HUD/Cluster)
 class TestVolkswagenMlbSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest):
   RELAY_MALFUNCTION_ADDRS = {0: (MSG_HCA_01, MSG_LDW_02)}
 
@@ -71,8 +67,9 @@ class TestVolkswagenMlbSafetyBase(common.CarSafetyTest, common.DriverTorqueSteer
     return self.packer.make_can_msg_safety("HCA_01", 0, values)
 
   # Cruise control buttons
-  def _ls_01_msg(self, cancel=0, resume=0, _set=0, bus=2):
-    values = {"LS_Abbrechen": cancel, "LS_Tip_Setzen": _set, "LS_Tip_Wiederaufnahme": resume}
+  def _ls_01_msg(self, cancel=0, resume=0, _set=0, main_on=0, bus=2):
+    values = {"LS_Abbrechen": cancel, "LS_Tip_Setzen": _set, "LS_Tip_Wiederaufnahme": resume,
+              "LS_Hauptschalter": main_on}
     return self.packer.make_can_msg_safety("LS_01", bus, values)
 
   # Verify brake_pressed is true if either the switch or pressure threshold signals are true
@@ -86,8 +83,6 @@ class TestVolkswagenMlbSafetyBase(common.CarSafetyTest, common.DriverTorqueSteer
       self._rx(self._esp_05_msg(esp_05_signal))
       self.assertEqual(brake_pressed, self.safety.get_brake_pressed_prev(),
                        f"expected {brake_pressed=} with {motor_03_signal=} and {esp_05_signal=}")
-
-
 class TestVolkswagenMlbStockSafety(TestVolkswagenMlbSafetyBase):
   DBC = "vw_mlb"
   SAFETY_MODEL = CarParams.SafetyModel.volkswagenMlb
@@ -111,21 +106,23 @@ class TestVolkswagenMlbStockSafety(TestVolkswagenMlbSafetyBase):
     self.safety.set_controls_allowed(1)
     self._rx(self._ls_01_msg(cancel=True, bus=0))
     self.assertFalse(self.safety.get_controls_allowed(), "controls allowed after cancel")
-
-
 class TestVolkswagenMlbLongSafety(TestVolkswagenMlbSafetyBase):
+  """OP longitudinal (Macan): LS_01 owns engagement, the stock ACC status is bypassed."""
   DBC = "vw_mlb"
   SAFETY_MODEL = CarParams.SafetyModel.volkswagenMlb
-  SAFETY_PARAM = VolkswagenSafetyFlags.LONG_CONTROL.value
+  SAFETY_PARAM = VolkswagenSafetyFlags.LONG_CONTROL
 
-  # Regression guard for the panda tx whitelist with openpilot longitudinal enabled.
   TX_MSGS = [[MSG_HCA_01, 0], [MSG_LDW_02, 0], [MSG_ACC_02, 0], [MSG_ACC_05, 0], [MSG_ACC_04, 0],
              [MSG_LS_01, 0], [MSG_LS_01, 2]]
+  # Every frame OP authors with check_relay=true trips the relay check when seen on the wire,
+  # and is also blocked from being forwarded onto the bus OP transmits it on.
+  RELAY_MALFUNCTION_ADDRS = {0: (MSG_HCA_01, MSG_LDW_02, MSG_ACC_02, MSG_ACC_05, MSG_ACC_04), 2: (MSG_LS_01,)}
+  # bus 0 -> 2: LS_01 is authored by OP on bus 2 (physical stalk copy), so the gateway copy must
+  # not race it there - that double source is what used to raise ACC/PAS st=6 on the Macan.
   FWD_BLACKLISTED_ADDRS = {0: [MSG_LS_01], 2: [MSG_HCA_01, MSG_LDW_02, MSG_ACC_02, MSG_ACC_05, MSG_ACC_04]}
   FWD_BUS_LOOKUP = {0: 2, 2: 0}
-  RELAY_MALFUNCTION_ADDRS = {0: (MSG_HCA_01, MSG_LDW_02, MSG_ACC_02, MSG_ACC_05, MSG_ACC_04), 2: (MSG_LS_01,)}
 
-  # Stock cruise engagement is bypassed under openpilot longitudinal control (LS_01 buttons instead).
+  # The stock cruise state must not move controls_allowed under OP longitudinal
   def test_disable_control_allowed_from_cruise(self):
     pass
 
@@ -135,17 +132,51 @@ class TestVolkswagenMlbLongSafety(TestVolkswagenMlbSafetyBase):
   def test_cruise_engaged_prev(self):
     pass
 
-  def test_long_control_flag_installs_long_tx_msgs(self):
-    for addr in (MSG_ACC_02, MSG_ACC_05, MSG_ACC_04):
-      self.assertTrue(self._tx(make_msg(0, addr, 8)),
-                      f"0x{addr:x} rejected: the long control flag was cleared by volkswagen_common_init()")
+  def test_set_and_resume_engage(self):
+    for button, kwargs in (("SET", {"_set": 1}), ("RESUME", {"resume": 1})):
+      self.safety.set_controls_allowed(0)
+      # main switch on, no button edge -> no engagement
+      self._rx(self._ls_01_msg(main_on=1, bus=0))
+      self.assertFalse(self.safety.get_controls_allowed(), "engaged without a button edge")
 
-  def test_long_control_flag_is_required_for_acc_tx(self):
-    # Without the flag panda must install the stock tx list and reject the ACC frames.
-    self.safety.set_safety_hooks(CarParams.SafetyModel.volkswagenMlb, 0)
-    self.safety.init_tests()
-    for addr in (MSG_ACC_02, MSG_ACC_05, MSG_ACC_04):
-      self.assertFalse(self._tx(make_msg(0, addr, 8)), f"0x{addr:x} allowed without the long control flag")
+      self._rx(self._ls_01_msg(main_on=1, bus=0, **kwargs))
+      self.assertTrue(self.safety.get_controls_allowed(), f"{button} did not engage")
+
+      # releasing the button keeps controls
+      self._rx(self._ls_01_msg(main_on=1, bus=0))
+      self.assertTrue(self.safety.get_controls_allowed(), f"{button} dropped controls on release")
+
+      # cancel disengages
+      self._rx(self._ls_01_msg(cancel=1, main_on=1, bus=0))
+      self.assertFalse(self.safety.get_controls_allowed(), "cancel did not disengage")
+
+      # and the same button re-engages after a full release
+      self._rx(self._ls_01_msg(main_on=1, bus=0))
+      self._rx(self._ls_01_msg(main_on=1, bus=0, **kwargs))
+      self.assertTrue(self.safety.get_controls_allowed(), f"{button} did not re-engage")
+
+  def test_no_engage_with_main_switch_off(self):
+    self.safety.set_controls_allowed(0)
+    self._rx(self._ls_01_msg(main_on=0, bus=0))
+    self._rx(self._ls_01_msg(_set=1, main_on=0, bus=0))
+    self.assertFalse(self.safety.get_controls_allowed(), "engaged with the ACC main switch off")
+
+  def test_main_switch_off_drops_controls(self):
+    self.safety.set_controls_allowed(0)
+    self._rx(self._ls_01_msg(main_on=1, bus=0))
+    self._rx(self._ls_01_msg(_set=1, main_on=1, bus=0))
+    self.assertTrue(self.safety.get_controls_allowed())
+    self._rx(self._ls_01_msg(main_on=0, bus=0))
+    self.assertFalse(self.safety.get_controls_allowed(), "main switch off did not drop controls")
+
+  def test_stock_acc_status_ignored(self):
+    # TSK_04 carries the stock ACC state; it must not touch controls in this mode
+    self.safety.set_controls_allowed(0)
+    self._rx(self._ls_01_msg(main_on=1, bus=0))
+    self._rx(self._ls_01_msg(resume=1, main_on=1, bus=0))
+    self.assertTrue(self.safety.get_controls_allowed())
+    self._rx(self._tsk_status_msg(False))
+    self.assertTrue(self.safety.get_controls_allowed(), "stock ACC disengage dropped OP longitudinal")
 
 
 if __name__ == "__main__":

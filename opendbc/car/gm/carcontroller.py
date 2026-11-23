@@ -6,7 +6,6 @@ from opendbc.car.gm import gmcan
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.gm.values import CAR, DBC, CanBus, CarControllerParams, CruiseButtons
 from opendbc.car.interfaces import CarControllerBase
-from openpilot.common.params import Params
 
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
 NetworkLocation = structs.CarParams.NetworkLocation
@@ -61,6 +60,9 @@ class CarController(CarControllerBase):
     already owns that state machine in card.py, and a second copy here would have its own
     frame counter and unit factor.
     """
+    # lazy: openpilot.common.params needs libparams_c at import time, which a
+    # standalone opendbc tree (docs generation, unit tests) does not have
+    from openpilot.common.params import Params
     return Params().get_int("AutoCruiseControl")
 
   def update(self, CC, CC_SP, CS, now_nanos):

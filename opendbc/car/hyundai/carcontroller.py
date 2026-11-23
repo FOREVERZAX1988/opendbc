@@ -1,6 +1,5 @@
 import numpy as np
 from opendbc.can import CANPacker
-from openpilot.common.params import Params
 from opendbc.car import Bus, DT_CTRL, make_tester_present_msg, structs
 from opendbc.car.lateral import apply_driver_steer_torque_limits, common_fault_avoidance
 from opendbc.car.common.conversions import Conversions as CV
@@ -81,6 +80,8 @@ class CarController(CarControllerBase, CcncCarController, EsccCarController, Lea
     self.params = CarControllerParams(CP)
     # Persistent params for the speed-camera haptic feedback. A separate Params handle
     # because self.params is the CarControllerParams tuning container, not the store.
+    # lazy import: openpilot.common.params needs libparams_c.so at import time
+    from openpilot.common.params import Params
     self._haptic_params = Params()
     # Frame at which the current haptic burst ends, -1 when idle. The burst is
     # started on the rising edge of activeCarrot == 3 (see create_can_msgs).
@@ -280,7 +281,7 @@ class CarController(CarControllerBase, CcncCarController, EsccCarController, Lea
     if self.CP.openpilotLongitudinalControl:
       if lka_steering:
         can_sends.extend(hyundaicanfd.create_adrv_messages(self.packer, self.CAN, self.frame))
-      else:
+      elif not self.ccnc_lfa_steering:
         can_sends.extend(hyundaicanfd.create_fca_warning_light(self.packer, self.CAN, self.frame))
       if self.frame % 2 == 0:
         can_sends.append(hyundaicanfd.create_acc_control(self.packer, self.CAN, CC.enabled, self.accel_last, accel, stopping, CC.cruiseControl.override,
@@ -292,10 +293,10 @@ class CarController(CarControllerBase, CcncCarController, EsccCarController, Lea
         # cruise cancel
         if CC.cruiseControl.cancel:
           # Here we send ACC message to cancel, not buttons. Don't delay
-          if self.CP.flags & HyundaiFlags.CANFD_ALT_BUTTONS:
+          if self.CP.flags & HyundaiFlags.CANFD_ALT_BUTTONS and not lka_steering:
             can_sends.append(hyundaicanfd.create_acc_cancel(self.packer, self.CP, self.CAN, CS.cruise_info))
             self.last_button_frame = self.frame
-          elif self.cancel_counter > CANCEL_BUTTON_DELAY_FRAMES:
+          elif not self.CP.flags & HyundaiFlags.CANFD_ALT_BUTTONS and self.cancel_counter > CANCEL_BUTTON_DELAY_FRAMES:
             for _ in range(20):
               can_sends.append(hyundaicanfd.create_buttons(self.packer, self.CP, self.CAN, CS.buttons_counter + 1, Buttons.CANCEL))
             self.last_button_frame = self.frame

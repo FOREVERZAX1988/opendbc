@@ -1,0 +1,52 @@
+# 云原生构建配置，对应原 GitHub Actions .github/workflows/update-cars-docs.yml
+#
+# 重新生成 docs/CARS.md，有变更则提交回 master。仅手动触发：
+#   - 分支详情页按钮（.cnb/web_trigger.yml）
+#   - API：cnb build start-build --event api_trigger_update_cars
+
+.update-cars: &update-cars
+  name: update CARS.md
+  runner:
+    cpus: 4
+  docker:
+    image: python:3.11
+    volumes:
+      - /root/.cache/pip:copy-on-write
+  stages:
+    - name: install deps
+      script: |
+        pip config set global.index-url https://mirrors.cloud.tencent.com/pypi/simple
+        pip install -e .
+        pip install jinja2==3.1.4
+        # fork 的 openpilot 依赖链需要：common.utils 用 zstandard
+        pip install zstandard
+    - name: generate car docs
+      script: |
+        # fork 的 opendbc 依赖 openpilot 包（radar_tracks 等导入 openpilot.common.*），
+        # GitHub Actions 版本也因此一直失败；这里浅克隆 openpilot 并入 PYTHONPATH
+        export PYTHONPATH="$PWD/openpilot:$PWD"
+        if [ ! -d openpilot/.git ]; then
+          # 显式 -b master：仓库默认分支可能仍指向旧 test（clone 会拿旧代码）
+          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 -b master https://cnb.cool/mouxancnb/openpilot.git openpilot
+        fi
+        python opendbc/car/docs.py
+    - name: commit & push
+      script: |
+        git config --global --add safe.directory "$PWD"
+        git config user.name "cnb-build[bot]"
+        git config user.email "cnb-build[bot]@cnb.cool"
+        if git diff --quiet -- docs/CARS.md; then
+          echo "CARS.md unchanged, nothing to commit"
+        else
+          git add docs/CARS.md
+          git commit -m "docs: Scheduled auto-update CARS.md"
+          git push "https://${CNB_TOKEN_USER_NAME}:${CNB_TOKEN}@cnb.cool/mouxancnb/opendbc.git" HEAD:master
+        fi
+
+master:
+  # 手动触发：分支详情页按钮（.cnb/web_trigger.yml）
+  web_trigger_update_cars:
+    - *update-cars
+  # API 触发（cnb build start-build --event api_trigger_update_cars）
+  api_trigger_update_cars:
+    - *update-cars

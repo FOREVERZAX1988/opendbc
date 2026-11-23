@@ -31,8 +31,13 @@ class TestToyotaInterfaces(unittest.TestCase):
     assert cars_with(ToyotaFlags.ANGLE_CONTROL) == {CAR.TOYOTA_RAV4_TSS2_2023}
 
   def test_eps_bypass_secoc(self):
-    # Only the patched Sienna uses EPS-bypassed SecOC
-    assert cars_with(ToyotaFlags.EPS_BYPASS_SECOC) == {CAR.TOYOTA_SIENNA_PATCHED}
+    # All PATCHED platforms use EPS-bypassed SecOC
+    assert cars_with(ToyotaFlags.EPS_BYPASS_SECOC) == {
+      CAR.TOYOTA_SIENNA_PATCHED,
+      CAR.TOYOTA_RAV4_PRIME_PATCHED,
+      CAR.LEXUS_ES_PATCHED,
+      CAR.TOYOTA_WILDLANDER_PHEV_PATCHED,
+    }
 
     # EPS-bypass SecOC platforms are lateral-only: longitudinal remains stock
     CP = CarInterface.get_params(CAR.TOYOTA_SIENNA_PATCHED, gen_empty_fingerprint(), list(),
