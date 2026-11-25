@@ -31,6 +31,11 @@ BUTTONS_DICT = {Buttons.RES_ACCEL: ButtonType.accelCruise, Buttons.SET_DECEL: Bu
                 Buttons.GAP_DIST: ButtonType.gapAdjustCruise, Buttons.CANCEL: ButtonType.cancel}
 
 
+# Sentinel for an invalid ESC yaw-rate reading (STAT bit clear). Must exceed
+# locationd's ROTATION_SANITY_CHECK (10 rad/s) so the consumer skips it; using
+# 0 here would instead inject a false high-confidence zero-yaw observation.
+CHASSIS_YAW_INVALID = 100.0  # rad/s
+
 CANFD_NAVI_PROFILE_MSG = "CANFD_NAVI_PROFILE_093"
 CANFD_NAVI_STATUS_MSG = "CANFD_NAVI_STATUS_380"
 CANFD_NAVI_CAMERA_ACTIVE_BIT = 0x40
@@ -192,10 +197,13 @@ class CarState(CarStateBase, EsccCarStateBase, MadsCarState, CarStateExt):
     # Chassis yaw rate from ESC ESP12 (0x220), gated on fingerprint-detected
     # capability so cars without ESP12 never touch the signal. cp decodes this
     # raw (deg/s) without conversion; carState.yawRate is rad/s, so apply
-    # DEG_TO_RAD. STAT bit flags an invalid sensor reading - zero it then.
+    # DEG_TO_RAD. When STAT flags an invalid reading, emit an out-of-range
+    # sentinel (100 rad/s >> locationd's ROTATION_SANITY_CHECK of 10) so the
+    # consumer skips the observation. Do NOT emit 0: that would be read as a
+    # high-confidence "yaw is exactly zero" during a sensor fault.
     if self.CP.extFlags & HyundaiExtFlags.CHASSIS_YAW_RATE:
       yaw_rate_valid = cp.vl["ESP12"]["YAW_RATE_STAT"] != 0
-      ret.yawRate = cp.vl["ESP12"]["YAW_RATE"] * CV.DEG_TO_RAD if yaw_rate_valid else 0.0
+      ret.yawRate = cp.vl["ESP12"]["YAW_RATE"] * CV.DEG_TO_RAD if yaw_rate_valid else CHASSIS_YAW_INVALID
 
     ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_lamp(
       50, cp.vl["CGW1"]["CF_Gway_TurnSigLh"], cp.vl["CGW1"]["CF_Gway_TurnSigRh"])

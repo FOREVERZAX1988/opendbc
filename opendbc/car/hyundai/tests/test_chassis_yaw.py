@@ -9,6 +9,7 @@ Locks three things that are easy to get wrong when porting from cp:
 import unittest
 
 from opendbc.car.common.conversions import Conversions as CV
+from opendbc.car.hyundai.carstate import CHASSIS_YAW_INVALID
 from opendbc.car.hyundai.values import HyundaiExtFlags
 
 
@@ -31,6 +32,13 @@ class TestChassisYawCapability(unittest.TestCase):
     self.assertLess(max_deg * CV.DEG_TO_RAD, 1.0)  # < 1 rad/s, plausible yaw
     # The raw (unconverted) value would be ~41 rad/s - physically absurd.
     self.assertGreater(max_deg, 40.0)
+
+  def test_invalid_sentinel_exceeds_locationd_sanity_gate(self):
+    # STAT-invalid readings must not be emitted as 0 (that would inject a false
+    # high-confidence zero-yaw observation). The sentinel must be far above
+    # locationd's ROTATION_SANITY_CHECK=10 rad/s so the consumer skips it.
+    self.assertGreater(CHASSIS_YAW_INVALID, 10.0)  # > ROTATION_SANITY_CHECK
+    self.assertGreater(CHASSIS_YAW_INVALID, 40.95 * CV.DEG_TO_RAD)  # > real max ~0.71
 
 
 if __name__ == "__main__":
