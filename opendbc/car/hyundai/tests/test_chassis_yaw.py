@@ -6,6 +6,7 @@ Locks three things that are easy to get wrong when porting from cp:
   2. ESP12 YAW_RATE DBC scale implies deg/s, so carstate must apply DEG_TO_RAD
   3. the bit is extFlags (not flags) so panda safety is unaffected
 """
+import os
 import unittest
 
 from opendbc.car.common.conversions import Conversions as CV
@@ -32,6 +33,18 @@ class TestChassisYawCapability(unittest.TestCase):
     self.assertLess(max_deg * CV.DEG_TO_RAD, 1.0)  # < 1 rad/s, plausible yaw
     # The raw (unconverted) value would be ~41 rad/s - physically absurd.
     self.assertGreater(max_deg, 40.0)
+
+  def test_carstate_decode_not_reverted_to_cp_raw(self):
+    # A future sync from cp (carstate.py:616 ret.yawRate = cp.vl[...] with no
+    # conversion / STAT gate) must not silently undo the safety fix. Lock the
+    # source text so a regression is caught even without a vehicle.
+    path = os.path.join(os.path.dirname(__file__), '..', 'carstate.py')
+    with open(path, encoding='utf-8') as f:
+      src = f.read()
+    self.assertIn('CV.DEG_TO_RAD', src)
+    self.assertIn('YAW_RATE_STAT', src)
+    self.assertIn('CHASSIS_YAW_INVALID', src)
+    self.assertIn('HyundaiExtFlags.CHASSIS_YAW_RATE', src)
 
   def test_invalid_sentinel_exceeds_locationd_sanity_gate(self):
     # STAT-invalid readings must not be emitted as 0 (that would inject a false
