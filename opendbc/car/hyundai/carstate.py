@@ -6,7 +6,7 @@ from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.hyundai.hyundaicanfd import CanBus
-from opendbc.car.hyundai.values import HyundaiFlags, CAR, DBC, Buttons, CarControllerParams
+from opendbc.car.hyundai.values import HyundaiFlags, HyundaiExtFlags, CAR, DBC, Buttons, CarControllerParams
 from opendbc.car.interfaces import CarStateBase
 from opendbc.car.byd.byd_params import BydParams
 
@@ -188,6 +188,15 @@ class CarState(CarStateBase, EsccCarStateBase, MadsCarState, CarStateExt):
 
     ret.steeringAngleDeg = cp.vl["SAS11"]["SAS_Angle"]
     ret.steeringRateDeg = cp.vl["SAS11"]["SAS_Speed"]
+
+    # Chassis yaw rate from ESC ESP12 (0x220), gated on fingerprint-detected
+    # capability so cars without ESP12 never touch the signal. cp decodes this
+    # raw (deg/s) without conversion; carState.yawRate is rad/s, so apply
+    # DEG_TO_RAD. STAT bit flags an invalid sensor reading - zero it then.
+    if self.CP.extFlags & HyundaiExtFlags.CHASSIS_YAW_RATE:
+      yaw_rate_valid = cp.vl["ESP12"]["YAW_RATE_STAT"] != 0
+      ret.yawRate = cp.vl["ESP12"]["YAW_RATE"] * CV.DEG_TO_RAD if yaw_rate_valid else 0.0
+
     ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_lamp(
       50, cp.vl["CGW1"]["CF_Gway_TurnSigLh"], cp.vl["CGW1"]["CF_Gway_TurnSigRh"])
     ret.steeringTorque = cp.vl["MDPS12"]["CR_Mdps_StrColTq"]

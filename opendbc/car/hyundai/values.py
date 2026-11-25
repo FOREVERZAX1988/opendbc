@@ -169,6 +169,11 @@ class HyundaiExtFlags(IntFlag):
   CORNER_RADAR_OBJECTS_430 = 2 ** 14  # 0x430-0x437 left + 0x440-0x447 right IONIQ 9 corner radar bins
   RADAR_GROUP4 = 2 ** 15  # 0x500-0x507 Denso DNMWR006 stable radar tracks
   EV_MODE_STATUS_230 = 2 ** 16  # ECAN 0x230/DLC32 exposes the hybrid power-flow mode
+  # Chassis yaw rate from ESC ESP12 (0x220). Capability bit only: the carstate
+  # decoder and the locationd observation are gated on this, not panda safety.
+  # Bit 20 avoids collision with cp's 2**17-2**19 BOSCH_RADAR flags if the two
+  # forks are ever aligned (sp keeps bit values comparable across forks).
+  CHASSIS_YAW_RATE = 2 ** 20
 
 @dataclass
 class HyundaiCarDocs(CarDocs):
