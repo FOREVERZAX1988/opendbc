@@ -6,7 +6,7 @@ from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.hyundai.hyundaicanfd import CanBus
-from opendbc.car.hyundai.values import HyundaiFlags, CAR, DBC, Buttons, CarControllerParams
+from opendbc.car.hyundai.values import HyundaiFlags, HyundaiExtFlags, CAR, DBC, Buttons, CarControllerParams
 from opendbc.car.interfaces import CarStateBase
 from opendbc.car.byd.byd_params import BydParams
 
@@ -30,6 +30,11 @@ ENABLE_BUTTONS = (Buttons.RES_ACCEL, Buttons.SET_DECEL, Buttons.CANCEL)
 BUTTONS_DICT = {Buttons.RES_ACCEL: ButtonType.accelCruise, Buttons.SET_DECEL: ButtonType.decelCruise,
                 Buttons.GAP_DIST: ButtonType.gapAdjustCruise, Buttons.CANCEL: ButtonType.cancel}
 
+
+# Sentinel for an invalid ESC yaw-rate reading (STAT bit clear). Must exceed
+# locationd's ROTATION_SANITY_CHECK (10 rad/s) so the consumer skips it; using
+# 0 here would instead inject a false high-confidence zero-yaw observation.
+CHASSIS_YAW_INVALID = 100.0  # rad/s
 
 CANFD_NAVI_PROFILE_MSG = "CANFD_NAVI_PROFILE_093"
 CANFD_NAVI_STATUS_MSG = "CANFD_NAVI_STATUS_380"
@@ -188,6 +193,18 @@ class CarState(CarStateBase, EsccCarStateBase, MadsCarState, CarStateExt):
 
     ret.steeringAngleDeg = cp.vl["SAS11"]["SAS_Angle"]
     ret.steeringRateDeg = cp.vl["SAS11"]["SAS_Speed"]
+
+    # Chassis yaw rate from ESC ESP12 (0x220), gated on fingerprint-detected
+    # capability so cars without ESP12 never touch the signal. cp decodes this
+    # raw (deg/s) without conversion; carState.yawRate is rad/s, so apply
+    # DEG_TO_RAD. When STAT flags an invalid reading, emit an out-of-range
+    # sentinel (100 rad/s >> locationd's ROTATION_SANITY_CHECK of 10) so the
+    # consumer skips the observation. Do NOT emit 0: that would be read as a
+    # high-confidence "yaw is exactly zero" during a sensor fault.
+    if self.CP.extFlags & HyundaiExtFlags.CHASSIS_YAW_RATE:
+      yaw_rate_valid = cp.vl["ESP12"]["YAW_RATE_STAT"] != 0
+      ret.yawRate = cp.vl["ESP12"]["YAW_RATE"] * CV.DEG_TO_RAD if yaw_rate_valid else CHASSIS_YAW_INVALID
+
     ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_lamp(
       50, cp.vl["CGW1"]["CF_Gway_TurnSigLh"], cp.vl["CGW1"]["CF_Gway_TurnSigRh"])
     ret.steeringTorque = cp.vl["MDPS12"]["CR_Mdps_StrColTq"]

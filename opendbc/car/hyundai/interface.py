@@ -147,6 +147,13 @@ class CarInterface(CarInterfaceBase):
       if 0x391 in fingerprint[0]:
         ret.flags |= HyundaiFlags.HAS_LDA_BUTTON.value
 
+      # ESC ESP12 (0x220) carries a real yaw-rate signal. Detect it from the
+      # live fingerprint (not the generated DBC, which declares ESP12 for all
+      # platforms) so only cars that actually broadcast it get the capability.
+      # ExtFlags only; the carstate decoder and locationd observation consume it.
+      if 0x220 in fingerprint[0]:
+        ret.extFlags |= HyundaiExtFlags.CHASSIS_YAW_RATE.value
+
     # Common lateral control setup
 
     ret.centerToFront = ret.wheelbase * 0.4
